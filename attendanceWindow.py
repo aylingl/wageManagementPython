@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QBoxLayout
 )
 
-from PySide6.QtCore import Qt, QTimer, QTime
+from PySide6.QtCore import Qt, QTimer, QTime, QPoint
 
 class AttendanceWindow(QWidget):
 
@@ -20,22 +20,59 @@ class AttendanceWindow(QWidget):
 
         self.phone_number = phone_number
 
-        # ==============================
-        # زمان کاری
-        # ==============================
+        # =================================================
+        # EMPLOYEES
+        # =================================================
 
-        self.work_start = QTime(8, 0, 0)
-        self.work_end = QTime(16, 0, 0)
+        self.employees = [
+            {
+                "name": "علی رضایی",
+                "position": "مدیر فروش"
+            },
+            {
+                "name": "سارا محمدی",
+                "position": "حسابدار"
+            },
+            {
+                "name": "محمد احمدی",
+                "position": "کارشناس فروش"
+            }
+        ]
+
+        self.selected_employee = None
+        self.employee_menu = None
+
+        # =================================================
+        # WORK TIME
+        # =================================================
+
+        self.work_start = QTime(
+            8,
+            0,
+            0
+        )
+
+        self.work_end = QTime(
+            16,
+            0,
+            0
+        )
 
         self.entry_time = None
         self.exit_time = None
 
-        # ==============================
-        # Window
-        # ==============================
+        # =================================================
+        # WINDOW
+        # =================================================
 
-        self.setWindowTitle("حضور و غیاب")
-        self.resize(980, 640)
+        self.setWindowTitle(
+            "حضور و غیاب"
+        )
+
+        self.setMinimumSize(
+            900,
+            620
+        )
 
         self.setLayoutDirection(
             Qt.RightToLeft
@@ -43,7 +80,7 @@ class AttendanceWindow(QWidget):
 
         self.setStyleSheet("""
             QWidget {
-                font-family: Vazirmatn;
+                font-family: "Vazirmatn";
             }
 
             QLabel {
@@ -53,9 +90,9 @@ class AttendanceWindow(QWidget):
 
         self.setup_ui()
 
-        # ==============================
-        # ساعت زنده
-        # ==============================
+        # =================================================
+        # CLOCK
+        # =================================================
 
         self.timer = QTimer(self)
 
@@ -63,36 +100,54 @@ class AttendanceWindow(QWidget):
             self.update_clock
         )
 
-        self.timer.start(1000)
+        self.timer.start(
+            1000
+        )
 
         self.update_clock()
 
-    # =========================================================
-    # UI
-    # =========================================================
+    # =====================================================
+    # SETUP UI
+    # =====================================================
 
     def setup_ui(self):
 
-        main_layout = QVBoxLayout(self)
-
-        main_layout.setContentsMargins(
-            22, 15, 22, 15
+        main_layout = QVBoxLayout(
+            self
         )
 
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(
+            22,
+            15,
+            22,
+            15
+        )
 
-        # =====================================================
-        # Header
-        # =====================================================
+        main_layout.setSpacing(
+            10
+        )
+
+        # =================================================
+        # HEADER
+        # =================================================
 
         header = QHBoxLayout()
-        header.setSpacing(8)
+
+        header.setSpacing(
+            8
+        )
 
         title_layout = QHBoxLayout()
-        title_layout.setSpacing(7)
+
+        title_layout.setSpacing(
+            7
+        )
 
         title_text_layout = QVBoxLayout()
-        title_text_layout.setSpacing(1)
+
+        title_text_layout.setSpacing(
+            1
+        )
 
         title = QLabel(
             "حضور و غیاب"
@@ -121,11 +176,13 @@ class AttendanceWindow(QWidget):
             subtitle
         )
 
-        # فلش کنار عنوان
-        back_button = QPushButton("›")
+        back_button = QPushButton(
+            "›"
+        )
 
         back_button.setFixedSize(
-            36, 36
+            36,
+            36
         )
 
         back_button.setStyleSheet("""
@@ -147,7 +204,6 @@ class AttendanceWindow(QWidget):
             self.close
         )
 
-        # فلش سمت راست و عنوان سمت چپ آن
         title_layout.setDirection(
             QBoxLayout.LeftToRight
         )
@@ -170,12 +226,187 @@ class AttendanceWindow(QWidget):
             header
         )
 
-        # =====================================================
-        # Top Cards
-        # =====================================================
+        # =================================================
+        # EMPLOYEE CARD
+        # =================================================
+
+        employee_card = QFrame()
+
+        employee_card.setFixedHeight(
+            52
+        )
+
+        employee_card.setStyleSheet("""
+            QFrame#employeeCard {
+                background: white;
+                border: 1px solid #E2EAF4;
+                border-radius: 19px;
+            }
+        """)
+
+        employee_card.setObjectName(
+            "employeeCard"
+        )
+
+        employee_layout = QHBoxLayout(
+            employee_card
+        )
+
+        employee_layout.setContentsMargins(
+            12,
+            6,
+            12,
+            6
+        )
+
+        employee_layout.setSpacing(
+            9
+        )
+
+        # =================================================
+        # کارمند
+        # =================================================
+
+        employee_title = QLabel(
+            "کارمند"
+        )
+
+        employee_title.setStyleSheet("""
+            QLabel {
+                background: #F5F8FC;
+                color: #7890A8;
+                border-radius: 14px;
+                padding: 6px 11px;
+                font-size: 9px;
+            }
+        """)
+
+        employee_layout.addWidget(
+            employee_title
+        )
+
+        # =================================================
+        # SELECTED EMPLOYEE BOX
+        # =================================================
+
+        self.employee_name_box = QFrame()
+
+        self.employee_name_box.setFixedHeight(
+            34
+        )
+
+        self.employee_name_box.setMinimumWidth(
+            170
+        )
+
+        self.employee_name_box.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        self.employee_name_box.setObjectName(
+            "employeeNameBox"
+        )
+
+        employee_name_layout = QHBoxLayout(
+            self.employee_name_box
+        )
+
+        employee_name_layout.setContentsMargins(
+            12,
+            0,
+            9,
+            0
+        )
+
+        employee_name_layout.setSpacing(
+            6
+        )
+
+        self.employee_name_label = QLabel(
+            "علی رضایی"
+        )
+
+        self.employee_name_label.setObjectName(
+            "employeeNameLabel"
+        )
+
+        self.employee_name_label.setAttribute(
+            Qt.WA_TransparentForMouseEvents,
+            True
+        )
+
+        employee_arrow = QLabel(
+            "⌄"
+        )
+
+        employee_arrow.setObjectName(
+            "employeeArrow"
+        )
+
+        employee_arrow.setAttribute(
+            Qt.WA_TransparentForMouseEvents,
+            True
+        )
+
+        employee_name_layout.addWidget(
+            self.employee_name_label
+        )
+
+        employee_name_layout.addStretch()
+
+        employee_name_layout.addWidget(
+            employee_arrow
+        )
+
+        employee_layout.addWidget(
+            self.employee_name_box
+        )
+
+        # =================================================
+        # POSITION
+        # =================================================
+
+        self.employee_position = QLabel(
+            "مدیر فروش"
+        )
+
+        self.employee_position.setObjectName(
+            "employeePosition"
+        )
+
+        employee_layout.addStretch()
+
+        employee_layout.addWidget(
+            self.employee_position
+        )
+
+        # =================================================
+        # CLICK EMPLOYEE
+        # =================================================
+
+        def employee_clicked(event):
+
+            self.show_employee_menu()
+
+            event.accept()
+
+        self.employee_name_box.mousePressEvent = (
+            employee_clicked
+        )
+
+        main_layout.addWidget(
+            employee_card
+        )
+
+        # =================================================
+        # TOP CARDS
+        # =================================================
 
         top_cards = QHBoxLayout()
-        top_cards.setSpacing(9)
+
+        top_cards.setSpacing(
+            9
+        )
 
         self.clock_card = self.create_info_card(
             "ساعت فعلی",
@@ -213,11 +444,15 @@ class AttendanceWindow(QWidget):
             top_cards
         )
 
-        # =====================================================
-        # Today Card
-        # =====================================================
+        # =================================================
+        # TODAY CARD
+        # =================================================
 
         today_card = QFrame()
+
+        today_card.setMinimumHeight(
+            245
+        )
 
         today_card.setStyleSheet("""
             QFrame {
@@ -232,31 +467,55 @@ class AttendanceWindow(QWidget):
         )
 
         today_layout.setContentsMargins(
-            16, 12, 16, 12
+            16,
+            14,
+            16,
+            14
         )
 
-        today_layout.setSpacing(8)
+        today_layout.setSpacing(
+            9
+        )
 
         today_title = QLabel(
             "وضعیت امروز"
         )
 
+        today_title.setAlignment(
+            Qt.AlignCenter
+        )
+
+        today_title.setFixedSize(
+            650,
+            38
+        )
+
         today_title.setStyleSheet("""
-            font-size: 15px;
-            font-weight: 700;
-            color: #17324D;
+            QLabel {
+                background: #EAF3FF;
+                color: #1961C7;
+                font-size: 13px;
+                font-weight: 700;
+                border-radius: 19px;
+                padding: 0px;
+            }
         """)
 
         today_layout.addWidget(
-            today_title
+            today_title,
+            0,
+            Qt.AlignHCenter
         )
 
-        # =====================================================
-        # ورود / خروج / مدت کار
-        # =====================================================
+        # =================================================
+        # ENTRY / EXIT / WORK
+        # =================================================
 
         info_layout = QHBoxLayout()
-        info_layout.setSpacing(8)
+
+        info_layout.setSpacing(
+            8
+        )
 
         self.entry_box = self.create_time_box(
             "ورود"
@@ -286,12 +545,15 @@ class AttendanceWindow(QWidget):
             info_layout
         )
 
-        # =====================================================
-        # محاسبات
-        # =====================================================
+        # =================================================
+        # CALCULATIONS
+        # =================================================
 
         calculation_layout = QHBoxLayout()
-        calculation_layout.setSpacing(8)
+
+        calculation_layout.setSpacing(
+            8
+        )
 
         self.delay_box = self.create_small_box(
             "تأخیر",
@@ -324,12 +586,15 @@ class AttendanceWindow(QWidget):
             calculation_layout
         )
 
-        # =====================================================
-        # Buttons
-        # =====================================================
+        # =================================================
+        # BUTTONS
+        # =================================================
 
         buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(8)
+
+        buttons_layout.setSpacing(
+            8
+        )
 
         self.entry_button = QPushButton(
             "ثبت ورود"
@@ -409,9 +674,9 @@ class AttendanceWindow(QWidget):
             today_card
         )
 
-        # =====================================================
-        # History Title
-        # =====================================================
+        # =================================================
+        # HISTORY TITLE
+        # =================================================
 
         history_title = QLabel(
             "سوابق حضور و غیاب"
@@ -427,9 +692,9 @@ class AttendanceWindow(QWidget):
             history_title
         )
 
-        # =====================================================
-        # Search
-        # =====================================================
+        # =================================================
+        # SEARCH
+        # =================================================
 
         self.search_box = QLineEdit()
 
@@ -460,15 +725,17 @@ class AttendanceWindow(QWidget):
             self.search_box
         )
 
-        # =====================================================
-        # History Scroll
-        # =====================================================
+        # =================================================
+        # HISTORY SCROLL
+        # =================================================
 
         history_scroll_layout = QHBoxLayout()
 
-        # فاصله بیشتر از اسکرول‌بار
         history_scroll_layout.setContentsMargins(
-            50, 0, 0, 0
+            0,
+            0,
+            30,
+            0
         )
 
         self.history_scroll = QScrollArea()
@@ -495,7 +762,7 @@ class AttendanceWindow(QWidget):
                 width: 12px;
                 background: #E8EEF6;
                 border-radius: 6px;
-                margin: 20px 0 0px 0px;
+                margin: 20px 0 0 0;
             }
 
             QScrollBar::handle:vertical {
@@ -521,7 +788,10 @@ class AttendanceWindow(QWidget):
         )
 
         self.history_layout.setContentsMargins(
-            20, 0, 12, 0
+            20,
+            0,
+            12,
+            0
         )
 
         self.history_layout.setSpacing(
@@ -541,9 +811,9 @@ class AttendanceWindow(QWidget):
             1
         )
 
-        # =====================================================
-        # نمونه سوابق
-        # =====================================================
+        # =================================================
+        # HISTORY
+        # =================================================
 
         self.add_history_row(
             "شنبه ۶ مهر",
@@ -593,9 +863,545 @@ class AttendanceWindow(QWidget):
             "تأخیر"
         )
 
-    # =========================================================
-    # Info Card
-    # =========================================================
+        # =================================================
+        # INITIAL EMPLOYEE
+        # =================================================
+
+        self.select_employee(
+            self.employees[0]
+        )
+
+        # =================================================
+        # STYLE
+        # =================================================
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #F5F8FC;
+                font-family: "Vazirmatn";
+                color: #25364A;
+            }
+
+            /* =============================================
+               EMPLOYEE CARD
+            ============================================= */
+
+            QFrame#employeeCard {
+                background-color: #FFFFFF;
+                border: 1px solid #E2EAF4;
+                border-radius: 19px;
+            }
+
+            QFrame#employeeNameBox {
+                background-color: #EAF3FF;
+                border: 1px solid #D6E6F8;
+                border-radius: 13px;
+            }
+
+            QFrame#employeeNameBox:hover {
+                background-color: #E4F0FF;
+                border: 1px solid #4589E8;
+            }
+
+            QLabel#employeeNameLabel {
+                background-color: transparent;
+                border: none;
+                color: #17324D;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 0px;
+                margin: 0px;
+            }
+
+            QLabel#employeeArrow {
+                background-color: transparent;
+                border: none;
+                color: #4589E8;
+                font-size: 16px;
+                padding: 0px;
+                margin: 0px;
+            }
+
+            QLabel#employeePosition {
+                background-color: transparent;
+                border: none;
+                color: #7890A8;
+                font-size: 10px;
+                padding: 0px;
+                margin: 0px;
+            }
+
+            /* =============================================
+               EMPLOYEE POPUP
+            ============================================= */
+
+            QFrame#employeePopup {
+                background-color: #FFFFFF;
+                border: 1px solid #E2EAF4;
+                border-radius: 22px;
+            }
+
+            QFrame#employeeOption {
+                background-color: #F8FAFD;
+                border: 1px solid #E7EDF5;
+                border-radius: 15px;
+            }
+
+            QFrame#employeeOption:hover {
+                background-color: #EAF3FF;
+                border: 1px solid #4589E8;
+                border-radius: 15px;
+            }
+
+            QLabel#employeeOptionName {
+                background-color: transparent;
+                border: none;
+                color: #25364A;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 0px;
+                margin: 0px;
+            }
+
+            QLabel#employeeOptionPosition {
+                background-color: transparent;
+                border: none;
+                color: #8997A8;
+                font-size: 10px;
+                padding: 0px;
+                margin: 0px;
+            }
+
+            /* =============================================
+               INFO
+            ============================================= */
+
+            QFrame#infoCard {
+                background: white;
+                border: 1px solid #E2EAF4;
+                border-radius: 26px;
+            }
+
+            /* =============================================
+               TODAY OUTER BOXES
+            ============================================= */
+
+            QFrame#timeBox {
+                background: #F5F8FC;
+                border: 1px solid #E8EEF5;
+                border-radius: 32px;
+            }
+
+            QFrame#smallBox {
+                background: #F8FAFD;
+                border: 1px solid #E8EEF5;
+                border-radius: 27px;
+            }
+
+            /* =============================================
+               SCROLL
+            ============================================= */
+
+            QScrollBar:vertical {
+                width: 12px;
+                background: #E8EEF6;
+                border-radius: 6px;
+                margin: 20px 0 0 0;
+            }
+
+            QScrollBar::handle:vertical {
+                background: #4589E8;
+                border-radius: 6px;
+                min-height: 30px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background: #1961C7;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+
+    # =====================================================
+    # EMPLOYEE POPUP
+    # =====================================================
+
+    def show_employee_menu(self):
+
+        if (
+            self.employee_menu is not None
+            and self.employee_menu.isVisible()
+        ):
+            return
+
+        menu = QFrame(
+            self
+        )
+
+        menu.setObjectName(
+            "employeePopup"
+        )
+
+        menu.setAttribute(
+            Qt.WA_StyledBackground,
+            True
+        )
+
+        menu.setFixedWidth(
+            350
+        )
+
+        menu.setFixedHeight(
+            200
+        )
+
+        menu_layout = QVBoxLayout(
+            menu
+        )
+
+        menu_layout.setContentsMargins(
+            20,
+            20,
+            20,
+            20
+        )
+
+        menu_layout.setSpacing(
+            0
+        )
+
+        # =================================================
+        # POPUP SCROLL
+        # =================================================
+
+        employee_scroll = QScrollArea(
+            menu
+        )
+
+        employee_scroll.setWidgetResizable(
+            True
+        )
+
+        employee_scroll.setFrameShape(
+            QFrame.NoFrame
+        )
+
+        employee_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
+        employee_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOn
+        )
+
+        employee_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+
+            QScrollBar:vertical {
+                width: 7px;
+                background: #E8EEF6;
+                border: none;
+                border-radius: 4px;
+                margin: 4px 2px 4px 2px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: #4589E8;
+                border-radius: 4px;
+                min-height: 30px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background: #1961C7;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+
+            QScrollBar::sub-page:vertical,
+            QScrollBar::add-page:vertical {
+                background: transparent;
+            }
+        """)
+
+        scroll_content = QWidget()
+
+        scroll_layout = QVBoxLayout(
+            scroll_content
+        )
+
+        scroll_layout.setContentsMargins(
+            20,
+            0,
+            0,
+            0
+        )
+
+        scroll_layout.setSpacing(
+            8
+        )
+
+        # =================================================
+        # OTHER EMPLOYEES
+        # =================================================
+
+        for employee in self.employees:
+
+            if (
+                self.selected_employee
+                and employee["name"]
+                == self.selected_employee["name"]
+            ):
+                continue
+
+            employee_button = QFrame()
+
+            employee_button.setObjectName(
+                "employeeOption"
+            )
+
+            employee_button.setAttribute(
+                Qt.WA_StyledBackground,
+                True
+            )
+
+            employee_button.setCursor(
+                Qt.PointingHandCursor
+            )
+
+            employee_button.setFixedHeight(
+                55
+            )
+
+            employee_layout = QHBoxLayout(
+                employee_button
+            )
+
+            employee_layout.setContentsMargins(
+                14,
+                6,
+                14,
+                6
+            )
+
+            employee_layout.setSpacing(
+                3
+            )
+
+            text_layout = QVBoxLayout()
+
+            text_layout.setContentsMargins(
+                0,
+                0,
+                0,
+                0
+            )
+
+            text_layout.setSpacing(
+                1
+            )
+
+            name_label = QLabel(
+                employee["name"]
+            )
+
+            name_label.setObjectName(
+                "employeeOptionName"
+            )
+
+            name_label.setAttribute(
+                Qt.WA_TransparentForMouseEvents,
+                True
+            )
+
+            position_label = QLabel(
+                employee["position"]
+            )
+
+            position_label.setObjectName(
+                "employeeOptionPosition"
+            )
+
+            position_label.setAttribute(
+                Qt.WA_TransparentForMouseEvents,
+                True
+            )
+
+            text_layout.addWidget(
+                name_label
+            )
+
+            text_layout.addWidget(
+                position_label
+            )
+
+            employee_layout.addLayout(
+                text_layout
+            )
+
+            employee_button.mousePressEvent = (
+                lambda event,
+                selected=employee,
+                popup=menu:
+                self.employee_selected(
+                    selected,
+                    popup,
+                    event
+                )
+            )
+
+            scroll_layout.addWidget(
+                employee_button
+            )
+
+        scroll_layout.addStretch()
+
+        employee_scroll.setWidget(
+            scroll_content
+        )
+
+        menu_layout.addWidget(
+            employee_scroll
+        )
+
+        # =================================================
+        # SHOW
+        # =================================================
+
+        menu.adjustSize()
+
+        pos = self.employee_name_box.mapToGlobal(
+            QPoint(
+                self.employee_name_box.width()
+                - menu.width(),
+                self.employee_name_box.height()
+                + 8
+            )
+        )
+
+        local_pos = self.mapFromGlobal(
+            pos
+        )
+
+        menu.move(
+            local_pos
+        )
+
+        self.employee_menu = menu
+
+        menu.show()
+
+        menu.raise_()
+
+    # =====================================================
+    # EMPLOYEE SELECTED
+    # =====================================================
+
+    def employee_selected(
+        self,
+        employee,
+        menu,
+        event
+    ):
+
+        self.select_employee(
+            employee
+        )
+
+        menu.close()
+
+        self.employee_menu = None
+
+        event.accept()
+
+    # =====================================================
+    # SELECT EMPLOYEE
+    # =====================================================
+
+    def select_employee(
+        self,
+        employee
+    ):
+
+        self.selected_employee = employee
+
+        self.employee_name_label.setText(
+            employee["name"]
+        )
+
+        self.employee_position.setText(
+            employee["position"]
+        )
+
+        self.entry_time = None
+
+        self.exit_time = None
+
+        self.entry_box.findChild(
+            QLabel,
+            "time_value"
+        ).setText(
+            "—"
+        )
+
+        self.exit_box.findChild(
+            QLabel,
+            "time_value"
+        ).setText(
+            "—"
+        )
+
+        self.work_box.findChild(
+            QLabel,
+            "time_value"
+        ).setText(
+            "—"
+        )
+
+        self.delay_box.findChild(
+            QLabel,
+            "small_value"
+        ).setText(
+            "۰ دقیقه"
+        )
+
+        self.overtime_box.findChild(
+            QLabel,
+            "small_value"
+        ).setText(
+            "۰ دقیقه"
+        )
+
+        self.remaining_box.findChild(
+            QLabel,
+            "small_value"
+        ).setText(
+            "۸ ساعت"
+        )
+
+        self.status_value.setText(
+            "ثبت نشده"
+        )
+
+        self.entry_button.setEnabled(
+            True
+        )
+
+        self.exit_button.setEnabled(
+            False
+        )
+
+    # =====================================================
+    # INFO CARD
+    # =====================================================
 
     def create_info_card(
         self,
@@ -605,33 +1411,45 @@ class AttendanceWindow(QWidget):
 
         card = QFrame()
 
-        card.setMinimumHeight(
-            66
+        card.setObjectName(
+            "infoCard"
         )
 
-        card.setStyleSheet("""
-            QFrame {
-                background: white;
-                border: 1px solid #E2EAF4;
-                border-radius: 16px;
-            }
-        """)
+        card.setFixedHeight(
+            52
+        )
 
-        layout = QVBoxLayout(
+        layout = QHBoxLayout(
             card
         )
 
         layout.setContentsMargins(
-            15, 8, 15, 8
+            10,
+            5,
+            10,
+            5
+        )
+
+        layout.setSpacing(
+            8
         )
 
         title = QLabel(
             title_text
         )
 
+        title.setAlignment(
+            Qt.AlignCenter
+        )
+
         title.setStyleSheet("""
-            color: #7890A8;
-            font-size: 10px;
+            QLabel {
+                background: #F5F8FC;
+                color: #7890A8;
+                font-size: 9px;
+                border-radius: 18px;
+                padding: 5px 10px;
+            }
         """)
 
         value = QLabel(
@@ -642,15 +1460,26 @@ class AttendanceWindow(QWidget):
             "value"
         )
 
+        value.setAlignment(
+            Qt.AlignCenter
+        )
+
         value.setStyleSheet("""
-            color: #1961C7;
-            font-size: 17px;
-            font-weight: 700;
+            QLabel {
+                background: #EAF3FF;
+                color: #1961C7;
+                font-size: 14px;
+                font-weight: 700;
+                border-radius: 18px;
+                padding: 5px 12px;
+            }
         """)
 
         layout.addWidget(
             title
         )
+
+        layout.addStretch()
 
         layout.addWidget(
             value
@@ -658,9 +1487,9 @@ class AttendanceWindow(QWidget):
 
         return card
 
-    # =========================================================
-    # Time Box
-    # =========================================================
+    # =====================================================
+    # TIME BOX
+    # =====================================================
 
     def create_time_box(
         self,
@@ -669,15 +1498,19 @@ class AttendanceWindow(QWidget):
 
         box = QFrame()
 
+        box.setObjectName(
+            "timeBox"
+        )
+
         box.setMinimumHeight(
-            58
+            64
         )
 
         box.setStyleSheet("""
             QFrame {
                 background: #F5F8FC;
-                border-radius: 12px;
                 border: 1px solid #E8EEF5;
+                border-radius: 32px;
             }
         """)
 
@@ -686,17 +1519,46 @@ class AttendanceWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            11, 6, 11, 6
+            10,
+            5,
+            10,
+            5
         )
+
+        layout.setSpacing(
+            3
+        )
+
+        # =================================================
+        # INNER TITLE BOX
+        # =================================================
 
         title = QLabel(
             title_text
         )
 
+        title.setAlignment(
+            Qt.AlignCenter
+        )
+
+        title.setFixedHeight(
+            21
+        )
+
         title.setStyleSheet("""
-            color: #7890A8;
-            font-size: 9px;
+            QLabel {
+                color: #7890A8;
+                font-size: 9px;
+                background: #FFFFFF;
+                border: none;
+                border-radius: 11px;
+                padding: 0px 12px;
+            }
         """)
+
+        # =================================================
+        # INNER VALUE BOX
+        # =================================================
 
         value = QLabel(
             "—"
@@ -706,25 +1568,43 @@ class AttendanceWindow(QWidget):
             "time_value"
         )
 
+        value.setAlignment(
+            Qt.AlignCenter
+        )
+
+        value.setFixedHeight(
+            28
+        )
+
         value.setStyleSheet("""
-            color: #17324D;
-            font-size: 16px;
-            font-weight: 700;
+            QLabel {
+                color: #17324D;
+                font-size: 15px;
+                font-weight: 700;
+                background: #FFFFFF;
+                border: none;
+                border-radius: 14px;
+                padding: 0px 12px;
+            }
         """)
 
         layout.addWidget(
-            title
+            title,
+            0,
+            Qt.AlignCenter
         )
 
         layout.addWidget(
-            value
+            value,
+            0,
+            Qt.AlignCenter
         )
 
         return box
 
-    # =========================================================
-    # Small Box
-    # =========================================================
+    # =====================================================
+    # SMALL BOX
+    # =====================================================
 
     def create_small_box(
         self,
@@ -734,15 +1614,19 @@ class AttendanceWindow(QWidget):
 
         box = QFrame()
 
+        box.setObjectName(
+            "smallBox"
+        )
+
         box.setMinimumHeight(
-            49
+            54
         )
 
         box.setStyleSheet("""
             QFrame {
                 background: #F8FAFD;
                 border: 1px solid #E8EEF5;
-                border-radius: 11px;
+                border-radius: 27px;
             }
         """)
 
@@ -751,17 +1635,46 @@ class AttendanceWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            11, 5, 11, 5
+            10,
+            5,
+            10,
+            5
         )
+
+        layout.setSpacing(
+            2
+        )
+
+        # =================================================
+        # INNER TITLE BOX
+        # =================================================
 
         title = QLabel(
             title_text
         )
 
+        title.setAlignment(
+            Qt.AlignCenter
+        )
+
+        title.setFixedHeight(
+            20
+        )
+
         title.setStyleSheet("""
-            color: #7890A8;
-            font-size: 9px;
+            QLabel {
+                color: #7890A8;
+                font-size: 9px;
+                background: #FFFFFF;
+                border: none;
+                border-radius: 10px;
+                padding: 0px 11px;
+            }
         """)
+
+        # =================================================
+        # INNER VALUE BOX
+        # =================================================
 
         value = QLabel(
             value_text
@@ -771,41 +1684,64 @@ class AttendanceWindow(QWidget):
             "small_value"
         )
 
+        value.setAlignment(
+            Qt.AlignCenter
+        )
+
+        value.setFixedHeight(
+            25
+        )
+
         value.setStyleSheet("""
-            color: #1961C7;
-            font-size: 11px;
-            font-weight: 700;
+            QLabel {
+                color: #1961C7;
+                font-size: 11px;
+                font-weight: 700;
+                background: #FFFFFF;
+                border: none;
+                border-radius: 13px;
+                padding: 0px 10px;
+            }
         """)
 
         layout.addWidget(
-            title
+            title,
+            0,
+            Qt.AlignCenter
         )
 
         layout.addWidget(
-            value
+            value,
+            0,
+            Qt.AlignCenter
         )
 
         return box
 
-    # =========================================================
-    # Clock
-    # =========================================================
+    # =====================================================
+    # CLOCK
+    # =====================================================
 
     def update_clock(self):
 
         now = QTime.currentTime()
 
         self.clock_value.setText(
-            now.toString("HH:mm:ss")
+            now.toString(
+                "HH:mm:ss"
+            )
         )
 
-        if self.entry_time and not self.exit_time:
+        if (
+            self.entry_time
+            and not self.exit_time
+        ):
 
             self.update_live_calculations()
 
-    # =========================================================
-    # زمان ثبت‌شده بدون ثانیه
-    # =========================================================
+    # =====================================================
+    # CURRENT MINUTE
+    # =====================================================
 
     def current_minute_time(self):
 
@@ -817,13 +1753,15 @@ class AttendanceWindow(QWidget):
             0
         )
 
-    # =========================================================
-    # ثبت ورود
-    # =========================================================
+    # =====================================================
+    # REGISTER ENTRY
+    # =====================================================
 
     def register_entry(self):
 
-        # فقط ساعت و دقیقه ذخیره می‌شود
+        if not self.selected_employee:
+            return
+
         self.entry_time = (
             self.current_minute_time()
         )
@@ -881,16 +1819,15 @@ class AttendanceWindow(QWidget):
             True
         )
 
-    # =========================================================
-    # ثبت خروج
-    # =========================================================
+    # =====================================================
+    # REGISTER EXIT
+    # =====================================================
 
     def register_exit(self):
 
         if not self.entry_time:
             return
 
-        # فقط ساعت و دقیقه
         current_time = (
             self.current_minute_time()
         )
@@ -923,13 +1860,16 @@ class AttendanceWindow(QWidget):
             False
         )
 
-    # =========================================================
-    # محاسبه مدت کار
-    # =========================================================
+    # =====================================================
+    # CALCULATE WORK TIME
+    # =====================================================
 
     def calculate_work_time(self):
 
-        if not self.entry_time or not self.exit_time:
+        if (
+            not self.entry_time
+            or not self.exit_time
+        ):
             return
 
         seconds = self.entry_time.secsTo(
@@ -952,16 +1892,18 @@ class AttendanceWindow(QWidget):
             )
         )
 
-    # =========================================================
-    # محاسبه زنده
-    # =========================================================
+    # =====================================================
+    # LIVE CALCULATIONS
+    # =====================================================
 
     def update_live_calculations(self):
 
         if not self.entry_time:
             return
 
-        current = self.current_minute_time()
+        current = (
+            self.current_minute_time()
+        )
 
         seconds = self.entry_time.secsTo(
             current
@@ -989,9 +1931,9 @@ class AttendanceWindow(QWidget):
 
         self.calculate_remaining_work()
 
-    # =========================================================
-    # تأخیر
-    # =========================================================
+    # =====================================================
+    # DELAY
+    # =====================================================
 
     def calculate_delay(self):
 
@@ -1023,7 +1965,9 @@ class AttendanceWindow(QWidget):
 
             else:
 
-                text = f"{minutes} دقیقه"
+                text = (
+                    f"{minutes} دقیقه"
+                )
 
         self.delay_box.findChild(
             QLabel,
@@ -1032,9 +1976,9 @@ class AttendanceWindow(QWidget):
             text
         )
 
-    # =========================================================
-    # اضافه کاری
-    # =========================================================
+    # =====================================================
+    # OVERTIME
+    # =====================================================
 
     def calculate_overtime(self):
 
@@ -1047,8 +1991,10 @@ class AttendanceWindow(QWidget):
             else self.current_minute_time()
         )
 
-        overtime_seconds = self.work_end.secsTo(
-            current_time
+        overtime_seconds = (
+            self.work_end.secsTo(
+                current_time
+            )
         )
 
         if overtime_seconds <= 0:
@@ -1057,7 +2003,9 @@ class AttendanceWindow(QWidget):
 
         else:
 
-            minutes = overtime_seconds // 60
+            minutes = (
+                overtime_seconds // 60
+            )
 
             hours = minutes // 60
 
@@ -1072,7 +2020,9 @@ class AttendanceWindow(QWidget):
 
             else:
 
-                text = f"{minutes} دقیقه"
+                text = (
+                    f"{minutes} دقیقه"
+                )
 
         self.overtime_box.findChild(
             QLabel,
@@ -1081,9 +2031,9 @@ class AttendanceWindow(QWidget):
             text
         )
 
-    # =========================================================
-    # باقی مانده کار
-    # =========================================================
+    # =====================================================
+    # REMAINING WORK
+    # =====================================================
 
     def calculate_remaining_work(self):
 
@@ -1137,9 +2087,9 @@ class AttendanceWindow(QWidget):
             text
         )
 
-    # =========================================================
-    # وضعیت
-    # =========================================================
+    # =====================================================
+    # STATUS
+    # =====================================================
 
     def calculate_status(self):
 
@@ -1151,9 +2101,9 @@ class AttendanceWindow(QWidget):
 
         return "حاضر"
 
-    # =========================================================
-    # فرمت مدت
-    # =========================================================
+    # =====================================================
+    # FORMAT DURATION
+    # =====================================================
 
     def format_duration(
         self,
@@ -1162,19 +2112,25 @@ class AttendanceWindow(QWidget):
     ):
 
         if hours == 0:
-            return f"{minutes} دقیقه"
+
+            return (
+                f"{minutes} دقیقه"
+            )
 
         if minutes == 0:
-            return f"{hours} ساعت"
+
+            return (
+                f"{hours} ساعت"
+            )
 
         return (
             f"{hours} ساعت و "
             f"{minutes} دقیقه"
         )
 
-    # =========================================================
-    # History Row
-    # =========================================================
+    # =====================================================
+    # HISTORY ROW
+    # =====================================================
 
     def add_history_row(
         self,
@@ -1204,10 +2160,15 @@ class AttendanceWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            13, 5, 13, 5
+            13,
+            5,
+            13,
+            5
         )
 
-        layout.setSpacing(10)
+        layout.setSpacing(
+            10
+        )
 
         date_label = QLabel(
             date_text
@@ -1265,7 +2226,7 @@ class AttendanceWindow(QWidget):
                 QLabel {
                     background: #EAF6EE;
                     color: #21844A;
-                    border-radius: 8px;
+                    border-radius: 10px;
                     padding: 3px 7px;
                     font-size: 10px;
                     font-weight: 600;
@@ -1278,7 +2239,7 @@ class AttendanceWindow(QWidget):
                 QLabel {
                     background: #FFF4DD;
                     color: #B87900;
-                    border-radius: 8px;
+                    border-radius: 10px;
                     padding: 3px 7px;
                     font-size: 10px;
                     font-weight: 600;
@@ -1291,7 +2252,7 @@ class AttendanceWindow(QWidget):
                 QLabel {
                     background: #FDEBEC;
                     color: #C43D4B;
-                    border-radius: 8px;
+                    border-radius: 10px;
                     padding: 3px 7px;
                     font-size: 10px;
                     font-weight: 600;

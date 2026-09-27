@@ -13,11 +13,12 @@ from PySide6.QtWidgets import (
     QBoxLayout
 )
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 
 class FinanceWindow(QWidget):
 
     def __init__(self, phone_number):
+
         super().__init__()
 
         self.phone_number = phone_number
@@ -41,13 +42,6 @@ class FinanceWindow(QWidget):
         self.loan_installment = 1_000_000
         self.other_debt = 0
 
-        self.total_income = (
-            self.base_salary
-            + self.overtime
-            + self.bonus
-            + self.benefits
-        )
-
         self.remaining_loan = max(
             self.total_loan - self.paid_loan,
             0
@@ -63,9 +57,33 @@ class FinanceWindow(QWidget):
         )
 
         self.final_salary = (
-            self.total_income
+            self.base_salary
+            + self.overtime
+            + self.bonus
+            + self.benefits
             - self.total_deductions
         )
+
+        # =====================================================
+        # کارمندان
+        # =====================================================
+
+        self.employees = [
+            {
+                "name": "علی رضایی",
+                "position": "مدیر فروش"
+            },
+            {
+                "name": "سارا محمدی",
+                "position": "حسابدار"
+            },
+            {
+                "name": "محمد احمدی",
+                "position": "کارشناس فروش"
+            }
+        ]
+
+        self.selected_employee = self.employees[0]
 
         self.init_ui()
 
@@ -76,11 +94,6 @@ class FinanceWindow(QWidget):
     def init_ui(self):
 
         self.setWindowTitle("امور مالی")
-
-        self.resize(
-            980,
-            680
-        )
 
         self.setMinimumSize(
             900,
@@ -154,9 +167,9 @@ class FinanceWindow(QWidget):
             QComboBox {
                 background: white;
                 border: 1px solid #E2EAF4;
-                border-radius: 17px;
-                padding: 7px 13px;
-                min-height: 30px;
+                border-radius: 15px;
+                padding: 6px 12px;
+                min-height: 28px;
                 color: #17324D;
             }
 
@@ -166,7 +179,7 @@ class FinanceWindow(QWidget):
 
             QComboBox::drop-down {
                 border: none;
-                width: 28px;
+                width: 26px;
             }
 
             QComboBox QAbstractItemView {
@@ -176,6 +189,63 @@ class FinanceWindow(QWidget):
                 padding: 5px;
                 selection-background-color: #EAF3FF;
                 selection-color: #1961C7;
+            }
+
+            /* =================================================
+               انتخاب کارمند
+               ================================================= */
+
+            QFrame#employeeNameBox {
+                background: #EAF3FF;
+                border: 1px solid #D6E7FA;
+                border-radius: 18px;
+            }
+
+            QLabel#employeeNameLabel {
+                color: #1961C7;
+                background: transparent;
+                border: none;
+                font-size: 10px;
+                font-weight: 800;
+            }
+
+            QLabel#employeePositionLabel {
+                color: #8292A5;
+                background: transparent;
+                border: none;
+                font-size: 8px;
+            }
+
+            QFrame#employeePopup {
+                background: white;
+                border: 1px solid #E2EAF4;
+                border-radius: 22px;
+            }
+
+            QFrame#employeeOption {
+                background: #F7F9FC;
+                border: 1px solid #E7EDF5;
+                border-radius: 15px;
+            }
+
+            QFrame#employeeOption:hover {
+                background: #EAF3FF;
+                border-color: #D2E3F8;
+            }
+
+            QLabel#employeeOptionName {
+                color: #29445D;
+                background: transparent;
+                border: none;
+                font-size: 10px;
+                font-weight: 800;
+            }
+
+            QLabel#employeeOptionPosition {
+                color: #8292A5;
+                background: transparent;
+                border: none;
+                font-size: 8px;
             }
         """)
 
@@ -194,14 +264,14 @@ class FinanceWindow(QWidget):
         )
 
         main_layout.setContentsMargins(
-            24,
-            14,
-            24,
-            22
+            20,
+            10,
+            20,
+            18
         )
 
         main_layout.setSpacing(
-            10
+            7
         )
 
         # =====================================================
@@ -211,7 +281,7 @@ class FinanceWindow(QWidget):
         header = QHBoxLayout()
 
         header.setSpacing(
-            8
+            6
         )
 
         title_area = QBoxLayout(
@@ -219,7 +289,7 @@ class FinanceWindow(QWidget):
         )
 
         title_area.setSpacing(
-            8
+            7
         )
 
         # -----------------------------------------------------
@@ -231,17 +301,17 @@ class FinanceWindow(QWidget):
         )
 
         back_button.setFixedSize(
-            38,
-            38
+            34,
+            34
         )
 
         back_button.setStyleSheet("""
             QPushButton {
                 background: white;
                 border: 1px solid #E2EAF4;
-                border-radius: 19px;
+                border-radius: 17px;
                 color: #1961C7;
-                font-size: 26px;
+                font-size: 23px;
                 font-weight: bold;
                 padding-bottom: 2px;
             }
@@ -263,7 +333,7 @@ class FinanceWindow(QWidget):
         title_box = QVBoxLayout()
 
         title_box.setSpacing(
-            1
+            0
         )
 
         title = QLabel(
@@ -273,7 +343,7 @@ class FinanceWindow(QWidget):
         title.setStyleSheet("""
             QLabel {
                 color: #17324D;
-                font-size: 22px;
+                font-size: 20px;
                 font-weight: 800;
             }
         """)
@@ -285,7 +355,7 @@ class FinanceWindow(QWidget):
         subtitle.setStyleSheet("""
             QLabel {
                 color: #8292A5;
-                font-size: 10px;
+                font-size: 9px;
             }
         """)
 
@@ -325,7 +395,7 @@ class FinanceWindow(QWidget):
         ])
 
         month_combo.setFixedWidth(
-            125
+            115
         )
 
         header.addWidget(
@@ -334,6 +404,107 @@ class FinanceWindow(QWidget):
 
         main_layout.addLayout(
             header
+        )
+
+        # =====================================================
+        # انتخاب کارمند
+        # =====================================================
+
+        employee_name_box = QFrame()
+
+        employee_name_box.setObjectName(
+            "employeeNameBox"
+        )
+
+        employee_name_box.setFixedHeight(
+            48
+        )
+
+        employee_layout = QHBoxLayout(
+            employee_name_box
+        )
+
+        employee_layout.setContentsMargins(
+            12,
+            5,
+            12,
+            5
+        )
+
+        employee_layout.setSpacing(
+            7
+        )
+
+        employee_text_layout = QVBoxLayout()
+
+        employee_text_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        employee_text_layout.setSpacing(
+            0
+        )
+
+        employee_name_label = QLabel(
+            self.selected_employee["name"]
+        )
+
+        employee_name_label.setObjectName(
+            "employeeNameLabel"
+        )
+
+        employee_position_label = QLabel(
+            self.selected_employee["position"]
+        )
+
+        employee_position_label.setObjectName(
+            "employeePositionLabel"
+        )
+
+        employee_text_layout.addWidget(
+            employee_name_label
+        )
+
+        employee_text_layout.addWidget(
+            employee_position_label
+        )
+
+        arrow_label = QLabel(
+            "⌄"
+        )
+
+        arrow_label.setStyleSheet("""
+            QLabel {
+                color: #4589E8;
+                background: transparent;
+                border: none;
+                font-size: 16px;
+                font-weight: bold;
+            }
+        """)
+
+        employee_layout.addLayout(
+            employee_text_layout
+        )
+
+        employee_layout.addStretch()
+
+        employee_layout.addWidget(
+            arrow_label
+        )
+
+        employee_name_box.mousePressEvent = (
+            lambda event:
+            self.show_employee_popup(
+                employee_name_box
+            )
+        )
+
+        main_layout.addWidget(
+            employee_name_box
         )
 
         # =====================================================
@@ -357,14 +528,14 @@ class FinanceWindow(QWidget):
         )
 
         content_layout.setContentsMargins(
-            20,
+            16,
             0,
-            10,
+            8,
             1
         )
 
         content_layout.setSpacing(
-            9
+            7
         )
 
         # =====================================================
@@ -378,14 +549,14 @@ class FinanceWindow(QWidget):
         )
 
         salary_layout.setContentsMargins(
-            18,
-            13,
-            18,
-            13
+            14,
+            9,
+            14,
+            9
         )
 
         salary_layout.setSpacing(
-            12
+            9
         )
 
         salary_inner = QFrame()
@@ -394,7 +565,7 @@ class FinanceWindow(QWidget):
             QFrame {
                 background: #F4F8FD;
                 border: none;
-                border-radius: 17px;
+                border-radius: 15px;
             }
         """)
 
@@ -403,14 +574,14 @@ class FinanceWindow(QWidget):
         )
 
         salary_inner_layout.setContentsMargins(
-            15,
-            8,
-            15,
-            8
+            12,
+            5,
+            12,
+            5
         )
 
         salary_inner_layout.setSpacing(
-            1
+            0
         )
 
         salary_label = QLabel(
@@ -422,7 +593,7 @@ class FinanceWindow(QWidget):
                 color: #8292A5;
                 background: transparent;
                 border: none;
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 600;
             }
         """)
@@ -438,7 +609,7 @@ class FinanceWindow(QWidget):
                 color: #1961C7;
                 background: transparent;
                 border: none;
-                font-size: 25px;
+                font-size: 21px;
                 font-weight: 900;
             }
         """)
@@ -452,7 +623,7 @@ class FinanceWindow(QWidget):
                 color: #8292A5;
                 background: transparent;
                 border: none;
-                font-size: 9px;
+                font-size: 8px;
             }
         """)
 
@@ -483,7 +654,7 @@ class FinanceWindow(QWidget):
             QFrame {
                 background: #EAF7EF;
                 border: none;
-                border-radius: 17px;
+                border-radius: 15px;
             }
         """)
 
@@ -492,10 +663,10 @@ class FinanceWindow(QWidget):
         )
 
         status_layout.setContentsMargins(
-            15,
-            10,
-            15,
-            10
+            12,
+            7,
+            12,
+            7
         )
 
         status = QLabel(
@@ -511,7 +682,7 @@ class FinanceWindow(QWidget):
                 color: #27945B;
                 background: transparent;
                 border: none;
-                font-size: 10px;
+                font-size: 9px;
                 font-weight: 800;
             }
         """)
@@ -539,14 +710,14 @@ class FinanceWindow(QWidget):
         )
 
         summary_layout.setContentsMargins(
-            12,
-            12,
-            12,
-            12
+            9,
+            9,
+            9,
+            9
         )
 
         summary_layout.setSpacing(
-            8
+            6
         )
 
         summary_layout.addWidget(
@@ -588,14 +759,14 @@ class FinanceWindow(QWidget):
         )
 
         calc_layout.setContentsMargins(
-            17,
-            13,
-            17,
-            14
+            14,
+            10,
+            14,
+            11
         )
 
         calc_layout.setSpacing(
-            9
+            6
         )
 
         calc_title = QLabel(
@@ -607,7 +778,7 @@ class FinanceWindow(QWidget):
                 color: #17324D;
                 background: transparent;
                 border: none;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 800;
             }
         """)
@@ -619,11 +790,11 @@ class FinanceWindow(QWidget):
         grid = QGridLayout()
 
         grid.setHorizontalSpacing(
-            8
+            6
         )
 
         grid.setVerticalSpacing(
-            8
+            6
         )
 
         details = [
@@ -674,14 +845,14 @@ class FinanceWindow(QWidget):
         )
 
         loan_layout.setContentsMargins(
-            17,
-            13,
-            17,
-            14
+            14,
+            10,
+            14,
+            11
         )
 
         loan_layout.setSpacing(
-            9
+            6
         )
 
         loan_title = QLabel(
@@ -693,7 +864,7 @@ class FinanceWindow(QWidget):
                 color: #17324D;
                 background: transparent;
                 border: none;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 800;
             }
         """)
@@ -705,7 +876,7 @@ class FinanceWindow(QWidget):
         loan_grid = QGridLayout()
 
         loan_grid.setHorizontalSpacing(
-            8
+            6
         )
 
         loan_items = [
@@ -750,14 +921,14 @@ class FinanceWindow(QWidget):
         )
 
         transaction_layout.setContentsMargins(
-            17,
-            13,
-            17,
-            14
+            14,
+            10,
+            14,
+            11
         )
 
         transaction_layout.setSpacing(
-            8
+            6
         )
 
         title_row = QHBoxLayout()
@@ -771,7 +942,7 @@ class FinanceWindow(QWidget):
                 color: #17324D;
                 background: transparent;
                 border: none;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 800;
             }
         """)
@@ -782,7 +953,7 @@ class FinanceWindow(QWidget):
             QFrame {
                 background: #EAF3FF;
                 border: none;
-                border-radius: 12px;
+                border-radius: 11px;
             }
         """)
 
@@ -791,10 +962,10 @@ class FinanceWindow(QWidget):
         )
 
         count_layout.setContentsMargins(
-            9,
-            4,
-            9,
-            4
+            8,
+            3,
+            8,
+            3
         )
 
         count_label = QLabel(
@@ -806,7 +977,7 @@ class FinanceWindow(QWidget):
                 color: #4589E8;
                 background: transparent;
                 border: none;
-                font-size: 9px;
+                font-size: 8px;
                 font-weight: 700;
             }
         """)
@@ -878,78 +1049,11 @@ class FinanceWindow(QWidget):
         )
 
         # =====================================================
-        # جمع درآمد
+        # فضای خالی پایین
         # =====================================================
 
-        final_card = QFrame()
-
-        final_card.setStyleSheet("""
-            QFrame {
-                background: #EAF3FF;
-                border: none;
-                border-radius: 20px;
-            }
-        """)
-
-        final_layout = QHBoxLayout(
-            final_card
-        )
-
-        final_layout.setContentsMargins(
-            18,
-            11,
-            18,
-            11
-        )
-
-        final_label = QLabel(
-            "جمع درآمد"
-        )
-
-        final_label.setStyleSheet("""
-            QLabel {
-                color: #61758A;
-                background: transparent;
-                border: none;
-                font-size: 10px;
-                font-weight: 600;
-            }
-        """)
-
-        final_value = QLabel(
-            self.money(
-                self.total_income
-            )
-            + " تومان"
-        )
-
-        final_value.setStyleSheet("""
-            QLabel {
-                color: #1961C7;
-                background: transparent;
-                border: none;
-                font-size: 14px;
-                font-weight: 900;
-            }
-        """)
-
-        final_layout.addWidget(
-            final_label
-        )
-
-        final_layout.addStretch()
-
-        final_layout.addWidget(
-            final_value
-        )
-
-        content_layout.addWidget(
-            final_card
-        )
-
-        # فضای خالی پایین
         content_layout.addSpacing(
-            28
+            10
         )
 
         scroll.setWidget(
@@ -965,6 +1069,296 @@ class FinanceWindow(QWidget):
         )
 
     # =====================================================
+    # پاپ‌آپ انتخاب کارمند
+    # =====================================================
+
+    def show_employee_popup(
+        self,
+        employee_name_box
+    ):
+
+        if hasattr(
+            self,
+            "employee_popup"
+        ) and self.employee_popup.isVisible():
+
+            self.employee_popup.close()
+
+            return
+
+        menu = QFrame(
+            self
+        )
+
+        menu.setObjectName(
+            "employeePopup"
+        )
+
+        menu.setFixedWidth(
+            300
+        )
+
+        menu.setFixedHeight(
+            220
+        )
+
+        menu_layout = QVBoxLayout(
+            menu
+        )
+
+        menu_layout.setContentsMargins(
+            12,
+            12,
+            10,
+            12
+        )
+
+        menu_layout.setSpacing(
+            0
+        )
+
+        # =====================================================
+        # اسکرول پاپ‌آپ
+        # =====================================================
+
+        scroll = QScrollArea()
+
+        scroll.setWidgetResizable(
+            True
+        )
+
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
+        # فقط این قسمت برای اینکه اسکرول همیشه دیده شود
+        scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOn
+        )
+
+        scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+
+            QScrollBar:vertical {
+                width: 8px;
+                background: #E8EEF6;
+                border: none;
+                border-radius: 4px;
+                margin: 3px 2px 3px 2px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: #4589E8;
+                border: none;
+                border-radius: 4px;
+                min-height: 35px;
+                margin: 0;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background: #1961C7;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+                background: transparent;
+                border: none;
+            }
+
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        # =====================================================
+        # محتوای داخل اسکرول
+        # =====================================================
+
+        scroll_content = QWidget()
+
+        scroll_content.setStyleSheet("""
+            QWidget {
+                background: transparent;
+            }
+        """)
+
+        scroll_layout = QVBoxLayout(
+            scroll_content
+        )
+
+        scroll_layout.setContentsMargins(
+            10,
+            0,
+            0,
+            0
+        )
+
+        scroll_layout.setSpacing(
+            8
+        )
+
+        # =====================================================
+        # گزینه‌های کارمندان
+        # =====================================================
+
+        for employee in self.employees:
+
+            option = QFrame()
+
+            option.setObjectName(
+                "employeeOption"
+            )
+
+            option.setFixedHeight(
+                55
+            )
+
+            option_layout = QHBoxLayout(
+                option
+            )
+
+            option_layout.setContentsMargins(
+                12,
+                6,
+                12,
+                6
+            )
+
+            option_layout.setSpacing(
+                4
+            )
+
+            text_layout = QVBoxLayout()
+
+            text_layout.setContentsMargins(
+                0,
+                0,
+                0,
+                0
+            )
+
+            text_layout.setSpacing(
+                0
+            )
+
+            name_label = QLabel(
+                employee["name"]
+            )
+
+            name_label.setObjectName(
+                "employeeOptionName"
+            )
+
+            position_label = QLabel(
+                employee["position"]
+            )
+
+            position_label.setObjectName(
+                "employeeOptionPosition"
+            )
+
+            text_layout.addWidget(
+                name_label
+            )
+
+            text_layout.addWidget(
+                position_label
+            )
+
+            option_layout.addLayout(
+                text_layout
+            )
+
+            option_layout.addStretch()
+
+            option.mousePressEvent = (
+                lambda event,
+                emp=employee,
+                box=employee_name_box,
+                popup=menu:
+                self.select_employee(
+                    emp,
+                    box,
+                    popup
+                )
+            )
+
+            scroll_layout.addWidget(
+                option
+            )
+
+        scroll_layout.addStretch()
+
+        scroll.setWidget(
+            scroll_content
+        )
+
+        menu_layout.addWidget(
+            scroll
+        )
+
+        self.employee_popup = menu
+
+        # =====================================================
+        # موقعیت پاپ‌آپ
+        # =====================================================
+
+        pos = employee_name_box.mapToGlobal(
+            QPoint(
+                employee_name_box.width()
+                - menu.width(),
+                employee_name_box.height()
+                + 8
+            )
+        )
+
+        local_pos = self.mapFromGlobal(
+            pos
+        )
+
+        menu.move(
+            local_pos
+        )
+
+        menu.show()
+        menu.raise_()
+
+    # =====================================================
+    # انتخاب کارمند
+    # =====================================================
+
+    def select_employee(
+        self,
+        employee,
+        employee_name_box,
+        popup
+    ):
+
+        self.selected_employee = employee
+
+        labels = employee_name_box.findChildren(
+            QLabel
+        )
+
+        if len(labels) >= 2:
+
+            labels[0].setText(
+                employee["name"]
+            )
+
+            labels[1].setText(
+                employee["position"]
+            )
+
+        popup.close()
+
+    # =====================================================
     # کارت اصلی
     # =====================================================
 
@@ -976,7 +1370,7 @@ class FinanceWindow(QWidget):
             QFrame {
                 background: white;
                 border: 1px solid #E2EAF4;
-                border-radius: 22px;
+                border-radius: 20px;
             }
         """)
 
@@ -995,14 +1389,14 @@ class FinanceWindow(QWidget):
         box = QFrame()
 
         box.setMinimumHeight(
-            55
+            49
         )
 
         box.setStyleSheet("""
             QFrame {
                 background: #F7F9FC;
                 border: 1px solid #E7EDF5;
-                border-radius: 16px;
+                border-radius: 14px;
             }
         """)
 
@@ -1011,14 +1405,14 @@ class FinanceWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            10,
-            7,
-            10,
-            7
+            8,
+            5,
+            8,
+            5
         )
 
         layout.setSpacing(
-            1
+            0
         )
 
         title = QLabel(
@@ -1030,7 +1424,7 @@ class FinanceWindow(QWidget):
                 color: #8A99AA;
                 background: transparent;
                 border: none;
-                font-size: 9px;
+                font-size: 8px;
                 font-weight: 600;
             }
         """)
@@ -1044,7 +1438,7 @@ class FinanceWindow(QWidget):
                 color: #29445D;
                 background: transparent;
                 border: none;
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 800;
             }
         """)
@@ -1073,14 +1467,14 @@ class FinanceWindow(QWidget):
         box = QFrame()
 
         box.setMinimumHeight(
-            67
+            59
         )
 
         box.setStyleSheet("""
             QFrame {
                 background: #F7F9FC;
                 border: 1px solid #E7EDF5;
-                border-radius: 17px;
+                border-radius: 15px;
             }
         """)
 
@@ -1089,14 +1483,14 @@ class FinanceWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            13,
-            8,
-            13,
-            8
+            10,
+            6,
+            10,
+            6
         )
 
         layout.setSpacing(
-            2
+            1
         )
 
         title = QLabel(
@@ -1108,7 +1502,7 @@ class FinanceWindow(QWidget):
                 background: transparent;
                 border: none;
                 color: #8292A5;
-                font-size: 9px;
+                font-size: 8px;
                 font-weight: 600;
             }
         """)
@@ -1122,7 +1516,7 @@ class FinanceWindow(QWidget):
                 background: transparent;
                 border: none;
                 color: {text_color};
-                font-size: 14px;
+                font-size: 12px;
                 font-weight: 900;
             }}
         """)
@@ -1152,14 +1546,14 @@ class FinanceWindow(QWidget):
         row = QFrame()
 
         row.setMinimumHeight(
-            56
+            49
         )
 
         row.setStyleSheet("""
             QFrame {
                 background: #F7F9FC;
                 border: 1px solid #E7EDF5;
-                border-radius: 18px;
+                border-radius: 16px;
             }
 
             QFrame:hover {
@@ -1173,14 +1567,14 @@ class FinanceWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            14,
-            7,
-            14,
-            7
+            11,
+            5,
+            11,
+            5
         )
 
         layout.setSpacing(
-            10
+            8
         )
 
         # -----------------------------------------------------
@@ -1190,14 +1584,14 @@ class FinanceWindow(QWidget):
         date_box = QFrame()
 
         date_box.setFixedWidth(
-            60
+            55
         )
 
         date_box.setStyleSheet("""
             QFrame {
                 background: white;
                 border: none;
-                border-radius: 13px;
+                border-radius: 12px;
             }
         """)
 
@@ -1206,10 +1600,10 @@ class FinanceWindow(QWidget):
         )
 
         date_layout.setContentsMargins(
-            6,
             5,
-            6,
-            5
+            4,
+            5,
+            4
         )
 
         date_label = QLabel(
@@ -1225,7 +1619,7 @@ class FinanceWindow(QWidget):
                 background: transparent;
                 border: none;
                 color: #8292A5;
-                font-size: 9px;
+                font-size: 8px;
                 font-weight: 700;
             }
         """)
@@ -1267,7 +1661,7 @@ class FinanceWindow(QWidget):
                 background: transparent;
                 border: none;
                 color: #29445D;
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 800;
             }
         """)
@@ -1286,7 +1680,7 @@ class FinanceWindow(QWidget):
             QFrame {
                 background: white;
                 border: none;
-                border-radius: 14px;
+                border-radius: 13px;
             }
         """)
 
@@ -1295,10 +1689,10 @@ class FinanceWindow(QWidget):
         )
 
         amount_layout.setContentsMargins(
-            10,
-            5,
-            10,
-            5
+            8,
+            4,
+            8,
+            4
         )
 
         amount_label = QLabel(
@@ -1316,7 +1710,7 @@ class FinanceWindow(QWidget):
                     background: transparent;
                     border: none;
                     color: #27945B;
-                    font-size: 11px;
+                    font-size: 10px;
                     font-weight: 900;
                 }
             """)
@@ -1328,7 +1722,7 @@ class FinanceWindow(QWidget):
                     background: transparent;
                     border: none;
                     color: #D45B68;
-                    font-size: 11px;
+                    font-size: 10px;
                     font-weight: 900;
                 }
             """)
