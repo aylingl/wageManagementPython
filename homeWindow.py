@@ -1453,32 +1453,28 @@ class HomeWindow(QWidget):
     # =====================================================
 
     def open_profile(self):
+        from editProfileWindow import EditProfileWindow
 
-        try:
 
-            from editProfileWindow import EditProfileWindow
+        self.edit_profile_window = EditProfileWindow(
 
-            self.profile_window = EditProfileWindow(
-                self.phone_number
-            )
+            self,
+            phone_number=self.phone_number,
+            username=self.username,
+            avatar=self.avatar
+        )
 
-            self.profile_window.resize(
-                self.size()
-            )
 
-            self.profile_window.move(
-                self.pos()
-            )
+        self.edit_profile_window.resize(
 
-            self.profile_window.show()
-
-        except Exception as e:
-
-            print(
-                "Profile:",
-                e
-            )
-
+            self.size()
+        )
+        
+        self.edit_profile_window.move(
+            self.pos()
+        )
+        self.edit_profile_window.show()
+        self.edit_profile_window.raise_()
     # =====================================================
     # ATTENDANCE
     # =====================================================
@@ -1538,11 +1534,28 @@ class HomeWindow(QWidget):
         )
         self.employees_window.show()
     # =====================================================
-    # rudadha
+    # events
     # =====================================================
 
     def open_events(self):
-        print("رویدادها و سوابق کلیک شد")
+        from eventsWindow import EventsWindow
+        self.events_window = EventsWindow(
+            self
+        )
+        self.events_window.resize(
+            self.size()
+        )
+        self.events_window.move(
+            self.pos()
+        )
+        self.events_window.show()
+
+        self.events_window.raise_()
+
+        
+
+
+      
     # =====================================================
     # gozaresh
     # =====================================================
@@ -1554,13 +1567,36 @@ class HomeWindow(QWidget):
     # =====================================================
 
     def open_settings(self):
-        print("تنظیمات کلیک شد")
+        from settingsWindow import  SettingsWindow
+        self.settings_window = SettingsWindow(self)
+
+        self.settings_window.resize(
+            self.size()
+        )
+        self.settings_window.move(
+            self.pos()
+        )
+        self.settings_window.show()
+        self.settings_window.raise_()        
     # =====================================================
     # payam
     # =====================================================
 
     def open_messages(self):
-        print("پیام کلیک شد")
+        from messagesWindow import MessagesWindow
+        self.messages_window = MessagesWindow(
+            self
+        )
+        self.messages_window.resize(
+            self.size()
+        )
+        self.messages_window.move(
+            self.pos()
+
+        )
+        self.messages_window.show()
+
+        self.messages_window.raise_()
     # =====================================================
     # cartable
     # =====================================================

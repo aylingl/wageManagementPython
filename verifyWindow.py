@@ -13,10 +13,18 @@ from profileSetupWindow import ProfileSetupWindow
 
 class VerifyWindow(QWidget):
 
-    def __init__(self, phone_number):
+    def __init__(
+        self,
+        phone_number,
+        change_phone=False,
+        parent_profile=None
+    ):
         super().__init__()
 
         self.phone_number = phone_number
+        self.change_phone_mode = change_phone
+        self.parent_profile = parent_profile
+
         self.correct_code = "123456"
 
         self.setWindowTitle("تأیید شماره موبایل")
@@ -285,6 +293,36 @@ class VerifyWindow(QWidget):
         # کد صحیح
         if code == self.correct_code:
 
+            # =====================================
+            # تغییر شماره از داخل پروفایل
+            # =====================================
+
+            if self.change_phone_mode:
+
+                if self.parent_profile is not None:
+
+                    self.parent_profile.phone_number = (
+                        self.phone_number
+                    )
+
+                    self.parent_profile.phone_value.setText(
+                        self.phone_number
+                    )
+
+                    self.parent_profile.show()
+
+                    self.parent_profile.raise_()
+
+                    self.parent_profile.activateWindow()
+
+                self.close()
+
+                return
+
+            # =====================================
+            # ورود عادی
+            # =====================================
+
             self.profile_window = ProfileSetupWindow(
                 self.phone_number
             )
@@ -301,7 +339,10 @@ class VerifyWindow(QWidget):
 
         from main import LoginWindow
 
-        self.login_window = LoginWindow()
+        self.login_window = LoginWindow(
+            change_phone=self.change_phone_mode,
+            parent_profile=self.parent_profile
+        )
 
         self.login_window.show()
 

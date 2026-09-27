@@ -132,6 +132,35 @@ class EmployeesWindow(QWidget):
 
         header_layout.setSpacing(12)
 
+        # =================================================
+        # BACK BUTTON
+        # =================================================
+
+        back_button = QPushButton(
+            "›"
+        )
+
+        back_button.setObjectName(
+            "backButton"
+        )
+
+        back_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        back_button.setFixedSize(
+            42,
+            42
+        )
+
+        back_button.clicked.connect(
+            self.close
+        )
+
+        header_layout.addWidget(
+            back_button
+        )
+
         title_layout = QVBoxLayout()
 
         title_layout.setContentsMargins(
@@ -356,6 +385,20 @@ class EmployeesWindow(QWidget):
             color: #8290A1;
             font-size: 11px;
             background: transparent;
+        }
+
+        QPushButton#backButton {
+            background-color: white;
+            color: #1961C7;
+            border: 1px solid #E2EAF4;
+            border-radius: 14px;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        QPushButton#backButton:hover {
+            background-color: #EAF3FF;
+            border-color: #C9DDF5;
         }
 
         QPushButton#addEmployeeButton {
@@ -992,8 +1035,12 @@ class EmployeesWindow(QWidget):
             self
         )
 
+        self.add_employee_window.resize(
+            self.size()
+        )
+
+        self.add_employee_window.move(
+            self.pos()
+        )
+
         self.add_employee_window.show()
-
-        self.add_employee_window.raise_()
-
-        self.add_employee_window.activateWindow()

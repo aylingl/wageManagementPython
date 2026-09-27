@@ -22,8 +22,15 @@ class LoginWindow(QWidget):
 
     CONTENT_WIDTH = 360
 
-    def __init__(self):
+    def __init__(
+        self,
+        change_phone=False,
+        parent_profile=None
+    ):
         super().__init__()
+
+        self.change_phone_mode = change_phone
+        self.parent_profile = parent_profile
 
         self.setWindowTitle("ورود")
         self.resize(900, 700)
@@ -71,7 +78,6 @@ class LoginWindow(QWidget):
             0,
             Qt.AlignHCenter
         )
-        
 
         # ==========================================
         # نحوه ورود
@@ -860,7 +866,9 @@ class LoginWindow(QWidget):
             return
 
         self.verify_window = VerifyWindow(
-            phone_number
+            phone_number,
+            change_phone=self.change_phone_mode,
+            parent_profile=self.parent_profile
         )
 
         self.verify_window.show()
