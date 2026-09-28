@@ -10,13 +10,1170 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QVBoxLayout,
-    QHBoxLayout
+    QHBoxLayout,
+    QListView,
+    QScrollArea
 )
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import (
+    Qt,
+    QSize,
+    QPoint
+)
+
 from PySide6.QtGui import QPixmap
 
 from verifyWindow import VerifyWindow
+
+# =========================================================
+# FLAG COMBO BOX
+# =========================================================
+
+class FlagComboBox(QComboBox):
+
+    def __init__(self):
+        super().__init__()
+
+        self.setIconSize(
+            QSize(30, 20)
+        )
+
+        self.popup_menu = None
+
+    def showPopup(self):
+
+        if self.popup_menu is not None:
+
+            self.popup_menu.close()
+            self.popup_menu.deleteLater()
+            self.popup_menu = None
+
+            return
+
+        parent_window = self.window()
+
+        menu = QFrame(
+            parent_window
+        )
+
+        menu.setObjectName(
+            "flagPopup"
+        )
+
+        menu.setFixedSize(
+            155,
+            225
+        )
+
+        menu.setStyleSheet("""
+            QFrame#flagPopup {
+                background-color: white;
+                border: 1px solid #E2EAF4;
+                border-radius: 22px;
+            }
+
+            QFrame#flagOption {
+                background-color: #F7F9FC;
+                border: 1px solid #E7EDF5;
+                border-radius: 12px;
+            }
+
+            QFrame#flagOption:hover {
+                background-color: #EAF3FF;
+                border: 1px solid #C8DDF5;
+            }
+
+            QLabel {
+                background-color: transparent;
+                border: none;
+                color: #1D2939;
+                font-size: 13px;
+            }
+
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+
+            QScrollBar:vertical {
+                background: transparent;
+                width: 16px;
+                margin: 4px 0px 4px 0px;
+                border: none;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: #C8DDF5;
+                min-height: 45px;
+                max-width: 10px;
+                margin: 0px 3px 0px 3px;
+                border: none;
+                border-radius: 5px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: #4589E8;
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+                width: 0px;
+                background: transparent;
+                border: none;
+            }
+
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+        popup_layout = QVBoxLayout(
+            menu
+        )
+
+        popup_layout.setContentsMargins(
+            10,
+            10,
+            10,
+            10
+        )
+
+        popup_layout.setSpacing(
+            4
+        )
+
+        scroll_area = QScrollArea(
+            menu
+        )
+
+        scroll_area.setWidgetResizable(
+            True
+        )
+
+        scroll_area.setFrameShape(
+            QFrame.NoFrame
+        )
+
+        scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
+        scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded
+        )
+
+        scroll_area.setLayoutDirection(
+            Qt.LeftToRight
+        )
+
+        scroll_content = QFrame()
+
+        scroll_content.setStyleSheet("""
+            QFrame {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+
+        content_layout = QVBoxLayout(
+            scroll_content
+        )
+
+        content_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        content_layout.setSpacing(
+            4
+        )
+
+        for index in range(
+            self.count()
+        ):
+
+            option = QFrame(
+                scroll_content
+            )
+
+            option.setObjectName(
+                "flagOption"
+            )
+
+            option.setFixedHeight(
+                30
+            )
+
+            option.setCursor(
+                Qt.PointingHandCursor
+            )
+
+            option_layout = QHBoxLayout(
+                option
+            )
+
+            option_layout.setContentsMargins(
+                8,
+                0,
+                8,
+                0
+            )
+
+            option_layout.setSpacing(
+                8
+            )
+
+            option_layout.setDirection(
+                QHBoxLayout.LeftToRight
+            )
+
+            flag_label = QLabel()
+
+            flag_label.setFixedSize(
+                30,
+                20
+            )
+
+            flag_label.setAlignment(
+                Qt.AlignCenter
+            )
+
+            icon = self.itemIcon(
+                index
+            )
+
+            if not icon.isNull():
+
+                pixmap = icon.pixmap(
+                    QSize(30, 20)
+                )
+
+                flag_label.setPixmap(
+                    pixmap
+                )
+
+            code_label = QLabel(
+                self.itemText(index)
+            )
+
+            code_label.setAlignment(
+                Qt.AlignCenter
+            )
+
+            option_layout.addWidget(
+                flag_label
+            )
+
+            option_layout.addWidget(
+                code_label
+            )
+
+            option_layout.addStretch()
+
+            option.mousePressEvent = (
+                lambda event,
+                selected_index=index:
+                self.select_country(
+                    selected_index
+                )
+            )
+
+            content_layout.addWidget(
+                option
+            )
+
+        content_layout.addStretch()
+
+        scroll_area.setWidget(
+            scroll_content
+        )
+
+        popup_layout.addWidget(
+            scroll_area
+        )
+
+        self.popup_menu = menu
+
+        global_pos = self.mapToGlobal(
+            QPoint(
+                self.width() - menu.width(),
+                self.height() + 8
+            )
+        )
+
+        local_pos = parent_window.mapFromGlobal(
+            global_pos
+        )
+
+        menu.move(
+            local_pos
+        )
+
+        menu.show()
+
+        menu.raise_()
+
+    def select_country(
+        self,
+        index
+    ):
+
+        self.setCurrentIndex(
+            index
+        )
+
+        if self.popup_menu is not None:
+
+            self.popup_menu.close()
+            self.popup_menu.deleteLater()
+            self.popup_menu = None
+
+    def hidePopup(self):
+
+        if self.popup_menu is not None:
+
+            self.popup_menu.close()
+            self.popup_menu.deleteLater()
+            self.popup_menu = None
+
+# =========================================================
+# GOOGLE LOGIN WINDOW
+# =========================================================
+
+class GoogleLoginWindow(QWidget):
+
+    def __init__(
+        self,
+        parent_window=None
+    ):
+
+        super().__init__()
+
+        self.parent_window = parent_window
+
+        self.setWindowTitle(
+            "ورود با Google"
+        )
+
+        self.resize(
+            500,
+            600
+        )
+
+        self.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.setup_google_ui()
+
+    def image_path(
+        self,
+        filename
+    ):
+
+        project_folder = os.path.dirname(
+            os.path.abspath(__file__)
+        )
+
+        return os.path.join(
+            project_folder,
+            filename
+        )
+
+    def setup_google_ui(self):
+
+        main_layout = QVBoxLayout(
+            self
+        )
+
+        main_layout.setContentsMargins(
+            45,
+            40,
+            45,
+            40
+        )
+
+        main_layout.setSpacing(
+            0
+        )
+
+        back_layout = QHBoxLayout()
+
+        back_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        back_layout.setSpacing(
+            0
+        )
+
+        back_layout.setDirection(
+            QHBoxLayout.LeftToRight
+        )
+
+        back_button = QPushButton(
+            "→"
+        )
+
+        back_button.setFixedSize(
+            40,
+            40
+        )
+
+        back_button.setLayoutDirection(
+            Qt.LeftToRight
+        )
+
+        back_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        back_button.clicked.connect(
+            self.back_to_login
+        )
+
+        back_button.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                border: 1px solid #D9E2EC;
+                border-radius: 20px;
+                padding: 0px;
+                margin: 0px;
+                color: #1D2939;
+                font-size: 22px;
+            }
+
+            QPushButton:hover {
+                background-color: #EAF3FF;
+                border: 1px solid #BFD5EE;
+                color: #1961C7;
+            }
+
+            QPushButton:pressed {
+                background-color: #EAF3FF;
+                border: 1px solid #BFD5EE;
+            }
+        """)
+
+        back_layout.addWidget(
+            back_button,
+            0,
+            Qt.AlignRight
+        )
+
+        main_layout.addLayout(
+            back_layout
+        )
+
+        main_layout.addSpacing(
+            5
+        )
+
+        google_logo = QLabel()
+
+        google_logo.setFixedHeight(
+            55
+        )
+
+        google_logo.setAlignment(
+            Qt.AlignCenter
+        )
+
+        google_path = self.image_path(
+            "google.png"
+        )
+
+        google_pixmap = QPixmap(
+            google_path
+        )
+
+        if not google_pixmap.isNull():
+
+            google_pixmap = google_pixmap.scaled(
+                45,
+                45,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+
+            google_logo.setPixmap(
+                google_pixmap
+            )
+
+        main_layout.addWidget(
+            google_logo
+        )
+
+        main_layout.addSpacing(
+            18
+        )
+
+        title = QLabel(
+            "انتخاب حساب"
+        )
+
+        title.setObjectName(
+            "googleTitle"
+        )
+
+        title.setAlignment(
+            Qt.AlignCenter
+        )
+
+        main_layout.addWidget(
+            title
+        )
+
+        main_layout.addSpacing(
+            8
+        )
+
+        subtitle = QLabel(
+            "برای ادامه، یک حساب انتخاب کنید"
+        )
+
+        subtitle.setObjectName(
+            "googleSubtitle"
+        )
+
+        subtitle.setAlignment(
+            Qt.AlignCenter
+        )
+
+        main_layout.addWidget(
+            subtitle
+        )
+
+        main_layout.addSpacing(
+            28
+        )
+
+        self.create_account_button(
+            main_layout,
+            "دانش رضایی",
+            "danesh@example.com"
+        )
+
+        main_layout.addSpacing(
+            10
+        )
+
+        self.create_account_button(
+            main_layout,
+            "سارا محمدی",
+            "sara@example.com"
+        )
+
+        main_layout.addSpacing(
+            15
+        )
+
+        another_account = QPushButton(
+            "استفاده از حساب دیگر"
+        )
+
+        another_account.setObjectName(
+            "anotherAccount"
+        )
+
+        another_account.setFixedHeight(
+            48
+        )
+
+        another_account.clicked.connect(
+            self.open_other_account
+        )
+
+        main_layout.addWidget(
+            another_account
+        )
+
+        main_layout.addStretch()
+
+        bottom_text = QLabel(
+            "با ادامه، اطلاعات حساب شما برای ورود به سامانه استفاده می‌شود."
+        )
+
+        bottom_text.setObjectName(
+            "googleBottom"
+        )
+
+        bottom_text.setWordWrap(
+            True
+        )
+
+        bottom_text.setAlignment(
+            Qt.AlignCenter
+        )
+
+        main_layout.addWidget(
+            bottom_text
+        )
+
+        self.setStyleSheet("""
+
+            QWidget {
+                background-color: white;
+                color: #202124;
+                font-family: "Vazirmatn";
+            }
+
+            #googleTitle {
+                color: #202124;
+                font-size: 24px;
+                font-weight: 600;
+            }
+
+            #googleSubtitle {
+                color: #5F6368;
+                font-size: 13px;
+            }
+
+            #accountButton {
+                background-color: white;
+                border: 1px solid #DADCE0;
+                border-radius: 14px;
+                padding: 0px;
+            }
+
+            #accountButton:hover {
+                background-color: #F8FAFD;
+                border: 1px solid #C7D7EA;
+                border-radius: 14px;
+            }
+
+            #accountName {
+                color: #202124;
+                font-size: 14px;
+                font-weight: 600;
+                background-color: transparent;
+                padding: 0px;
+                margin: 0px;
+            }
+
+            #accountEmail {
+                color: #5F6368;
+                font-size: 12px;
+                background-color: transparent;
+                padding: 0px;
+                margin: 0px;
+            }
+
+            #anotherAccount {
+                background-color: white;
+                color: #1961C7;
+                border: 1px solid #D9E2EC;
+                border-radius: 10px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+
+            #anotherAccount:hover {
+                background-color: #EAF3FF;
+            }
+
+            #googleBottom {
+                background-color: transparent;
+                color: #80868B;
+                font-size: 10px;
+            }
+        """)
+
+    def create_account_button(
+        self,
+        main_layout,
+        name,
+        email
+    ):
+
+        account_button = QPushButton()
+
+        account_button.setObjectName(
+            "accountButton"
+        )
+
+        account_button.setFixedHeight(
+            72
+        )
+
+        account_button.setLayoutDirection(
+            Qt.LeftToRight
+        )
+
+        account_layout = QHBoxLayout(
+            account_button
+        )
+
+        account_layout.setContentsMargins(
+            12,
+            8,
+            3,
+            8
+        )
+
+        account_layout.setSpacing(
+            10
+        )
+
+        account_layout.setDirection(
+            QHBoxLayout.LeftToRight
+        )
+
+        avatar = QLabel()
+
+        avatar.setFixedSize(
+            44,
+            44
+        )
+
+        avatar.setAlignment(
+            Qt.AlignCenter
+        )
+
+        avatar.setText(
+            name[0]
+        )
+
+        avatar.setStyleSheet("""
+            QLabel {
+                background-color: #E8F0FE;
+                color: #1961C7;
+                border-radius: 22px;
+                font-size: 17px;
+                font-weight: 600;
+            }
+        """)
+
+        account_layout.addWidget(
+            avatar
+        )
+
+        account_info = QVBoxLayout()
+
+        account_info.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        account_info.setSpacing(
+            2
+        )
+
+        account_info.setAlignment(
+            Qt.AlignRight |
+            Qt.AlignVCenter
+        )
+
+        name_label = QLabel(
+            name
+        )
+
+        name_label.setObjectName(
+            "accountName"
+        )
+
+        name_label.setAlignment(
+            Qt.AlignRight |
+            Qt.AlignVCenter
+        )
+
+        email_label = QLabel(
+            email
+        )
+
+        email_label.setObjectName(
+            "accountEmail"
+        )
+
+        email_label.setAlignment(
+            Qt.AlignRight |
+            Qt.AlignVCenter
+        )
+
+        account_info.addWidget(
+            name_label,
+            0,
+            Qt.AlignRight
+        )
+
+        account_info.addWidget(
+            email_label,
+            0,
+            Qt.AlignRight
+        )
+
+        account_layout.addLayout(
+            account_info,
+            1
+        )
+
+        account_button.clicked.connect(
+            lambda checked=False,
+            selected_email=email:
+            self.select_account(
+                selected_email
+            )
+        )
+
+        main_layout.addWidget(
+            account_button
+        )
+
+    def back_to_login(self):
+
+        if self.parent_window is not None:
+
+            self.parent_window.show()
+
+            self.parent_window.raise_()
+
+            self.parent_window.activateWindow()
+
+        self.close()
+
+    def select_account(
+        self,
+        email
+    ):
+
+        from profileSetupWindow import ProfileSetupWindow
+
+        self.profile_window = ProfileSetupWindow(
+            email
+        )
+
+        self.profile_window.show()
+
+        self.close()
+
+        if self.parent_window is not None:
+
+            self.parent_window.close()
+
+    def open_other_account(self):
+
+        self.other_account_window = OtherGoogleWindow(
+            self
+        )
+
+        self.other_account_window.show()
+
+        self.close()
+
+# =========================================================
+# OTHER GOOGLE ACCOUNT WINDOW
+# =========================================================
+
+class OtherGoogleWindow(QWidget):
+
+    def __init__(
+        self,
+        parent_google=None
+    ):
+
+        super().__init__()
+
+        self.parent_google = parent_google
+
+        self.setWindowTitle(
+            "ورود با Google"
+        )
+
+        self.resize(
+            500,
+            500
+        )
+
+        self.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.setup_ui()
+
+    def setup_ui(self):
+
+        layout = QVBoxLayout(
+            self
+        )
+
+        layout.setContentsMargins(
+            50,
+            50,
+            50,
+            40
+        )
+
+        layout.setSpacing(
+            14
+        )
+
+        top_layout = QHBoxLayout()
+
+        top_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0
+        )
+
+        top_layout.setSpacing(
+            0
+        )
+
+        top_layout.setDirection(
+            QHBoxLayout.LeftToRight
+        )
+
+        back_button = QPushButton(
+            "→"
+        )
+
+        back_button.setFixedSize(
+            40,
+            40
+        )
+
+        back_button.setLayoutDirection(
+            Qt.LeftToRight
+        )
+
+        back_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        back_button.clicked.connect(
+            self.back_to_accounts
+        )
+
+        back_button.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                border: 1px solid #D9E2EC;
+                border-radius: 20px;
+                padding: 0px;
+                margin: 0px;
+                color: #1D2939;
+                font-size: 22px;
+            }
+
+            QPushButton:hover {
+                background-color: #EAF3FF;
+                border: 1px solid #BFD5EE;
+                color: #1961C7;
+            }
+
+            QPushButton:pressed {
+                background-color: #EAF3FF;
+                border: 1px solid #BFD5EE;
+            }
+        """)
+
+        top_layout.addWidget(
+            back_button,
+            0,
+            Qt.AlignRight
+        )
+
+        layout.addLayout(
+            top_layout
+        )
+
+        logo = QLabel()
+
+        logo.setFixedHeight(
+            50
+        )
+
+        logo.setAlignment(
+            Qt.AlignCenter
+        )
+
+        project_folder = os.path.dirname(
+            os.path.abspath(__file__)
+        )
+
+        google_path = os.path.join(
+            project_folder,
+            "google.png"
+        )
+
+        pixmap = QPixmap(
+            google_path
+        )
+
+        if not pixmap.isNull():
+
+            pixmap = pixmap.scaled(
+                42,
+                42,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+
+            logo.setPixmap(
+                pixmap
+            )
+
+        layout.addWidget(
+            logo
+        )
+
+        title = QLabel(
+            "ورود با Google"
+        )
+
+        title.setAlignment(
+            Qt.AlignCenter
+        )
+
+        title.setStyleSheet("""
+            color: #202124;
+            font-size: 23px;
+            font-weight: 600;
+        """)
+
+        layout.addWidget(
+            title
+        )
+
+        subtitle = QLabel(
+            "ایمیل خود را وارد کنید"
+        )
+
+        subtitle.setAlignment(
+            Qt.AlignCenter
+        )
+
+        subtitle.setStyleSheet("""
+            color: #5F6368;
+            font-size: 13px;
+        """)
+
+        layout.addWidget(
+            subtitle
+        )
+
+        layout.addSpacing(
+            15
+        )
+
+        self.email_input = QLineEdit()
+
+        self.email_input.setPlaceholderText(
+            "ایمیل"
+        )
+
+        self.email_input.setFixedHeight(
+            50
+        )
+
+        self.email_input.setLayoutDirection(
+            Qt.LeftToRight
+        )
+
+        layout.addWidget(
+            self.email_input
+        )
+
+        continue_button = QPushButton(
+            "ادامه"
+        )
+
+        continue_button.setFixedHeight(
+            48
+        )
+
+        continue_button.setStyleSheet("""
+            QPushButton {
+                background-color: #1A73E8;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+
+            QPushButton:hover {
+                background-color: #1765CC;
+            }
+        """)
+
+        continue_button.clicked.connect(
+            self.continue_login
+        )
+
+        layout.addWidget(
+            continue_button
+        )
+
+        layout.addStretch()
+
+        self.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                font-family: "Vazirmatn";
+            }
+
+            QLineEdit {
+                background-color: white;
+                color: #202124;
+                border: 1px solid #DADCE0;
+                border-radius: 8px;
+                padding: 0 14px;
+                font-size: 13px;
+            }
+
+            QLineEdit:focus {
+                border: 2px solid #1A73E8;
+            }
+        """)
+
+    def continue_login(self):
+
+        email = (
+            self.email_input
+            .text()
+            .strip()
+        )
+
+        if not email:
+            return
+
+        from profileSetupWindow import ProfileSetupWindow
+
+        self.profile_window = ProfileSetupWindow(
+            email
+        )
+
+        self.profile_window.show()
+
+        self.close()
+
+    def back_to_accounts(self):
+
+        if self.parent_google is not None:
+
+            self.parent_google.show()
+
+            self.parent_google.raise_()
+
+            self.parent_google.activateWindow()
+
+        self.close()
+
+# =========================================================
+# LOGIN WINDOW
+# =========================================================
 
 class LoginWindow(QWidget):
 
@@ -27,38 +1184,47 @@ class LoginWindow(QWidget):
         change_phone=False,
         parent_profile=None
     ):
+
         super().__init__()
 
         self.change_phone_mode = change_phone
         self.parent_profile = parent_profile
 
-        self.setWindowTitle("ورود")
-        self.resize(900, 700)
-        self.setLayoutDirection(Qt.RightToLeft)
+        self.setWindowTitle(
+            "ورود"
+        )
+
+        self.resize(
+            900,
+            700
+        )
+
+        self.setLayoutDirection(
+            Qt.RightToLeft
+        )
 
         self.setup_ui()
 
-    # ==========================================
-    # UI
-    # ==========================================
-
     def setup_ui(self):
 
-        main_layout = QVBoxLayout(self)
-
-        # فقط ۳۰ پیکسل از بالای صفحه
-        # فاصله بین آیتم‌ها ۵ پیکسل
-        main_layout.setContentsMargins(
-            0, 30, 0, 10
+        main_layout = QVBoxLayout(
+            self
         )
 
-        main_layout.setSpacing(2)
+        main_layout.setContentsMargins(
+            0,
+            30,
+            0,
+            10
+        )
 
-        # ==========================================
-        # خوش آمدید
-        # ==========================================
+        main_layout.setSpacing(
+            2
+        )
 
-        welcome = QLabel("خوش آمدید 👋")
+        welcome = QLabel(
+            "خوش آمدید 👋"
+        )
 
         welcome.setObjectName(
             "welcome"
@@ -79,10 +1245,6 @@ class LoginWindow(QWidget):
             Qt.AlignHCenter
         )
 
-        # ==========================================
-        # نحوه ورود
-        # ==========================================
-
         description_box = QWidget()
 
         description_box.setFixedWidth(
@@ -98,10 +1260,15 @@ class LoginWindow(QWidget):
         )
 
         description_layout.setContentsMargins(
-            0, 0, 0, 0
+            0,
+            0,
+            0,
+            0
         )
 
-        description_layout.setSpacing(0)
+        description_layout.setSpacing(
+            0
+        )
 
         description = QLabel(
             "نحوه ورود خود را انتخاب کنید"
@@ -127,10 +1294,6 @@ class LoginWindow(QWidget):
             Qt.AlignHCenter
         )
 
-        # ==========================================
-        # انتخاب شماره موبایل / ایمیل
-        # ==========================================
-
         self.login_type_box = QFrame()
 
         self.login_type_box.setObjectName(
@@ -147,10 +1310,15 @@ class LoginWindow(QWidget):
         )
 
         tabs_layout.setContentsMargins(
-            2, 2, 2, 2
+            2,
+            2,
+            2,
+            2
         )
 
-        tabs_layout.setSpacing(4)
+        tabs_layout.setSpacing(
+            4
+        )
 
         self.phone_tab = QPushButton(
             "ورود با شماره تلفن"
@@ -200,10 +1368,6 @@ class LoginWindow(QWidget):
             Qt.AlignHCenter
         )
 
-        # ==========================================
-        # فرم شماره / ایمیل
-        # ==========================================
-
         self.form_frame = QFrame()
 
         self.form_frame.setObjectName(
@@ -219,20 +1383,21 @@ class LoginWindow(QWidget):
         )
 
         self.form_layout.setContentsMargins(
-            0, 0, 0, 0
+            0,
+            0,
+            0,
+            0
         )
 
-        self.form_layout.setSpacing(0)
+        self.form_layout.setSpacing(
+            0
+        )
 
         main_layout.addWidget(
             self.form_frame,
             0,
             Qt.AlignHCenter
         )
-
-        # ==========================================
-        # دریافت کد تأیید
-        # ==========================================
 
         self.login_button = QPushButton(
             "دریافت کد تأیید"
@@ -248,7 +1413,7 @@ class LoginWindow(QWidget):
         )
 
         self.login_button.clicked.connect(
-            self.open_verify
+            self.open_login
         )
 
         main_layout.addWidget(
@@ -257,13 +1422,7 @@ class LoginWindow(QWidget):
             Qt.AlignHCenter
         )
 
-        # ==========================================
-        # ورود با Google
-        # ==========================================
-
-        self.google_button = QPushButton(
-            "ورود با Google"
-        )
+        self.google_button = QPushButton()
 
         self.google_button.setObjectName(
             "googleButton"
@@ -274,15 +1433,88 @@ class LoginWindow(QWidget):
             44
         )
 
+        google_layout = QHBoxLayout(
+            self.google_button
+        )
+
+        google_layout.setContentsMargins(
+            10,
+            0,
+            10,
+            0
+        )
+
+        google_layout.setSpacing(
+            8
+        )
+
+        google_layout.addStretch()
+
+        google_text = QLabel(
+            "ورود با Google"
+        )
+
+        google_text.setObjectName(
+            "googleText"
+        )
+
+        google_text.setAttribute(
+            Qt.WA_TransparentForMouseEvents
+        )
+
+        google_icon = QLabel()
+
+        google_icon.setFixedSize(
+            22,
+            22
+        )
+
+        google_icon.setAttribute(
+            Qt.WA_TransparentForMouseEvents
+        )
+
+        google_pixmap = QPixmap(
+            self.image_path(
+                "google.png"
+            )
+        )
+
+        if not google_pixmap.isNull():
+
+            google_pixmap = google_pixmap.scaled(
+                20,
+                20,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation
+            )
+
+            google_icon.setPixmap(
+                google_pixmap
+            )
+
+        google_icon.setAlignment(
+            Qt.AlignCenter
+        )
+
+        google_layout.addWidget(
+            google_text
+        )
+
+        google_layout.addWidget(
+            google_icon
+        )
+
+        google_layout.addStretch()
+
+        self.google_button.clicked.connect(
+            self.open_google
+        )
+
         main_layout.addWidget(
             self.google_button,
             0,
             Qt.AlignHCenter
         )
-
-        # ==========================================
-        # شرایط استفاده
-        # ==========================================
 
         terms_widget = QWidget()
 
@@ -295,10 +1527,15 @@ class LoginWindow(QWidget):
         )
 
         terms_layout.setContentsMargins(
-            0, 0, 0, 0
+            0,
+            0,
+            0,
+            0
         )
 
-        terms_layout.setSpacing(3)
+        terms_layout.setSpacing(
+            3
+        )
 
         terms_text = QLabel(
             "با ورود، موافقم با"
@@ -336,10 +1573,6 @@ class LoginWindow(QWidget):
             Qt.AlignHCenter
         )
 
-        # ==========================================
-        # متن شرایط استفاده
-        # ==========================================
-
         self.terms_details = QLabel()
 
         self.terms_details.setObjectName(
@@ -371,10 +1604,6 @@ class LoginWindow(QWidget):
             self.toggle_terms
         )
 
-        # ==========================================
-        # استایل
-        # ==========================================
-
         self.setStyleSheet("""
 
             QWidget {
@@ -383,16 +1612,12 @@ class LoginWindow(QWidget):
                 font-family: "Vazirmatn";
             }
 
-            /* خوش آمدید */
-
             #welcome {
                 background-color: transparent;
                 color: #1D2939;
                 font-size: 26px;
                 font-weight: 700;
             }
-
-            /* نحوه ورود */
 
             #description {
                 background-color: transparent;
@@ -401,8 +1626,6 @@ class LoginWindow(QWidget):
                 font-weight: 500;
                 padding: 0;
             }
-
-            /* انتخاب نوع ورود */
 
             #loginTypeBox {
                 background-color: white;
@@ -417,43 +1640,40 @@ class LoginWindow(QWidget):
                 padding: 0;
             }
 
-            /* فرم */
-
             #formFrame {
                 background-color: transparent;
                 border: none;
             }
 
-            /* کشور */
-
             #countryBox {
                 background-color: white;
                 border: 1px solid #D9E2EC;
-                border-radius: 11px;
+                border-radius: 13px;
             }
 
             #countryCombo {
                 background-color: white;
                 color: #1D2939;
                 border: none;
-                font-size: 13px;
-                padding: 0;
+                border-radius: 10px;
+                font-size: 20px;
+                padding: 0 5px;
+            }
+
+            #countryCombo:focus {
+                border: none;
+                background-color: #F8FAFD;
+            }
+
+            #countryCombo:hover {
+                background-color: #F8FAFD;
             }
 
             #countryCombo::drop-down {
+                width: 22px;
                 border: none;
-                width: 20px;
+                background-color: transparent;
             }
-
-            #countryCombo QAbstractItemView {
-                background-color: white;
-                color: #1D2939;
-                border: 1px solid #D9E2EC;
-                selection-background-color: #EAF3FF;
-                selection-color: #1961C7;
-            }
-
-            /* شماره موبایل */
 
             #phoneInput {
                 background-color: white;
@@ -462,8 +1682,6 @@ class LoginWindow(QWidget):
                 font-size: 13px;
                 padding: 0 12px;
             }
-
-            /* ایمیل */
 
             #emailInput {
                 background-color: white;
@@ -478,8 +1696,6 @@ class LoginWindow(QWidget):
                 border: 1px solid #4589E8;
             }
 
-            /* دریافت کد */
-
             #loginButton {
                 background-color: #4589E8;
                 color: white;
@@ -493,21 +1709,24 @@ class LoginWindow(QWidget):
                 background-color: #3479D8;
             }
 
-            /* Google */
-
             #googleButton {
                 background-color: white;
                 color: #1D2939;
                 border: 1px solid #D9E2EC;
                 border-radius: 11px;
-                font-size: 14px;
             }
 
             #googleButton:hover {
                 background-color: #EAF3FF;
+                border: 1px solid #C8DDF5;
             }
 
-            /* متن شرایط */
+            #googleText {
+                background-color: transparent;
+                color: #1D2939;
+                font-size: 14px;
+                font-weight: 500;
+            }
 
             #termsText {
                 background-color: transparent;
@@ -534,7 +1753,6 @@ class LoginWindow(QWidget):
             }
         """)
 
-        # فرم اولیه
         self.set_tabs(
             True,
             False
@@ -542,9 +1760,19 @@ class LoginWindow(QWidget):
 
         self.show_phone_form()
 
-    # ==========================================
-    # تغییر تب‌ها
-    # ==========================================
+    def image_path(
+        self,
+        filename
+    ):
+
+        project_folder = os.path.dirname(
+            os.path.abspath(__file__)
+        )
+
+        return os.path.join(
+            project_folder,
+            filename
+        )
 
     def set_tabs(
         self,
@@ -599,10 +1827,6 @@ class LoginWindow(QWidget):
             else normal_style
         )
 
-    # ==========================================
-    # فرم شماره موبایل
-    # ==========================================
-
     def show_phone_form(self):
 
         self.clear_form()
@@ -623,10 +1847,6 @@ class LoginWindow(QWidget):
         self.login_button.setText(
             "دریافت کد تأیید"
         )
-
-    # ==========================================
-    # فرم ایمیل
-    # ==========================================
 
     def show_email_form(self):
 
@@ -663,26 +1883,24 @@ class LoginWindow(QWidget):
             "ورود"
         )
 
-    # ==========================================
-    # پاک کردن فرم
-    # ==========================================
-
     def clear_form(self):
 
         while self.form_layout.count():
 
-            item = self.form_layout.takeAt(0)
+            item = self.form_layout.takeAt(
+                0
+            )
 
             widget = item.widget()
 
             if widget is not None:
+
                 widget.deleteLater()
 
-    # ==========================================
-    # مسیر پرچم
-    # ==========================================
-
-    def flag_path(self, filename):
+    def flag_path(
+        self,
+        filename
+    ):
 
         project_folder = os.path.dirname(
             os.path.abspath(__file__)
@@ -694,10 +1912,6 @@ class LoginWindow(QWidget):
             filename
         )
 
-    # ==========================================
-    # انتخاب کشور
-    # ==========================================
-
     def create_country_selector(self):
 
         country_box = QFrame()
@@ -707,7 +1921,7 @@ class LoginWindow(QWidget):
         )
 
         country_box.setFixedHeight(
-            48
+            60
         )
 
         country_box.setLayoutDirection(
@@ -719,27 +1933,28 @@ class LoginWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            8, 3, 8, 3
+            8,
+            3,
+            8,
+            3
         )
 
         layout.setSpacing(
-            7
+            0
         )
 
-        # کشور
-
-        self.country_combo = QComboBox()
+        self.country_combo = FlagComboBox()
 
         self.country_combo.setObjectName(
             "countryCombo"
         )
 
         self.country_combo.setFixedWidth(
-            95
+            114
         )
 
         self.country_combo.setFixedHeight(
-            38
+            40
         )
 
         self.country_combo.setLayoutDirection(
@@ -762,7 +1977,9 @@ class LoginWindow(QWidget):
                 flag_file
             )
 
-            pixmap = QPixmap(path)
+            pixmap = QPixmap(
+                path
+            )
 
             if pixmap.isNull():
 
@@ -778,8 +1995,8 @@ class LoginWindow(QWidget):
             else:
 
                 pixmap = pixmap.scaled(
-                    28,
-                    19,
+                    30,
+                    20,
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation
                 )
@@ -788,8 +2005,6 @@ class LoginWindow(QWidget):
                     pixmap,
                     code
                 )
-
-        # خط جداکننده
 
         line = QFrame()
 
@@ -804,8 +2019,6 @@ class LoginWindow(QWidget):
         line.setStyleSheet(
             "background-color: #E4E7EC;"
         )
-
-        # شماره
 
         self.phone_input = QLineEdit()
 
@@ -844,9 +2057,37 @@ class LoginWindow(QWidget):
 
         return country_box
 
-    # ==========================================
-    # باز کردن Verify
-    # ==========================================
+    def open_login(self):
+
+        if hasattr(
+            self,
+            "email_input"
+        ):
+
+            email = (
+                self.email_input
+                .text()
+                .strip()
+            )
+
+            if not email:
+                return
+
+            from profileSetupWindow import ProfileSetupWindow
+
+            self.profile_window = (
+                ProfileSetupWindow(
+                    email
+                )
+            )
+
+            self.profile_window.show()
+
+            self.close()
+
+            return
+
+        self.open_verify()
 
     def open_verify(self):
 
@@ -854,6 +2095,7 @@ class LoginWindow(QWidget):
             self,
             "phone_input"
         ):
+
             return
 
         phone_number = (
@@ -875,9 +2117,17 @@ class LoginWindow(QWidget):
 
         self.close()
 
-    # ==========================================
-    # نمایش / مخفی کردن شرایط
-    # ==========================================
+    def open_google(self):
+
+        self.google_window = GoogleLoginWindow(
+            self
+        )
+
+        self.google_window.show()
+
+        self.google_window.raise_()
+
+        self.google_window.activateWindow()
 
     def toggle_terms(self):
 
@@ -889,9 +2139,9 @@ class LoginWindow(QWidget):
 
             self.terms_details.show()
 
-# ==========================================
-# اجرای برنامه
-# ==========================================
+# =========================================================
+# MAIN
+# =========================================================
 
 if __name__ == "__main__":
 

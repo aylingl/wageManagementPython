@@ -650,7 +650,7 @@ class HomeWindow(QWidget):
         group_btn = self.create_nav_button(
             "🏢",
             "مجموعه",
-            self.show_group_menu
+            self.Open_groups
         )
 
         home_btn = self.create_nav_button(
@@ -1611,3 +1611,22 @@ class HomeWindow(QWidget):
             self.pos()
         )
         self.cartable_window.show()
+    # =====================================================
+    # GROUP
+    # =====================================================
+    def Open_groups(self):
+        from groupsWindow import GroupsWindow
+        self.groups_window = GroupsWindow(
+            self,
+            self.phone_number
+        )
+
+        self.groups_window.resize(
+            self.size()
+        )
+        self.groups_window.move(
+            self.pos()
+        )
+
+        self.groups_window.show()
+        self.groups_window.raise_()

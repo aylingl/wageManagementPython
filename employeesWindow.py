@@ -137,7 +137,7 @@ class EmployeesWindow(QWidget):
         # =================================================
 
         back_button = QPushButton(
-            "›"
+           "›" 
         )
 
         back_button.setObjectName(

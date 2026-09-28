@@ -8,13 +8,158 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QDateEdit,
     QScrollArea,
-    QMessageBox
+    QMessageBox,
+    QScrollBar
 )
 
 from PySide6.QtCore import Qt, QDate
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QPixmap, QPainter, QColor
 
 import os
+
+# =========================================================
+# ROUND SCROLL BAR
+# =========================================================
+
+class RoundScrollBar(QScrollBar):
+
+    def __init__(self, orientation=Qt.Vertical, parent=None):
+        super().__init__(orientation, parent)
+
+        self.setFixedWidth(14)
+
+        self.setStyleSheet("""
+            QScrollBar {
+                background: transparent;
+                border: none;
+            }
+        """)
+
+    def paintEvent(self, event):
+
+        painter = QPainter(self)
+        painter.setRenderHint(
+            QPainter.Antialiasing
+        )
+
+        # -------------------------------------------------
+        # Track
+        # -------------------------------------------------
+
+        track_width = 6
+
+        track_x = (
+            self.width() - track_width
+        ) / 2
+
+        track_top = 5
+        track_bottom = self.height() - 5
+
+        track_height = (
+            track_bottom - track_top
+        )
+
+        painter.setPen(Qt.NoPen)
+
+        painter.setBrush(
+            QColor("#E5ECF5")
+        )
+
+        painter.drawRoundedRect(
+            int(track_x),
+            int(track_top),
+            track_width,
+            int(track_height),
+            track_width / 2,
+            track_width / 2
+        )
+
+        # -------------------------------------------------
+        # Calculate handle
+        # -------------------------------------------------
+
+        minimum = self.minimum()
+        maximum = self.maximum()
+        page_step = self.pageStep()
+
+        if maximum <= minimum:
+            return
+
+        groove_top = 5
+        groove_bottom = self.height() - 5
+        groove_height = (
+            groove_bottom - groove_top
+        )
+
+        # اندازه دسته
+        total_range = (
+            maximum - minimum + page_step
+        )
+
+        handle_height = int(
+            groove_height *
+            page_step /
+            total_range
+        )
+
+        # حداقل ارتفاع دسته
+        handle_height = max(
+            42,
+            handle_height
+        )
+
+        # نباید از فضای موجود بزرگ‌تر شود
+        handle_height = min(
+            handle_height,
+            groove_height
+        )
+
+        available_space = (
+            groove_height - handle_height
+        )
+
+        if maximum == minimum:
+            handle_y = groove_top
+
+        else:
+            value_ratio = (
+                self.value() - minimum
+            ) / (
+                maximum - minimum
+            )
+
+            handle_y = (
+                groove_top +
+                available_space *
+                value_ratio
+            )
+
+        # -------------------------------------------------
+        # Round Handle
+        # -------------------------------------------------
+
+        handle_width = 10
+
+        handle_x = (
+            self.width() - handle_width
+        ) / 2
+
+        painter.setBrush(
+            QColor("#4589E8")
+        )
+
+        painter.drawRoundedRect(
+            int(handle_x),
+            int(handle_y),
+            handle_width,
+            int(handle_height),
+            handle_width / 2,
+            handle_width / 2
+        )
+
+# =========================================================
+# EDIT PROFILE WINDOW
+# =========================================================
 
 class EditProfileWindow(QWidget):
 
@@ -37,67 +182,139 @@ class EditProfileWindow(QWidget):
         self.avatar = avatar
 
         if birth_date is None:
-            self.birth_date = QDate(1370, 1, 1)
-        elif isinstance(birth_date, QDate):
-            self.birth_date = birth_date
-        else:
-            self.birth_date = QDate(1370, 1, 1)
+            self.birth_date = QDate(
+                1370,
+                1,
+                1
+            )
 
-        self.setWindowTitle("ویرایش پروفایل")
-        self.setMinimumSize(700, 650)
-        self.setLayoutDirection(Qt.RightToLeft)
+        elif isinstance(
+            birth_date,
+            QDate
+        ):
+            self.birth_date = birth_date
+
+        else:
+            self.birth_date = QDate(
+                1370,
+                1,
+                1
+            )
+
+        self.setWindowTitle(
+            "ویرایش پروفایل"
+        )
+
+        self.setMinimumSize(
+            700,
+            650
+        )
+
+        self.setLayoutDirection(
+            Qt.RightToLeft
+        )
 
         self.setup_ui()
 
-    # =========================================================
+    # =====================================================
     # UI
-    # =========================================================
+    # =====================================================
 
     def setup_ui(self):
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(30, 25, 30, 25)
+
+        main_layout.setContentsMargins(
+            30,
+            25,
+            30,
+            25
+        )
+
         main_layout.setSpacing(18)
 
-        # =====================================================
+        # =================================================
         # HEADER
-        # =====================================================
+        # =================================================
 
         header_layout = QHBoxLayout()
+
         header_layout.setSpacing(12)
 
-        back_button = QPushButton("→")
-        back_button.setObjectName("backButton")
-        back_button.setFixedSize(42, 42)
-        back_button.setCursor(Qt.PointingHandCursor)
-        back_button.clicked.connect(self.close)
+        back_button = QPushButton("›")
 
-        header_layout.addWidget(back_button)
+        back_button.setObjectName(
+            "backButton"
+        )
+
+        back_button.setFixedSize(
+            42,
+            42
+        )
+
+        back_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        back_button.clicked.connect(
+            self.close
+        )
+
+        header_layout.addWidget(
+            back_button
+        )
 
         title_layout = QVBoxLayout()
+
         title_layout.setSpacing(3)
 
-        title = QLabel("ویرایش پروفایل")
-        title.setObjectName("title")
+        title = QLabel(
+            "ویرایش پروفایل"
+        )
 
-        subtitle = QLabel("اطلاعات حساب کاربری خود را ویرایش کنید")
-        subtitle.setObjectName("subtitle")
+        title.setObjectName(
+            "title"
+        )
 
-        title_layout.addWidget(title)
-        title_layout.addWidget(subtitle)
+        subtitle = QLabel(
+            "اطلاعات حساب کاربری خود را ویرایش کنید"
+        )
 
-        header_layout.addLayout(title_layout)
+        subtitle.setObjectName(
+            "subtitle"
+        )
+
+        title_layout.addWidget(
+            title
+        )
+
+        title_layout.addWidget(
+            subtitle
+        )
+
+        header_layout.addLayout(
+            title_layout
+        )
+
         header_layout.addStretch()
 
-        main_layout.addLayout(header_layout)
+        main_layout.addLayout(
+            header_layout
+        )
 
-        # =====================================================
-        # SCROLL
-        # =====================================================
+        # =================================================
+        # SCROLL AREA
+        # =================================================
 
         scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+
+        scroll.setWidgetResizable(
+            True
+        )
+
+        scroll.setFrameShape(
+            QFrame.NoFrame
+        )
 
         scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarAlwaysOff
@@ -107,192 +324,455 @@ class EditProfileWindow(QWidget):
             Qt.ScrollBarAsNeeded
         )
 
+        # اسکرول‌بار واقعی خودمان
+        scroll_bar = RoundScrollBar(
+            Qt.Vertical
+        )
+
+        scroll.setVerticalScrollBar(
+            scroll_bar
+        )
+
         content = QWidget()
-        content.setObjectName("scrollContent")
 
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 14, 0)
-        content_layout.setSpacing(16)
+        content.setObjectName(
+            "scrollContent"
+        )
 
-        scroll.setWidget(content)
+        content_layout = QVBoxLayout(
+            content
+        )
 
-        # =====================================================
+        # فاصله سمت راست برای اینکه اسکرول
+        # به کارت‌ها نچسبد
+        content_layout.setContentsMargins(
+            0,
+            0,
+            12,
+            0
+        )
+
+        content_layout.setSpacing(
+            16
+        )
+
+        scroll.setWidget(
+            content
+        )
+
+        # =================================================
         # PROFILE CARD
-        # =====================================================
+        # =================================================
 
         profile_box = QFrame()
-        profile_box.setObjectName("profileBox")
 
-        profile_layout = QVBoxLayout(profile_box)
-        profile_layout.setContentsMargins(20, 20, 20, 20)
-        profile_layout.setSpacing(12)
+        profile_box.setObjectName(
+            "profileBox"
+        )
 
-        profile_title = QLabel("پروفایل")
-        profile_title.setObjectName("sectionTitle")
+        profile_layout = QVBoxLayout(
+            profile_box
+        )
 
-        profile_layout.addWidget(profile_title)
+        profile_layout.setContentsMargins(
+            20,
+            20,
+            20,
+            20
+        )
+
+        profile_layout.setSpacing(
+            12
+        )
+
+        profile_title = QLabel(
+            "پروفایل"
+        )
+
+        profile_title.setObjectName(
+            "sectionTitle"
+        )
+
+        profile_layout.addWidget(
+            profile_title
+        )
 
         avatar_layout = QVBoxLayout()
-        avatar_layout.setAlignment(Qt.AlignCenter)
-        avatar_layout.setSpacing(8)
+
+        avatar_layout.setAlignment(
+            Qt.AlignCenter
+        )
+
+        avatar_layout.setSpacing(
+            8
+        )
 
         self.avatar_label = QLabel()
-        self.avatar_label.setObjectName("avatar")
 
-        self.avatar_label.setFixedSize(100, 100)
-        self.avatar_label.setAlignment(Qt.AlignCenter)
+        self.avatar_label.setObjectName(
+            "avatar"
+        )
+
+        self.avatar_label.setFixedSize(
+            100,
+            100
+        )
+
+        self.avatar_label.setAlignment(
+            Qt.AlignCenter
+        )
 
         self.load_avatar()
 
-        avatar_layout.addWidget(self.avatar_label)
+        avatar_layout.addWidget(
+            self.avatar_label
+        )
 
-        change_avatar_button = QPushButton("تغییر تصویر")
-        change_avatar_button.setObjectName("changeAvatarButton")
-        change_avatar_button.setCursor(Qt.PointingHandCursor)
+        change_avatar_button = QPushButton(
+            "تغییر تصویر"
+        )
+
+        change_avatar_button.setObjectName(
+            "changeAvatarButton"
+        )
+
+        change_avatar_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        change_avatar_button.clicked.connect(
+            self.change_avatar
+        )
 
         avatar_layout.addWidget(
             change_avatar_button,
             alignment=Qt.AlignCenter
         )
 
-        profile_layout.addLayout(avatar_layout)
+        profile_layout.addLayout(
+            avatar_layout
+        )
 
-        content_layout.addWidget(profile_box)
+        content_layout.addWidget(
+            profile_box
+        )
 
-        # =====================================================
+        # =================================================
         # PERSONAL INFORMATION
-        # =====================================================
+        # =================================================
 
         information_box = QFrame()
-        information_box.setObjectName("profileBox")
 
-        information_layout = QVBoxLayout(information_box)
-        information_layout.setContentsMargins(20, 20, 20, 20)
-        information_layout.setSpacing(14)
+        information_box.setObjectName(
+            "profileBox"
+        )
 
-        information_title = QLabel("اطلاعات شخصی")
-        information_title.setObjectName("sectionTitle")
+        information_layout = QVBoxLayout(
+            information_box
+        )
 
-        information_layout.addWidget(information_title)
+        information_layout.setContentsMargins(
+            20,
+            20,
+            20,
+            20
+        )
 
-        # -----------------------------------------------------
+        information_layout.setSpacing(
+            14
+        )
+
+        information_title = QLabel(
+            "اطلاعات شخصی"
+        )
+
+        information_title.setObjectName(
+            "sectionTitle"
+        )
+
+        information_layout.addWidget(
+            information_title
+        )
+
+        # -------------------------------------------------
         # NAME
-        # -----------------------------------------------------
+        # -------------------------------------------------
 
-        name_label = QLabel("نام و نام خانوادگی")
-        name_label.setObjectName("fieldLabel")
+        name_label = QLabel(
+            "نام و نام خانوادگی"
+        )
+
+        name_label.setObjectName(
+            "fieldLabel"
+        )
 
         self.name_input = QLineEdit()
-        self.name_input.setObjectName("profileInput")
-        self.name_input.setText(self.username)
-        self.name_input.setPlaceholderText("نام و نام خانوادگی")
 
-        information_layout.addWidget(name_label)
-        information_layout.addWidget(self.name_input)
+        self.name_input.setObjectName(
+            "profileInput"
+        )
 
-        # -----------------------------------------------------
+        self.name_input.setText(
+            self.username
+        )
+
+        self.name_input.setPlaceholderText(
+            "نام و نام خانوادگی"
+        )
+
+        information_layout.addWidget(
+            name_label
+        )
+
+        information_layout.addWidget(
+            self.name_input
+        )
+
+        # -------------------------------------------------
         # PHONE
-        # -----------------------------------------------------
+        # -------------------------------------------------
 
-        phone_label = QLabel("شماره موبایل")
-        phone_label.setObjectName("fieldLabel")
+        phone_label = QLabel(
+            "ویرایش شماره تلفن یا ایمیل"
+        )
+
+        phone_label.setObjectName(
+            "fieldLabel"
+        )
 
         phone_button = QPushButton()
-        phone_button.setObjectName("phoneButton")
-        phone_button.setCursor(Qt.PointingHandCursor)
-        phone_button.setMinimumHeight(48)
 
-        phone_layout = QHBoxLayout(phone_button)
-        phone_layout.setContentsMargins(14, 8, 14, 8)
-        phone_layout.setSpacing(10)
+        phone_button.setObjectName(
+            "phoneButton"
+        )
+
+        phone_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        phone_button.setMinimumHeight(
+            48
+        )
+
+        phone_layout = QHBoxLayout(
+            phone_button
+        )
+
+        phone_layout.setContentsMargins(
+            14,
+            8,
+            14,
+            8
+        )
+
+        phone_layout.setSpacing(
+            10
+        )
 
         phone_text_layout = QVBoxLayout()
-        phone_text_layout.setSpacing(2)
 
-        self.phone_value = QLabel(self.phone_number)
-        self.phone_value.setObjectName("phoneValue")
+        phone_text_layout.setSpacing(
+            2
+        )
 
-        phone_hint = QLabel("برای تغییر شماره، تأیید شماره جدید لازم است")
-        phone_hint.setObjectName("phoneHint")
+        self.phone_value = QLabel(
+            self.phone_number
+        )
 
-        phone_text_layout.addWidget(self.phone_value)
-        phone_text_layout.addWidget(phone_hint)
+        self.phone_value.setObjectName(
+            "phoneValue"
+        )
+
+        phone_hint = QLabel(
+            "برای تغییر شماره، تأیید شماره جدید لازم است"
+        )
+
+        phone_hint.setObjectName(
+            "phoneHint"
+        )
+
+        phone_text_layout.addWidget(
+            self.phone_value
+        )
+
+        phone_text_layout.addWidget(
+            phone_hint
+        )
 
         phone_arrow = QLabel("‹")
-        phone_arrow.setObjectName("phoneArrow")
-        phone_arrow.setFixedWidth(25)
-        phone_arrow.setAlignment(Qt.AlignCenter)
 
-        phone_layout.addLayout(phone_text_layout, 1)
-        phone_layout.addWidget(phone_arrow)
+        phone_arrow.setObjectName(
+            "phoneArrow"
+        )
 
-        phone_button.clicked.connect(self.change_phone)
+        phone_arrow.setFixedWidth(
+            25
+        )
 
-        information_layout.addWidget(phone_label)
-        information_layout.addWidget(phone_button)
+        phone_arrow.setAlignment(
+            Qt.AlignCenter
+        )
 
-        # -----------------------------------------------------
+        phone_layout.addLayout(
+            phone_text_layout,
+            1
+        )
+
+        phone_layout.addWidget(
+            phone_arrow
+        )
+
+        phone_button.clicked.connect(
+            self.change_phone
+        )
+
+        information_layout.addWidget(
+            phone_label
+        )
+
+        information_layout.addWidget(
+            phone_button
+        )
+
+        # -------------------------------------------------
         # NATIONAL CODE
-        # -----------------------------------------------------
+        # -------------------------------------------------
 
-        national_label = QLabel("کد ملی")
-        national_label.setObjectName("fieldLabel")
+        national_label = QLabel(
+            "کد ملی"
+        )
+
+        national_label.setObjectName(
+            "fieldLabel"
+        )
 
         self.national_input = QLineEdit()
-        self.national_input.setObjectName("profileInput")
-        self.national_input.setText(self.national_code)
-        self.national_input.setPlaceholderText("کد ملی")
 
-        information_layout.addWidget(national_label)
-        information_layout.addWidget(self.national_input)
+        self.national_input.setObjectName(
+            "profileInput"
+        )
 
-        # -----------------------------------------------------
+        self.national_input.setText(
+            self.national_code
+        )
+
+        self.national_input.setPlaceholderText(
+            "کد ملی"
+        )
+
+        information_layout.addWidget(
+            national_label
+        )
+
+        information_layout.addWidget(
+            self.national_input
+        )
+
+        # -------------------------------------------------
         # BIRTH DATE
-        # -----------------------------------------------------
+        # -------------------------------------------------
 
-        birth_label = QLabel("تاریخ تولد")
-        birth_label.setObjectName("fieldLabel")
+        birth_label = QLabel(
+            "تاریخ تولد"
+        )
+
+        birth_label.setObjectName(
+            "fieldLabel"
+        )
 
         self.birth_date_input = QDateEdit()
-        self.birth_date_input.setObjectName("profileDate")
-        self.birth_date_input.setCalendarPopup(True)
-        self.birth_date_input.setDisplayFormat("yyyy/MM/dd")
-        self.birth_date_input.setDate(self.birth_date)
 
-        information_layout.addWidget(birth_label)
-        information_layout.addWidget(self.birth_date_input)
+        self.birth_date_input.setObjectName(
+            "profileDate"
+        )
 
-        content_layout.addWidget(information_box)
+        self.birth_date_input.setCalendarPopup(
+            True
+        )
+
+        self.birth_date_input.setDisplayFormat(
+            "yyyy/MM/dd"
+        )
+
+        self.birth_date_input.setDate(
+            self.birth_date
+        )
+
+        information_layout.addWidget(
+            birth_label
+        )
+
+        information_layout.addWidget(
+            self.birth_date_input
+        )
+
+        content_layout.addWidget(
+            information_box
+        )
 
         content_layout.addStretch()
 
-        main_layout.addWidget(scroll)
+        main_layout.addWidget(
+            scroll
+        )
 
-        # =====================================================
+        # =================================================
         # BOTTOM BUTTONS
-        # =====================================================
+        # =================================================
 
         buttons_layout = QHBoxLayout()
-        buttons_layout.setSpacing(10)
 
-        cancel_button = QPushButton("انصراف")
-        cancel_button.setObjectName("cancelButton")
-        cancel_button.setCursor(Qt.PointingHandCursor)
-        cancel_button.clicked.connect(self.close)
+        buttons_layout.setSpacing(
+            10
+        )
 
-        save_button = QPushButton("ذخیره تغییرات")
-        save_button.setObjectName("saveButton")
-        save_button.setCursor(Qt.PointingHandCursor)
-        save_button.clicked.connect(self.save_profile)
+        cancel_button = QPushButton(
+            "انصراف"
+        )
 
-        buttons_layout.addWidget(cancel_button)
-        buttons_layout.addWidget(save_button)
+        cancel_button.setObjectName(
+            "cancelButton"
+        )
 
-        main_layout.addLayout(buttons_layout)
+        cancel_button.setCursor(
+            Qt.PointingHandCursor
+        )
 
-        # =====================================================
+        cancel_button.clicked.connect(
+            self.close
+        )
+
+        save_button = QPushButton(
+            "ذخیره تغییرات"
+        )
+
+        save_button.setObjectName(
+            "saveButton"
+        )
+
+        save_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        save_button.clicked.connect(
+            self.save_profile
+        )
+
+        buttons_layout.addWidget(
+            cancel_button
+        )
+
+        buttons_layout.addWidget(
+            save_button
+        )
+
+        main_layout.addLayout(
+            buttons_layout
+        )
+
+        # =================================================
         # STYLE
-        # =====================================================
+        # =================================================
 
         self.setStyleSheet("""
 
@@ -301,22 +781,18 @@ class EditProfileWindow(QWidget):
                 font-family: Vazirmatn;
             }
 
-            /* ================================================
-               HEADER
-            ================================================ */
-
             QLabel#title {
                 color: #1E2F43;
                 font-size: 24px;
                 font-weight: 700;
-                background-color: transparent;
+                background: transparent;
                 border: none;
             }
 
             QLabel#subtitle {
                 color: #8290A1;
                 font-size: 13px;
-                background-color: transparent;
+                background: transparent;
                 border: none;
             }
 
@@ -334,27 +810,19 @@ class EditProfileWindow(QWidget):
                 border-color: #C9DDF5;
             }
 
-            /* ================================================
-               SCROLL
-            ================================================ */
-
             QScrollArea {
-                background-color: transparent;
+                background: transparent;
                 border: none;
             }
 
             QScrollArea::viewport {
-                background-color: transparent;
+                background: transparent;
                 border: none;
             }
 
             QWidget#scrollContent {
-                background-color: transparent;
+                background: transparent;
             }
-
-            /* ================================================
-               PROFILE BOX
-            ================================================ */
 
             QFrame#profileBox {
                 background-color: white;
@@ -370,10 +838,6 @@ class EditProfileWindow(QWidget):
                 font-size: 16px;
                 font-weight: 700;
             }
-
-            /* ================================================
-               AVATAR
-            ================================================ */
 
             QLabel#avatar {
                 background-color: #EAF3FF;
@@ -395,10 +859,6 @@ class EditProfileWindow(QWidget):
                 background-color: #DDEEFF;
                 border-color: #AFCFF0;
             }
-
-            /* ================================================
-               FIELDS
-            ================================================ */
 
             QLabel#fieldLabel {
                 color: #526273;
@@ -441,10 +901,6 @@ class EditProfileWindow(QWidget):
                 border: none;
             }
 
-            /* ================================================
-               PHONE
-            ================================================ */
-
             QPushButton#phoneButton {
                 background-color: #F8FBFF;
                 color: #1E2F43;
@@ -460,7 +916,7 @@ class EditProfileWindow(QWidget):
 
             QLabel#phoneValue {
                 color: #1E2F43;
-                background-color: transparent;
+                background: transparent;
                 border: none;
                 font-size: 13px;
                 font-weight: 600;
@@ -468,21 +924,17 @@ class EditProfileWindow(QWidget):
 
             QLabel#phoneHint {
                 color: #8290A1;
-                background-color: transparent;
+                background: transparent;
                 border: none;
                 font-size: 10px;
             }
 
             QLabel#phoneArrow {
                 color: #8290A1;
-                background-color: transparent;
+                background: transparent;
                 border: none;
                 font-size: 23px;
             }
-
-            /* ================================================
-               BOTTOM BUTTONS
-            ================================================ */
 
             QPushButton#cancelButton {
                 background-color: white;
@@ -512,37 +964,6 @@ class EditProfileWindow(QWidget):
             QPushButton#saveButton:hover {
                 background-color: #4589E8;
             }
-
-            /* ================================================
-               SCROLLBAR
-            ================================================ */
-
-            QScrollBar:vertical {
-                width: 9px;
-                background: #E8EEF6;
-                border-radius: 4px;
-                margin: 4px 8px 4px 0px;
-            }
-
-            QScrollBar::handle:vertical {
-                background: #4589E8;
-                border-radius: 4px;
-                min-height: 30px;
-            }
-
-            QScrollBar::handle:vertical:hover {
-                background: #1961C7;
-            }
-
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: transparent;
-            }
         """)
 
     # =========================================================
@@ -551,16 +972,23 @@ class EditProfileWindow(QWidget):
 
     def load_avatar(self):
 
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(
+            os.path.abspath(__file__)
+        )
+
         avatar_path = os.path.join(
             base_dir,
             "avatars",
             self.avatar
         )
 
-        if os.path.exists(avatar_path):
+        if os.path.exists(
+            avatar_path
+        ):
 
-            pixmap = QPixmap(avatar_path)
+            pixmap = QPixmap(
+                avatar_path
+            )
 
             pixmap = pixmap.scaled(
                 94,
@@ -569,10 +997,43 @@ class EditProfileWindow(QWidget):
                 Qt.SmoothTransformation
             )
 
-            self.avatar_label.setPixmap(pixmap)
+            self.avatar_label.setPixmap(
+                pixmap
+            )
 
         else:
-            self.avatar_label.setText("👤")
+
+            self.avatar_label.setText(
+                "👤"
+            )
+
+    # =========================================================
+    # CHANGE AVATAR
+    # =========================================================
+
+    def change_avatar(self):
+
+        from profileSetupWindow import ProfileSetupWindow
+
+        self.profile_setup_window = ProfileSetupWindow(
+            self.phone_number
+        )
+
+        self.profile_setup_window.resize(
+            self.size()
+        )
+
+        self.profile_setup_window.move(
+            self.pos()
+        )
+
+        self.profile_setup_window.show()
+
+        self.profile_setup_window.raise_()
+
+        self.profile_setup_window.activateWindow()
+
+        self.hide()
 
     # =========================================================
     # CHANGE PHONE
@@ -587,10 +1048,18 @@ class EditProfileWindow(QWidget):
             parent_profile=self
         )
 
-        self.login_window.resize(self.size())
-        self.login_window.move(self.pos())
+        self.login_window.resize(
+            self.size()
+        )
+
+        self.login_window.move(
+            self.pos()
+        )
+
         self.login_window.show()
+
         self.login_window.raise_()
+
         self.login_window.activateWindow()
 
         self.hide()
@@ -601,8 +1070,17 @@ class EditProfileWindow(QWidget):
 
     def save_profile(self):
 
-        name = self.name_input.text().strip()
-        national_code = self.national_input.text().strip()
+        name = (
+            self.name_input
+            .text()
+            .strip()
+        )
+
+        national_code = (
+            self.national_input
+            .text()
+            .strip()
+        )
 
         if not name:
 
@@ -613,11 +1091,16 @@ class EditProfileWindow(QWidget):
             )
 
             self.name_input.setFocus()
+
             return
 
         self.username = name
+
         self.national_code = national_code
-        self.birth_date = self.birth_date_input.date()
+
+        self.birth_date = (
+            self.birth_date_input.date()
+        )
 
         QMessageBox.information(
             self,
