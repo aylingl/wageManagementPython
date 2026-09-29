@@ -1633,7 +1633,7 @@ class AddEmployees(QWidget):
                 self.parent_window.refresh_employees()
 
         # =====================================================
-        # SUCCESS
+        # SUCCESS msg
         # =====================================================
 
         NiceMessageBox.success(
