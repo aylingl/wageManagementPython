@@ -7,42 +7,24 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QFrame,
     QLineEdit,
     QScrollArea,
     QBoxLayout,
     QStackedWidget,
     QComboBox,
-    QDateEdit,
     QTimeEdit,
     QDialog
 )
 
-from PySide6.QtCore import Qt, QTimer, QTime, QPoint, QDate
+from PySide6.QtCore import Qt, QTimer, QTime, QPoint, QDate, Signal
 from PySide6.QtGui import QPainter, QColor
 
 from database import Database
 
 # =========================================================
-# CLICKABLE DATE EDIT — کل فیلد کلیک‌پذیر
-# =========================================================
-
-class ClickableDateEdit(QDateEdit):
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        self.setCalendarPopup(True)
-
-    def mousePressEvent(self, event):
-
-        # هر جای فیلد کلیک بشه، تقویم باز می‌شه
-        self.calendarWidget().show()
-
-        event.accept()
-
-# =========================================================
-# JALALI HELPERS
+# JALALI CONVERSION
 # =========================================================
 
 def gregorian_to_jalali(gy, gm, gd):
@@ -86,6 +68,81 @@ def gregorian_to_jalali(gy, gm, gd):
 
     return jy, jm, jd
 
+def jalali_to_gregorian(jy, jm, jd):
+
+    jy += 1595
+
+    days = (
+        -355668
+        + (365 * jy)
+        + ((jy // 33) * 8)
+        + (((jy % 33) + 3) // 4)
+        + jd
+        + ((jm - 1) * 31 if jm < 7 else ((jm - 7) * 30) + 186)
+    )
+
+    gy = 400 * (days // 146097)
+    days %= 146097
+
+    if days > 36524:
+        days -= 1
+        gy += 100 * (days // 36524)
+        days %= 36524
+        if days >= 365:
+            days += 1
+
+    gy += 4 * (days // 1461)
+    days %= 1461
+
+    if days > 365:
+        gy += (days - 1) // 365
+        days = (days - 1) % 365
+
+    gd = days + 1
+
+    is_leap = (gy % 4 == 0 and gy % 100 != 0) or (gy % 400 == 0)
+
+    sal_a = [
+        0, 31,
+        29 if is_leap else 28,
+        31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+    ]
+
+    gm = 0
+    while gm < 13 and gd > sal_a[gm]:
+        gd -= sal_a[gm]
+        gm += 1
+
+    return gy, gm, gd
+
+def is_jalali_leap(jy):
+
+    try:
+        gy, gm, gd = jalali_to_gregorian(jy, 12, 30)
+        jy2, jm2, jd2 = gregorian_to_jalali(gy, gm, gd)
+
+        return (
+            jy2 == jy
+            and jm2 == 12
+            and jd2 == 30
+        )
+
+    except Exception:
+        return False
+
+def jalali_month_days(jy, jm):
+
+    if jm <= 6:
+        return 31
+
+    if jm <= 11:
+        return 30
+
+    if is_jalali_leap(jy):
+        return 30
+
+    return 29
+
 WEEKDAY_NAMES = [
     "دوشنبه",
     "سه‌شنبه",
@@ -94,6 +151,10 @@ WEEKDAY_NAMES = [
     "جمعه",
     "شنبه",
     "یک‌شنبه"
+]
+
+WEEKDAY_SHORT = [
+    "ش", "ی", "د", "س", "چ", "پ", "ج"
 ]
 
 MONTH_NAMES = [
@@ -106,9 +167,7 @@ MONTH_NAMES = [
 def jalali_string(qdate):
 
     jy, jm, jd = gregorian_to_jalali(
-        qdate.year(),
-        qdate.month(),
-        qdate.day()
+        qdate.year(), qdate.month(), qdate.day()
     )
 
     return f"{jy:04d}/{jm:02d}/{jd:02d}"
@@ -116,14 +175,411 @@ def jalali_string(qdate):
 def persian_date_long(qdate):
 
     jy, jm, jd = gregorian_to_jalali(
-        qdate.year(),
-        qdate.month(),
-        qdate.day()
+        qdate.year(), qdate.month(), qdate.day()
     )
 
     weekday = WEEKDAY_NAMES[qdate.dayOfWeek() - 1]
 
     return f"{weekday} {jd} {MONTH_NAMES[jm - 1]} {jy}"
+
+# =========================================================
+# PERSIAN CALENDAR POPUP
+# =========================================================
+
+class PersianCalendarPopup(QFrame):
+
+    dateSelected = Signal(QDate)
+
+    def __init__(self, parent=None, current_qdate=None):
+
+        super().__init__(parent)
+
+        if current_qdate is None:
+            current_qdate = QDate.currentDate()
+
+        self.selected_qdate = current_qdate
+
+        jy, jm, jd = gregorian_to_jalali(
+            current_qdate.year(),
+            current_qdate.month(),
+            current_qdate.day()
+        )
+
+        self.view_year = jy
+        self.view_month = jm
+
+        self.selected_jy = jy
+        self.selected_jm = jm
+        self.selected_jd = jd
+
+        self.setWindowFlags(
+            Qt.Popup | Qt.FramelessWindowHint
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setFixedSize(290, 330)
+
+        self.build_ui()
+        self.refresh_grid()
+
+    def build_ui(self):
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setObjectName("persianCalendarCard")
+
+        card.setStyleSheet("""
+            QFrame#persianCalendarCard {
+                background-color: #FFFFFF;
+                border: 1px solid #E2EAF4;
+                border-radius: 18px;
+            }
+        """)
+
+        outer.addWidget(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        # =================================================
+        # HEADER — فلش‌ها: راست > / چپ <
+        # =================================================
+
+        header = QHBoxLayout()
+        header.setSpacing(6)
+
+        # فلش راست (>) → ماه قبل
+        prev_btn = QPushButton(">")
+        prev_btn.setObjectName("calNavBtn")
+        prev_btn.setFixedSize(30, 30)
+        prev_btn.setCursor(Qt.PointingHandCursor)
+        prev_btn.clicked.connect(self.go_prev_month)
+
+        self.month_label = QLabel()
+        self.month_label.setObjectName("calMonthLabel")
+        self.month_label.setAlignment(Qt.AlignCenter)
+
+        # فلش چپ (<) → ماه بعد
+        next_btn = QPushButton("<")
+        next_btn.setObjectName("calNavBtn")
+        next_btn.setFixedSize(30, 30)
+        next_btn.setCursor(Qt.PointingHandCursor)
+        next_btn.clicked.connect(self.go_next_month)
+
+        header.addWidget(prev_btn)
+        header.addWidget(self.month_label, 1)
+        header.addWidget(next_btn)
+
+        layout.addLayout(header)
+
+        # =================================================
+        # WEEKDAY ROW
+        # =================================================
+
+        wd_layout = QHBoxLayout()
+        wd_layout.setSpacing(2)
+
+        for name in WEEKDAY_SHORT:
+            lbl = QLabel(name)
+            lbl.setObjectName("calWeekday")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setFixedHeight(24)
+            wd_layout.addWidget(lbl, 1)
+
+        layout.addLayout(wd_layout)
+
+        # =================================================
+        # DAYS GRID
+        # =================================================
+
+        self.days_layout = QGridLayout()
+        self.days_layout.setSpacing(2)
+
+        for col in range(7):
+            self.days_layout.setColumnStretch(col, 1)
+
+        layout.addLayout(self.days_layout, 1)
+
+        # =================================================
+        # STYLE
+        # =================================================
+
+        self.setStyleSheet("""
+
+            QLabel#calMonthLabel {
+                color: #17324D;
+                font-size: 13px;
+                font-weight: 700;
+                background: transparent;
+            }
+
+            QPushButton#calNavBtn {
+                background-color: #EAF3FF;
+                color: #1961C7;
+                border: 1px solid #C9DDF5;
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: 700;
+                padding: 0px;
+            }
+
+            QPushButton#calNavBtn:hover {
+                background-color: #D8E9FF;
+                border-color: #AFCFF0;
+            }
+
+            QPushButton#calNavBtn:pressed {
+                background-color: #C8DDF5;
+            }
+
+            QLabel#calWeekday {
+                color: #8290A1;
+                font-size: 10px;
+                font-weight: 700;
+                background: transparent;
+            }
+
+            QPushButton#calDayBtn {
+                background-color: transparent;
+                color: #17324D;
+                border: none;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 600;
+                min-height: 28px;
+            }
+
+            QPushButton#calDayBtn:hover {
+                background-color: #EAF3FF;
+                color: #1961C7;
+            }
+
+            QPushButton#calDayBtn[today="true"] {
+                border: 2px solid #1961C7;
+                color: #1961C7;
+            }
+
+            QPushButton#calDayBtn[selected="true"] {
+                background-color: #1961C7;
+                color: white;
+                border: none;
+            }
+
+        """)
+
+    def refresh_grid(self):
+
+        while self.days_layout.count():
+
+            item = self.days_layout.takeAt(0)
+            w = item.widget()
+
+            if w:
+                w.deleteLater()
+
+        self.month_label.setText(
+            f"{MONTH_NAMES[self.view_month - 1]} {self.view_year}"
+        )
+
+        days_in_month = jalali_month_days(
+            self.view_year,
+            self.view_month
+        )
+
+        gy, gm, gd = jalali_to_gregorian(
+            self.view_year,
+            self.view_month,
+            1
+        )
+
+        first_qdate = QDate(gy, gm, gd)
+
+        persian_weekday = (first_qdate.dayOfWeek() + 1) % 7
+
+        today_qdate = QDate.currentDate()
+
+        tjy, tjm, tjd = gregorian_to_jalali(
+            today_qdate.year(),
+            today_qdate.month(),
+            today_qdate.day()
+        )
+
+        row = 0
+        col = persian_weekday
+
+        for day in range(1, days_in_month + 1):
+
+            btn = QPushButton(str(day))
+            btn.setObjectName("calDayBtn")
+            btn.setCursor(Qt.PointingHandCursor)
+
+            is_today = (
+                self.view_year == tjy
+                and self.view_month == tjm
+                and day == tjd
+            )
+
+            is_selected = (
+                self.view_year == self.selected_jy
+                and self.view_month == self.selected_jm
+                and day == self.selected_jd
+            )
+
+            btn.setProperty(
+                "today",
+                "true" if is_today else "false"
+            )
+
+            btn.setProperty(
+                "selected",
+                "true" if is_selected else "false"
+            )
+
+            btn.clicked.connect(
+                lambda checked=False, d=day: self.pick_day(d)
+            )
+
+            self.days_layout.addWidget(btn, row, col)
+
+            col += 1
+
+            if col > 6:
+                col = 0
+                row += 1
+
+    def go_prev_month(self):
+
+        self.view_month -= 1
+
+        if self.view_month < 1:
+            self.view_month = 12
+            self.view_year -= 1
+
+        self.refresh_grid()
+
+    def go_next_month(self):
+
+        self.view_month += 1
+
+        if self.view_month > 12:
+            self.view_month = 1
+            self.view_year += 1
+
+        self.refresh_grid()
+
+    def pick_day(self, day):
+
+        self.selected_jy = self.view_year
+        self.selected_jm = self.view_month
+        self.selected_jd = day
+
+        gy, gm, gd = jalali_to_gregorian(
+            self.selected_jy,
+            self.selected_jm,
+            self.selected_jd
+        )
+
+        self.selected_qdate = QDate(gy, gm, gd)
+
+        self.dateSelected.emit(self.selected_qdate)
+
+        self.close()
+
+# =========================================================
+# PERSIAN DATE BUTTON — قاب واحد
+# =========================================================
+
+class PersianDateButton(QFrame):
+
+    dateChanged = Signal(QDate)
+
+    def __init__(self, parent=None):
+
+        super().__init__(parent)
+
+        self._qdate = QDate.currentDate()
+
+        self.setObjectName("persianDateFrame")
+        self.setFixedHeight(42)
+        self.setMinimumWidth(220)
+        self.setCursor(Qt.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 0, 14, 0)
+        layout.setSpacing(8)
+
+        # آیکون تقویم — داخل قاب
+        self.icon_label = QLabel("📅")
+        self.icon_label.setObjectName("dateIconLabel")
+        self.icon_label.setFixedSize(30, 30)
+        self.icon_label.setAlignment(Qt.AlignCenter)
+
+        # دکمه تاریخ — بدون border
+        self.date_btn = QPushButton()
+        self.date_btn.setObjectName("persianDateButton")
+        self.date_btn.setCursor(Qt.PointingHandCursor)
+
+        layout.addWidget(self.icon_label)
+        layout.addWidget(self.date_btn, 1)
+
+        self._refresh_text()
+
+        # کلیک روی هر جای قاب → تقویم باز بشه
+        self.mousePressEvent = self._frame_clicked
+        self.date_btn.clicked.connect(self._open_dialog)
+
+    def _frame_clicked(self, event):
+        self._open_dialog()
+        event.accept()
+
+    def _refresh_text(self):
+
+        jy, jm, jd = gregorian_to_jalali(
+            self._qdate.year(),
+            self._qdate.month(),
+            self._qdate.day()
+        )
+
+        self.date_btn.setText(
+            f"{jy:04d} / {jm:02d} / {jd:02d}"
+        )
+
+    def date(self):
+        return self._qdate
+
+    def setDate(self, qdate):
+        self._qdate = qdate
+        self._refresh_text()
+
+    def _open_dialog(self):
+
+        self._popup = PersianCalendarPopup(
+            self,
+            self._qdate
+        )
+
+        self._popup.dateSelected.connect(
+            self._on_date_selected
+        )
+
+        global_pos = self.mapToGlobal(
+            QPoint(0, self.height() + 4)
+        )
+
+        self._popup.move(global_pos)
+        self._popup.show()
+
+    def _on_date_selected(self, qdate):
+
+        if qdate == self._qdate:
+            return
+
+        self._qdate = qdate
+        self._refresh_text()
+        self.dateChanged.emit(self._qdate)
 
 # =========================================================
 # NICE MESSAGE BOX
@@ -305,7 +761,6 @@ class AttendanceWindow(QWidget):
         self.setObjectName("attendanceWindow")
 
         self.load_user_data()
-
         self.setup_ui()
 
         self.timer = QTimer(self)
@@ -425,10 +880,6 @@ class AttendanceWindow(QWidget):
         main_layout.setContentsMargins(22, 15, 22, 15)
         main_layout.setSpacing(10)
 
-        # =================================================
-        # HEADER
-        # =================================================
-
         header = QHBoxLayout()
         header.setSpacing(8)
 
@@ -487,9 +938,9 @@ class AttendanceWindow(QWidget):
                 QComboBox {
                     background-color: white;
                     border: 1px solid #E2EAF4;
-                    border-radius: 11px;
-                    padding: 0 12px;
-                    padding-left: 30px;
+                    border-radius: 12px;
+                    padding: 0 14px;
+                    padding-left: 32px;
                     color: #17324D;
                     font-size: 12px;
                 }
@@ -499,8 +950,9 @@ class AttendanceWindow(QWidget):
                 QComboBox::drop-down {
                     subcontrol-origin: padding;
                     subcontrol-position: center left;
-                    width: 26px;
+                    width: 28px;
                     border: none;
+                    background: transparent;
                 }
                 QComboBox::down-arrow {
                     image: none;
@@ -542,13 +994,13 @@ class AttendanceWindow(QWidget):
 
             self.my_tab_btn = QPushButton("حضور من")
             self.my_tab_btn.setObjectName("tabButton")
-            self.my_tab_btn.setFixedHeight(38)
+            self.my_tab_btn.setFixedHeight(40)
             self.my_tab_btn.setCursor(Qt.PointingHandCursor)
             self.my_tab_btn.clicked.connect(lambda: self.switch_tab(0))
 
             self.emp_tab_btn = QPushButton("حضور کارمندان")
             self.emp_tab_btn.setObjectName("tabButton")
-            self.emp_tab_btn.setFixedHeight(38)
+            self.emp_tab_btn.setFixedHeight(40)
             self.emp_tab_btn.setCursor(Qt.PointingHandCursor)
             self.emp_tab_btn.clicked.connect(lambda: self.switch_tab(1))
 
@@ -594,8 +1046,8 @@ class AttendanceWindow(QWidget):
                 background-color: #FFFFFF;
                 color: #526273;
                 border: 1px solid #E2EAF4;
-                border-radius: 11px;
-                padding: 0 22px;
+                border-radius: 14px;
+                padding: 0 24px;
                 font-size: 13px;
                 font-weight: 600;
             }
@@ -613,7 +1065,7 @@ class AttendanceWindow(QWidget):
             QFrame#todayCard {
                 background-color: white;
                 border: 1px solid #E2EAF4;
-                border-radius: 19px;
+                border-radius: 24px;
             }
 
             QLabel#todayTime {
@@ -640,7 +1092,7 @@ class AttendanceWindow(QWidget):
                 background-color: #16A34A;
                 color: white;
                 border: none;
-                border-radius: 11px;
+                border-radius: 14px;
                 padding: 0 40px;
                 font-size: 13px;
                 font-weight: 700;
@@ -656,7 +1108,7 @@ class AttendanceWindow(QWidget):
                 background-color: #D93025;
                 color: white;
                 border: none;
-                border-radius: 11px;
+                border-radius: 14px;
                 padding: 0 40px;
                 font-size: 13px;
                 font-weight: 700;
@@ -675,14 +1127,10 @@ class AttendanceWindow(QWidget):
                 background: transparent;
             }
 
-            /* ==========================================
-               HISTORY CARD
-               ========================================== */
-
             QFrame#historyCard {
                 background-color: white;
                 border: 1px solid #E2EAF4;
-                border-radius: 18px;
+                border-radius: 20px;
             }
             QFrame#historyCard:hover {
                 border-color: #C9DDF5;
@@ -712,8 +1160,9 @@ class AttendanceWindow(QWidget):
             QLabel#approvedBadge {
                 color: #21844A;
                 background-color: #EAF6EE;
-                border-radius: 12px;
-                padding: 4px 12px;
+                border: none;
+                border-radius: 10px;
+                padding: 3px 10px;
                 font-size: 10px;
                 font-weight: 700;
             }
@@ -721,8 +1170,9 @@ class AttendanceWindow(QWidget):
             QLabel#pendingBadge {
                 color: #B87900;
                 background-color: #FFF4DD;
-                border-radius: 12px;
-                padding: 4px 12px;
+                border: none;
+                border-radius: 10px;
+                padding: 3px 10px;
                 font-size: 10px;
                 font-weight: 700;
             }
@@ -730,8 +1180,9 @@ class AttendanceWindow(QWidget):
             QLabel#rejectedBadge {
                 color: #C43D4B;
                 background-color: #FDEBEC;
-                border-radius: 12px;
-                padding: 4px 12px;
+                border: none;
+                border-radius: 10px;
+                padding: 3px 10px;
                 font-size: 10px;
                 font-weight: 700;
             }
@@ -739,45 +1190,59 @@ class AttendanceWindow(QWidget):
             QFrame#filterBox {
                 background-color: white;
                 border: 1px solid #E2EAF4;
-                border-radius: 16px;
+                border-radius: 20px;
             }
 
             /* ==========================================
-               DATE FILTER — کل فیلد کلیک‌پذیر و گرد
+               DATE BUTTON — قاب واحد
                ========================================== */
 
-            QDateEdit#dateFilter {
+            QFrame#persianDateFrame {
                 background-color: #F7F9FC;
                 border: 1px solid #DCE6F2;
                 border-radius: 14px;
-                padding: 0 14px;
+            }
+
+            QFrame#persianDateFrame:hover {
+                background-color: #FFFFFF;
+                border: 1px solid #C9DDF5;
+            }
+
+            QLabel#dateIconLabel {
+                background-color: #EAF3FF;
+                border: none;
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: 700;
+            }
+
+            QPushButton#persianDateButton {
+                background-color: transparent;
+                border: none;
+                padding: 0 4px;
                 color: #17324D;
                 font-size: 12px;
-                min-height: 40px;
+                font-weight: 700;
+                text-align: center;
             }
-            QDateEdit#dateFilter:focus {
-                border: 2px solid #4589E8;
+
+            QPushButton#persianDateButton:hover {
+                color: #1961C7;
             }
-            QDateEdit#dateFilter::drop-down {
-                width: 0px;
-                border: none;
-                background: transparent;
-            }
-            QDateEdit#dateFilter::down-arrow {
-                image: none;
-                width: 0px;
-                height: 0px;
+
+            QPushButton#persianDateButton:pressed {
+                color: #1453AA;
             }
 
             QPushButton#refreshButton {
                 background-color: #EAF3FF;
                 color: #1961C7;
                 border: 1px solid #C9DDF5;
-                border-radius: 11px;
-                padding: 0 18px;
+                border-radius: 14px;
+                padding: 0 20px;
                 font-size: 12px;
                 font-weight: 600;
-                min-height: 38px;
+                min-height: 42px;
             }
             QPushButton#refreshButton:hover {
                 background-color: #D8E9FF;
@@ -787,7 +1252,7 @@ class AttendanceWindow(QWidget):
                 background-color: #F1F6FD;
                 color: #1961C7;
                 border: none;
-                border-radius: 11px;
+                border-radius: 12px;
                 padding: 6px 14px;
                 font-size: 11px;
                 font-weight: 600;
@@ -800,7 +1265,7 @@ class AttendanceWindow(QWidget):
                 background-color: #DCFCE7;
                 color: #16A34A;
                 border: none;
-                border-radius: 11px;
+                border-radius: 12px;
                 padding: 6px 14px;
                 font-size: 11px;
                 font-weight: 700;
@@ -813,7 +1278,7 @@ class AttendanceWindow(QWidget):
                 background-color: #FEE2E2;
                 color: #D93025;
                 border: none;
-                border-radius: 11px;
+                border-radius: 12px;
                 padding: 6px 14px;
                 font-size: 11px;
                 font-weight: 700;
@@ -822,10 +1287,23 @@ class AttendanceWindow(QWidget):
                 background-color: #FBD5D5;
             }
 
+            QPushButton#saveButton {
+                background-color: #1961C7;
+                color: white;
+                border: none;
+                border-radius: 12px;
+                padding: 6px 16px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QPushButton#saveButton:hover {
+                background-color: #4589E8;
+            }
+
             QFrame#emptyCard {
                 background-color: white;
                 border: 1px dashed #DCE6F2;
-                border-radius: 18px;
+                border-radius: 20px;
             }
             QLabel#emptyText {
                 color: #8290A1;
@@ -833,18 +1311,18 @@ class AttendanceWindow(QWidget):
                 background: transparent;
             }
 
-            /* ==========================================
-               SCROLL
-               ========================================== */
-
             QScrollArea {
                 background: transparent;
                 border: none;
-                border-radius: 14px;
+                border-radius: 16px;
             }
             QScrollArea > QWidget {
                 background: transparent;
-                border-radius: 14px;
+                border-radius: 16px;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+                border-radius: 16px;
             }
 
             QScrollBar:vertical {
@@ -873,6 +1351,11 @@ class AttendanceWindow(QWidget):
             QScrollBar::sub-page:vertical {
                 background: transparent;
                 border: none;
+            }
+
+            QScrollBar:horizontal {
+                height: 0px;
+                background: transparent;
             }
 
         """)
@@ -905,7 +1388,6 @@ class AttendanceWindow(QWidget):
             return
 
         self.set_active_complex(self.complexes[index])
-
         self.refresh_my_attendance()
 
         if self.is_owner:
@@ -923,10 +1405,6 @@ class AttendanceWindow(QWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-
-        # ==========================================
-        # TODAY CARD
-        # ==========================================
 
         today_card = QFrame()
         today_card.setObjectName("todayCard")
@@ -955,10 +1433,6 @@ class AttendanceWindow(QWidget):
 
         today_layout.addWidget(self.today_status_label)
 
-        # ==========================================
-        # TIME BOXES
-        # ==========================================
-
         info_layout = QHBoxLayout()
         info_layout.setSpacing(8)
 
@@ -971,10 +1445,6 @@ class AttendanceWindow(QWidget):
         info_layout.addWidget(self.work_box)
 
         today_layout.addLayout(info_layout)
-
-        # ==========================================
-        # CALCULATION BOXES
-        # ==========================================
 
         calc_layout = QHBoxLayout()
         calc_layout.setSpacing(8)
@@ -989,22 +1459,18 @@ class AttendanceWindow(QWidget):
 
         today_layout.addLayout(calc_layout)
 
-        # ==========================================
-        # BUTTONS
-        # ==========================================
-
         buttons_layout = QHBoxLayout()
         buttons_layout.setSpacing(8)
 
         self.entry_button = QPushButton("ثبت ورود")
         self.entry_button.setObjectName("checkInButton")
-        self.entry_button.setFixedHeight(42)
+        self.entry_button.setFixedHeight(44)
         self.entry_button.setCursor(Qt.PointingHandCursor)
         self.entry_button.clicked.connect(self.register_entry)
 
         self.exit_button = QPushButton("ثبت خروج")
         self.exit_button.setObjectName("checkOutButton")
-        self.exit_button.setFixedHeight(42)
+        self.exit_button.setFixedHeight(44)
         self.exit_button.setCursor(Qt.PointingHandCursor)
         self.exit_button.clicked.connect(self.register_exit)
 
@@ -1015,18 +1481,10 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(today_card)
 
-        # ==========================================
-        # HISTORY TITLE
-        # ==========================================
-
         history_title = QLabel("سوابق حضور و غیاب")
         history_title.setObjectName("sectionTitle")
 
         layout.addWidget(history_title)
-
-        # ==========================================
-        # HISTORY SCROLL
-        # ==========================================
 
         history_scroll = QScrollArea()
         history_scroll.setWidgetResizable(True)
@@ -1038,7 +1496,7 @@ class AttendanceWindow(QWidget):
         history_content.setObjectName("historyContent")
 
         self.my_history_layout = QVBoxLayout(history_content)
-        self.my_history_layout.setContentsMargins(2, 2, 14, 2)
+        self.my_history_layout.setContentsMargins(4, 4, 16, 4)
         self.my_history_layout.setSpacing(8)
 
         history_scroll.setWidget(history_content)
@@ -1060,15 +1518,11 @@ class AttendanceWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # ==========================================
-        # FILTER BOX
-        # ==========================================
-
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
 
         filter_layout = QHBoxLayout(filter_box)
-        filter_layout.setContentsMargins(14, 10, 14, 10)
+        filter_layout.setContentsMargins(16, 12, 16, 12)
         filter_layout.setSpacing(10)
 
         date_label = QLabel("تاریخ:")
@@ -1079,12 +1533,9 @@ class AttendanceWindow(QWidget):
             background: transparent;
         """)
 
-        # ← کلاس ClickableDateEdit به‌جای QDateEdit
-        self.date_filter = ClickableDateEdit()
-        self.date_filter.setObjectName("dateFilter")
-        self.date_filter.setDisplayFormat("yyyy/MM/dd")
-        self.date_filter.setDate(QDate.currentDate())
-        self.date_filter.setFixedWidth(150)
+        # فیلد تاریخ شمسی — قاب واحد
+        self.date_filter = PersianDateButton()
+
         self.date_filter.dateChanged.connect(
             self.refresh_employees_attendance
         )
@@ -1103,10 +1554,6 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(filter_box)
 
-        # ==========================================
-        # LIST
-        # ==========================================
-
         emp_scroll = QScrollArea()
         emp_scroll.setWidgetResizable(True)
         emp_scroll.setFrameShape(QFrame.NoFrame)
@@ -1117,7 +1564,7 @@ class AttendanceWindow(QWidget):
         emp_content.setObjectName("empContent")
 
         self.emp_list_layout = QVBoxLayout(emp_content)
-        self.emp_list_layout.setContentsMargins(2, 2, 14, 2)
+        self.emp_list_layout.setContentsMargins(4, 4, 16, 4)
         self.emp_list_layout.setSpacing(8)
 
         emp_scroll.setWidget(emp_content)
@@ -1127,20 +1574,20 @@ class AttendanceWindow(QWidget):
         return widget
 
     # =====================================================
-    # TIME BOX / SMALL BOX — کاملاً گرد
+    # TIME BOX / SMALL BOX
     # =====================================================
 
     def create_time_box(self, title_text):
 
         box = QFrame()
         box.setObjectName("timeBox")
-        box.setFixedHeight(70)
+        box.setFixedHeight(72)
 
         box.setStyleSheet("""
             QFrame#timeBox {
                 background: #F5F8FC;
                 border: 1px solid #E8EEF5;
-                border-radius: 35px;
+                border-radius: 36px;
             }
         """)
 
@@ -1165,7 +1612,7 @@ class AttendanceWindow(QWidget):
         value = QLabel("—")
         value.setObjectName("time_value")
         value.setAlignment(Qt.AlignCenter)
-        value.setFixedHeight(28)
+        value.setFixedHeight(30)
         value.setStyleSheet("""
             QLabel {
                 color: #17324D;
@@ -1173,7 +1620,7 @@ class AttendanceWindow(QWidget):
                 font-weight: 700;
                 background: #FFFFFF;
                 border: none;
-                border-radius: 14px;
+                border-radius: 15px;
                 padding: 0px 12px;
             }
         """)
@@ -1187,13 +1634,13 @@ class AttendanceWindow(QWidget):
 
         box = QFrame()
         box.setObjectName("smallBox")
-        box.setFixedHeight(60)
+        box.setFixedHeight(62)
 
         box.setStyleSheet("""
             QFrame#smallBox {
                 background: #F8FAFD;
                 border: 1px solid #E8EEF5;
-                border-radius: 30px;
+                border-radius: 31px;
             }
         """)
 
@@ -1218,7 +1665,7 @@ class AttendanceWindow(QWidget):
         value = QLabel(value_text)
         value.setObjectName("small_value")
         value.setAlignment(Qt.AlignCenter)
-        value.setFixedHeight(25)
+        value.setFixedHeight(26)
         value.setStyleSheet("""
             QLabel {
                 color: #1961C7;
@@ -1243,7 +1690,6 @@ class AttendanceWindow(QWidget):
     def update_clock(self):
 
         now = QTime.currentTime()
-
         self.clock_label.setText(now.toString("HH:mm:ss"))
 
         if self.entry_time and not self.exit_time:
@@ -1252,7 +1698,6 @@ class AttendanceWindow(QWidget):
     def current_minute_time(self):
 
         now = QTime.currentTime()
-
         return QTime(now.hour(), now.minute(), 0)
 
     # =====================================================
@@ -1318,7 +1763,6 @@ class AttendanceWindow(QWidget):
                 ci_text = str(ci)[:5]
 
             self.entry_box.findChild(QLabel, "time_value").setText(ci_text)
-
             self.today_status_label.setText(
                 f"ورودت رو زدی. ساعت ورود: {ci_text}"
             )
@@ -1419,10 +1863,10 @@ class AttendanceWindow(QWidget):
 
         card = QFrame()
         card.setObjectName("historyCard")
-        card.setMinimumHeight(56)
+        card.setMinimumHeight(60)
 
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(10)
 
         work_date = row["workDate"]
@@ -1490,7 +1934,6 @@ class AttendanceWindow(QWidget):
             badge.setObjectName("pendingBadge")
 
         badge.setAlignment(Qt.AlignCenter)
-        badge.setMinimumWidth(80)
 
         layout.addWidget(badge)
 
@@ -1689,6 +2132,7 @@ class AttendanceWindow(QWidget):
                 u.profession,
                 u.phoneNumber,
                 a.attendanceId,
+                a.workDate,
                 a.checkIn,
                 a.checkOut,
                 a.workedMinutes,
@@ -1711,7 +2155,7 @@ class AttendanceWindow(QWidget):
 
             empty = QFrame()
             empty.setObjectName("emptyCard")
-            empty.setMinimumHeight(100)
+            empty.setMinimumHeight(120)
 
             empty_layout = QVBoxLayout(empty)
             empty_layout.setContentsMargins(20, 30, 20, 30)
@@ -1732,19 +2176,23 @@ class AttendanceWindow(QWidget):
 
         self.emp_list_layout.addStretch()
 
+    # =====================================================
+    # CREATE EMPLOYEE ATTENDANCE CARD
+    # =====================================================
+
     def create_employee_attendance_card(self, row):
 
         card = QFrame()
         card.setObjectName("historyCard")
-        card.setMinimumHeight(74)
+        card.setMinimumHeight(76)
 
         layout = QHBoxLayout(card)
-        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setContentsMargins(18, 12, 18, 12)
         layout.setSpacing(12)
 
         name_label = QLabel(row.get("name") or "بدون نام")
         name_label.setObjectName("historyDate")
-        name_label.setMinimumWidth(120)
+        name_label.setMinimumWidth(140)
 
         layout.addWidget(name_label)
 
@@ -1795,13 +2243,9 @@ class AttendanceWindow(QWidget):
             badge.setObjectName("rejectedBadge")
 
         badge.setAlignment(Qt.AlignCenter)
-        badge.setMinimumWidth(80)
+        badge.setFixedHeight(24)
 
         layout.addWidget(badge)
-
-        # ==========================================
-        # دکمه‌های تأیید / رد
-        # ==========================================
 
         if approval == "pending" and row.get("attendanceId"):
 
@@ -1822,10 +2266,6 @@ class AttendanceWindow(QWidget):
             layout.addWidget(approve_btn)
             layout.addWidget(reject_btn)
 
-        # ==========================================
-        # دکمه ویرایش
-        # ==========================================
-
         edit_button = QPushButton("ویرایش")
         edit_button.setObjectName("editButton")
         edit_button.setCursor(Qt.PointingHandCursor)
@@ -1835,7 +2275,61 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(edit_button)
 
+        save_button = QPushButton("💾 ثبت")
+        save_button.setObjectName("saveButton")
+        save_button.setCursor(Qt.PointingHandCursor)
+        save_button.clicked.connect(
+            lambda checked=False, r=row: self.save_attendance_row(r)
+        )
+
+        layout.addWidget(save_button)
+
         return card
+
+    # =====================================================
+    # SAVE ATTENDANCE ROW
+    # =====================================================
+
+    def save_attendance_row(self, row):
+
+        attendance_id = row.get("attendanceId")
+        approval = row.get("approvalStatus")
+
+        if not attendance_id:
+            NiceMessageBox.warning(
+                self, "خطا",
+                "برای این کارمند در این تاریخ رکوردی وجود ندارد."
+            )
+            return
+
+        if approval == "approved":
+            NiceMessageBox.info(
+                self, "قبلاً تأیید شده",
+                f"حضور {row.get('name', 'کارمند')} قبلاً تأیید شده است."
+            )
+            return
+
+        result = self.db.execute(
+            """
+            UPDATE attendance
+            SET approvalStatus = 'approved',
+                approvedBy = %s,
+                approvalDate = NOW()
+            WHERE attendanceId = %s
+            """,
+            (self.user_id, attendance_id)
+        )
+
+        if result is None:
+            NiceMessageBox.error(self, "خطا", "ثبت انجام نشد.")
+            return
+
+        NiceMessageBox.success(
+            self, "ثبت شد",
+            f"حضور {row.get('name', 'کارمند')} با موفقیت ثبت شد."
+        )
+
+        self.refresh_employees_attendance()
 
     # =====================================================
     # APPROVE / REJECT
@@ -1860,10 +2354,7 @@ class AttendanceWindow(QWidget):
         )
 
         if result is None:
-            NiceMessageBox.error(
-                self, "خطا",
-                "تأیید انجام نشد."
-            )
+            NiceMessageBox.error(self, "خطا", "تأیید انجام نشد.")
             return
 
         self.refresh_employees_attendance()
@@ -1892,10 +2383,7 @@ class AttendanceWindow(QWidget):
         )
 
         if result is None:
-            NiceMessageBox.error(
-                self, "خطا",
-                "رد انجام نشد."
-            )
+            NiceMessageBox.error(self, "خطا", "رد انجام نشد.")
             return
 
         self.refresh_employees_attendance()
@@ -2006,7 +2494,7 @@ class AttendanceWindow(QWidget):
                 background-color: #F5F8FC;
                 color: #526273;
                 border: 1px solid #E2EAF4;
-                border-radius: 11px;
+                border-radius: 14px;
                 padding: 0 22px;
                 font-size: 12px;
                 font-weight: 600;
@@ -2025,7 +2513,7 @@ class AttendanceWindow(QWidget):
                 background-color: #1961C7;
                 color: white;
                 border: none;
-                border-radius: 11px;
+                border-radius: 14px;
                 padding: 0 26px;
                 font-size: 12px;
                 font-weight: 700;
@@ -2136,7 +2624,7 @@ class AttendanceWindow(QWidget):
             QTimeEdit, QLineEdit {
                 background-color: white;
                 border: 1px solid #DCE6F2;
-                border-radius: 11px;
+                border-radius: 14px;
                 padding: 0 14px;
                 color: #17324D;
                 font-size: 13px;

@@ -30,24 +30,20 @@ class NiceMessageDialog(QDialog):
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setLayoutDirection(Qt.RightToLeft)
-
         self.setFixedSize(380, 260)
 
         if kind == "success":
             icon_char = "✓"
             color = "#16A34A"
             bg = "#DCFCE7"
-
         elif kind == "error":
             icon_char = "✕"
             color = "#D93025"
             bg = "#FEE2E2"
-
         elif kind == "warning":
             icon_char = "!"
             color = "#F59E0B"
             bg = "#FEF3C7"
-
         else:
             icon_char = "i"
             color = "#1961C7"
@@ -193,13 +189,14 @@ class GroupsWindow(QWidget):
         self.db = Database()
 
         self.groups = []
-        self.employees = []
-        self.selected_group = None
         self.user_id = None
 
         self.setWindowTitle("مجموعه‌ها")
-        self.setMinimumSize(900, 620)
+        self.setMinimumSize(700, 550)
         self.setLayoutDirection(Qt.RightToLeft)
+
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("groupsWindow")
 
         self.setup_ui()
         self.load_data()
@@ -233,10 +230,7 @@ class GroupsWindow(QWidget):
             self.user_id = user["userId"]
 
             self.load_groups()
-            self.load_employees()
-
             self.refresh_groups()
-            self.refresh_employees()
 
         except Exception as error:
 
@@ -307,8 +301,6 @@ class GroupsWindow(QWidget):
                 else:
                     role_text = "کاربر"
 
-                employees = self.get_group_employee_names(row["complexId"])
-
                 self.groups.append(
                     {
                         "complexId": row["complexId"],
@@ -318,7 +310,6 @@ class GroupsWindow(QWidget):
                         "description": row["description"] or "بدون توضیحات",
                         "role": role_text,
                         "roleValue": role,
-                        "employees": employees,
                         "employeeCount": count
                     }
                 )
@@ -326,68 +317,6 @@ class GroupsWindow(QWidget):
         except Exception as error:
 
             print("LOAD GROUPS ERROR:", error)
-
-    # =====================================================
-    # LOAD EMPLOYEES
-    # =====================================================
-
-    def load_employees(self):
-
-        self.employees = []
-
-        try:
-
-            rows = self.db.fetch_all(
-                """
-                SELECT userId, name, phoneNumber
-                FROM users
-                WHERE userId <> %s
-                ORDER BY userId DESC
-                """,
-                (self.user_id,)
-            )
-
-            for row in rows:
-
-                self.employees.append(
-                    {
-                        "userId": row["userId"],
-                        "name": row["name"] or "بدون نام",
-                        "phoneNumber": row["phoneNumber"]
-                    }
-                )
-
-        except Exception as error:
-
-            print("LOAD EMPLOYEES ERROR:", error)
-
-    # =====================================================
-    # GET GROUP EMPLOYEES
-    # =====================================================
-
-    def get_group_employee_names(self, complex_id):
-
-        try:
-
-            rows = self.db.fetch_all(
-                """
-                SELECT u.userId, u.name
-                FROM complex_members cm
-                INNER JOIN users u ON u.userId = cm.userId
-                WHERE cm.complexId = %s
-                  AND cm.isActive = 1
-                  AND cm.role IN ('employee', 'both')
-                ORDER BY u.name ASC
-                """,
-                (complex_id,)
-            )
-
-            return [row["name"] or "بدون نام" for row in rows]
-
-        except Exception as error:
-
-            print("GET GROUP EMPLOYEES ERROR:", error)
-            return []
 
     # =====================================================
     # SETUP UI
@@ -399,7 +328,10 @@ class GroupsWindow(QWidget):
         main_layout.setContentsMargins(28, 22, 28, 22)
         main_layout.setSpacing(16)
 
+        # =================================================
         # HEADER
+        # =================================================
+
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
 
@@ -417,7 +349,7 @@ class GroupsWindow(QWidget):
         title = QLabel("مجموعه‌ها")
         title.setObjectName("title")
 
-        subtitle = QLabel("مجموعه‌های خودت را مدیریت و کارکنانت را اضافه کن")
+        subtitle = QLabel("مدیریت مجموعه‌های شما")
         subtitle.setObjectName("subtitle")
 
         title_layout.addWidget(title)
@@ -435,7 +367,10 @@ class GroupsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
+        # =================================================
         # SCROLL
+        # =================================================
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -451,44 +386,37 @@ class GroupsWindow(QWidget):
 
         scroll.setWidget(content)
 
+        # =================================================
+        # GROUPS TITLE
+        # =================================================
+
         groups_title = QLabel("مجموعه‌های من")
         groups_title.setObjectName("sectionTitle")
 
         content_layout.addWidget(groups_title)
+
+        # =================================================
+        # GROUPS CONTAINER
+        # =================================================
 
         self.groups_container = QVBoxLayout()
         self.groups_container.setSpacing(10)
 
         content_layout.addLayout(self.groups_container)
 
-        employees_title = QLabel("کارکنان")
-        employees_title.setObjectName("sectionTitle")
-
-        content_layout.addWidget(employees_title)
-
-        employees_description = QLabel(
-            "کارکنان خود را ببین و آن‌ها را به مجموعه موردنظر اضافه کن."
-        )
-        employees_description.setObjectName("description")
-
-        content_layout.addWidget(employees_description)
-
-        self.employees_container = QVBoxLayout()
-        self.employees_container.setSpacing(10)
-
-        content_layout.addLayout(self.employees_container)
-
         content_layout.addStretch()
 
         main_layout.addWidget(scroll)
 
+        # =================================================
         # STYLE
+        # =================================================
+
         self.setStyleSheet("""
 
-            QWidget {
+            QWidget#groupsWindow {
                 background-color: #F5F8FC;
                 font-family: "Vazirmatn";
-                color: #25364A;
             }
 
             QLabel#title {
@@ -640,9 +568,9 @@ class GroupsWindow(QWidget):
                 background-color: #EAF3FF;
                 color: #1961C7;
                 border: none;
-                border-radius: 10px;
-                padding: 5px, 9px, 0px, 0px ;
-                font-size: 10px;
+                border-radius: 8px;
+                padding: 2px 8px;
+                font-size: 9px;
                 font-weight: 600;
             }
 
@@ -674,66 +602,7 @@ class GroupsWindow(QWidget):
                 background-color: #FBD5D5;
             }
 
-            QPushButton#employeeRoleButton {
-                background-color: #F1F6FD;
-                color: #1961C7;
-                border: none;
-                border-radius: 10px;
-                padding: 7px 12px;
-                font-size: 10px;
-                font-weight: 600;
-            }
-
-            QFrame#employeeCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
-                border-radius: 18px;
-            }
-
-            QFrame#employeeCard:hover {
-                border-color: #C9DDF5;
-                background-color: #FBFDFF;
-            }
-
-            QLabel#employeeAvatar {
-                background-color: #EAF3FF;
-                border: none;
-                border-radius: 20px;
-                color: #1961C7;
-                font-size: 16px;
-            }
-
-            QLabel#employeeName {
-                background: transparent;
-                border: none;
-                color: #25364A;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            QLabel#employeeStatus {
-                background: transparent;
-                border: none;
-                color: #8290A1;
-                font-size: 10px;
-            }
-
-            QPushButton#addEmployeeButton {
-                background-color: #EAF3FF;
-                color: #1961C7;
-                border: 1px solid #C9DDF5;
-                border-radius: 10px;
-                padding: 7px 12px;
-                font-size: 10px;
-                font-weight: 600;
-            }
-
-            QPushButton#addEmployeeButton:hover {
-                background-color: #DDEEFF;
-            }
-
             QFrame#groupDialog,
-            QFrame#employeeDialog,
             QFrame#confirmDialog {
                 background-color: white;
                 border: 1px solid #E2EAF4;
@@ -835,34 +704,6 @@ class GroupsWindow(QWidget):
                 background-color: #B71C1C;
             }
 
-            QPushButton#groupSelectButton {
-                background-color: #F5F8FC;
-                color: #25364A;
-                border: 1px solid #E2EAF4;
-                border-radius: 11px;
-                padding: 10px;
-                text-align: right;
-                font-size: 12px;
-            }
-
-            QPushButton#groupSelectButton:hover {
-                background-color: #EAF3FF;
-                border-color: #4589E8;
-            }
-
-            QPushButton#registerEmployeeButton {
-                background-color: #1961C7;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 10px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            QPushButton#registerEmployeeButton:hover {
-                background-color: #4589E8;
-            }
         """)
 
     # =====================================================
@@ -952,15 +793,33 @@ class GroupsWindow(QWidget):
         count = QLabel(f"{group['employeeCount']} کارمند")
         count.setObjectName("employeeCount")
         count.setAlignment(Qt.AlignCenter)
-        count.setFixedHeight(26)
-        count.setFixedWidth(60)
+        count.setFixedHeight(22)
 
         layout.addWidget(icon)
         layout.addLayout(text_layout)
         layout.addStretch()
         layout.addWidget(count)
 
-        if group["role"] == "مالک":
+        # نقش (مالک / کارمند)
+        role_label = QLabel(group["role"])
+        role_label.setAlignment(Qt.AlignCenter)
+        role_label.setFixedHeight(22)
+        role_label.setStyleSheet("""
+            QLabel {
+                background-color: #EAF3FF;
+                color: #1961C7;
+                border: none;
+                border-radius: 8px;
+                padding: 2px 10px;
+                font-size: 10px;
+                font-weight: 600;
+            }
+        """)
+
+        layout.addWidget(role_label)
+
+        # دکمه‌های مدیریت و حذف (فقط برای مالک)
+        if group["role"] == "مالک" or group["role"] == "مالک و کارمند":
 
             manage_button = QPushButton("مدیریت")
             manage_button.setObjectName("manageButton")
@@ -979,15 +838,66 @@ class GroupsWindow(QWidget):
             layout.addWidget(manage_button)
             layout.addWidget(delete_button)
 
-        else:
-
-            role_button = QPushButton("کارمند")
-            role_button.setObjectName("employeeRoleButton")
-            role_button.setEnabled(False)
-
-            layout.addWidget(role_button)
-
         return card
+
+    # =====================================================
+    # MANAGE GROUP
+    # =====================================================
+
+    def manage_group(self, group):
+
+        try:
+
+            employees = self.get_group_employee_names(group["complexId"])
+
+            if employees:
+                employee_text = "\n".join(f"• {e}" for e in employees)
+            else:
+                employee_text = "هنوز کارمندی به این مجموعه اضافه نشده است."
+
+            NiceMessageBox.info(
+                self,
+                group["name"],
+                (
+                    f"آدرس: {group['address']}\n"
+                    f"فعالیت: {group['activity']}\n\n"
+                    f"توضیحات:\n{group['description']}\n\n"
+                    f"کارکنان:\n{employee_text}"
+                )
+            )
+
+        except Exception as error:
+
+            print("MANAGE GROUP ERROR:", error)
+
+            NiceMessageBox.error(
+                self, "خطا",
+                "در دریافت اطلاعات مجموعه مشکلی به وجود آمد."
+            )
+
+    def get_group_employee_names(self, complex_id):
+
+        try:
+
+            rows = self.db.fetch_all(
+                """
+                SELECT u.userId, u.name
+                FROM complex_members cm
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s
+                  AND cm.isActive = 1
+                  AND cm.role IN ('employee', 'both')
+                ORDER BY u.name ASC
+                """,
+                (complex_id,)
+            )
+
+            return [row["name"] or "بدون نام" for row in rows]
+
+        except Exception as error:
+
+            print("GET GROUP EMPLOYEES ERROR:", error)
+            return []
 
     # =====================================================
     # CONFIRM DELETE
@@ -1133,73 +1043,6 @@ class GroupsWindow(QWidget):
                 self, "خطا",
                 "در حذف مجموعه مشکلی به وجود آمد."
             )
-
-    # =====================================================
-    # REFRESH EMPLOYEES
-    # =====================================================
-
-    def refresh_employees(self):
-
-        while self.employees_container.count():
-
-            item = self.employees_container.takeAt(0)
-            widget = item.widget()
-
-            if widget:
-                widget.deleteLater()
-
-        for employee in self.employees:
-
-            card = self.create_employee_card(employee)
-            self.employees_container.addWidget(card)
-
-    # =====================================================
-    # EMPLOYEE CARD
-    # =====================================================
-
-    def create_employee_card(self, employee):
-
-        card = QFrame()
-        card.setObjectName("employeeCard")
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setFixedHeight(70)
-
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(12, 8, 12, 8)
-        layout.setSpacing(10)
-
-        avatar = QLabel("👤")
-        avatar.setObjectName("employeeAvatar")
-        avatar.setFixedSize(40, 40)
-        avatar.setAlignment(Qt.AlignCenter)
-
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(2)
-
-        name = QLabel(employee["name"])
-        name.setObjectName("employeeName")
-        name.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
-
-        status = QLabel("کاربر")
-        status.setObjectName("employeeStatus")
-        status.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
-
-        text_layout.addWidget(name)
-        text_layout.addWidget(status)
-
-        add_button = QPushButton("افزودن به مجموعه")
-        add_button.setObjectName("addEmployeeButton")
-        add_button.setCursor(Qt.PointingHandCursor)
-        add_button.clicked.connect(
-            lambda checked=False, e=employee: self.add_employee_to_group(e)
-        )
-
-        layout.addWidget(avatar)
-        layout.addLayout(text_layout)
-        layout.addStretch()
-        layout.addWidget(add_button)
-
-        return card
 
     # =====================================================
     # ADD GROUP
@@ -1494,227 +1337,3 @@ class GroupsWindow(QWidget):
         save.clicked.connect(save_group)
 
         dialog.show()
-
-    # =====================================================
-    # ADD EMPLOYEE
-    # =====================================================
-
-    def add_employee_to_group(self, employee):
-
-        owner_groups = [
-            g for g in self.groups
-            if g["role"] in ("مالک", "مالک و کارمند")
-        ]
-
-        if not owner_groups:
-
-            NiceMessageBox.warning(
-                self, "مجموعه",
-                "شما مالک هیچ مجموعه‌ای نیستید."
-            )
-            return
-
-        dialog = QFrame(self, Qt.Dialog)
-        dialog.setWindowTitle("افزودن کارمند")
-        dialog.setObjectName("employeeDialog")
-        dialog.setFixedSize(440, 380)
-        dialog.setLayoutDirection(Qt.RightToLeft)
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(10)
-
-        title = QLabel(f"افزودن «{employee['name']}» به مجموعه")
-        title.setObjectName("dialogTitle")
-        title.setWordWrap(True)
-
-        layout.addWidget(title)
-
-        description = QLabel("مجموعه موردنظر را انتخاب کنید.")
-        description.setObjectName("dialogDescription")
-        description.setWordWrap(True)
-
-        layout.addWidget(description)
-
-        self.selected_group = None
-
-        for group in owner_groups:
-
-            button = QPushButton(f"🏢  {group['name']}")
-            button.setObjectName("groupSelectButton")
-            button.setCursor(Qt.PointingHandCursor)
-            button.clicked.connect(
-                lambda checked=False, g=group, b=button:
-                self.select_group_button(g, b)
-            )
-
-            layout.addWidget(button)
-
-        layout.addStretch()
-
-        buttons = QHBoxLayout()
-
-        cancel = QPushButton("انصراف")
-        cancel.setObjectName("dialogCancel")
-        cancel.setCursor(Qt.PointingHandCursor)
-
-        register = QPushButton("ثبت")
-        register.setObjectName("registerEmployeeButton")
-        register.setCursor(Qt.PointingHandCursor)
-
-        buttons.addWidget(cancel)
-        buttons.addWidget(register)
-
-        layout.addLayout(buttons)
-
-        cancel.clicked.connect(dialog.close)
-
-        register.clicked.connect(
-            lambda: self.register_employee_to_group(employee, dialog)
-        )
-
-        dialog.show()
-
-    # =====================================================
-    # SELECT GROUP BUTTON
-    # =====================================================
-
-    def select_group_button(self, group, button):
-
-        self.selected_group = group
-
-        button.setStyleSheet("""
-            QPushButton {
-                background-color: #EAF3FF;
-                color: #1961C7;
-                border: 1px solid #1961C7;
-                border-radius: 11px;
-                padding: 10px;
-                text-align: right;
-                font-size: 12px;
-            }
-        """)
-
-    # =====================================================
-    # REGISTER EMPLOYEE
-    # =====================================================
-
-    def register_employee_to_group(self, employee, dialog):
-
-        if self.selected_group is None:
-
-            NiceMessageBox.warning(
-                dialog, "خطا",
-                "لطفاً ابتدا یک مجموعه را انتخاب کنید."
-            )
-            return
-
-        group = self.selected_group
-
-        try:
-
-            existing = self.db.fetch_one(
-                """
-                SELECT memberId, role, isActive
-                FROM complex_members
-                WHERE complexId = %s AND userId = %s
-                LIMIT 1
-                """,
-                (group["complexId"], employee["userId"])
-            )
-
-            if existing:
-
-                if existing["isActive"] == 1:
-
-                    NiceMessageBox.warning(
-                        dialog, "خطا",
-                        f"{employee['name']} قبلاً عضو این مجموعه است."
-                    )
-                    return
-
-                self.db.execute(
-                    """
-                    UPDATE complex_members
-                    SET role = 'employee',
-                        isActive = 1,
-                        joinedDate = NOW()
-                    WHERE memberId = %s
-                    """,
-                    (existing["memberId"],)
-                )
-
-            else:
-
-                self.db.execute(
-                    """
-                    INSERT INTO complex_members
-                    (
-                        complexId,
-                        userId,
-                        role,
-                        joinedDate,
-                        isActive
-                    )
-                    VALUES
-                    (
-                        %s, %s, 'employee', NOW(), 1
-                    )
-                    """,
-                    (group["complexId"], employee["userId"])
-                )
-
-            self.load_groups()
-            self.load_employees()
-            self.refresh_groups()
-
-            dialog.close()
-
-            NiceMessageBox.success(
-                self, "افزودن موفق",
-                f"{employee['name']} به مجموعه «{group['name']}» اضافه شد."
-            )
-
-        except Exception as error:
-
-            print("REGISTER EMPLOYEE ERROR:", error)
-
-            NiceMessageBox.error(
-                dialog, "خطا",
-                "در ثبت کارمند مشکلی به وجود آمد."
-            )
-
-    # =====================================================
-    # MANAGE GROUP
-    # =====================================================
-
-    def manage_group(self, group):
-
-        try:
-
-            employees = self.get_group_employee_names(group["complexId"])
-
-            if employees:
-                employee_text = "\n".join(f"• {e}" for e in employees)
-            else:
-                employee_text = "هنوز کارمندی به این مجموعه اضافه نشده است."
-
-            NiceMessageBox.info(
-                self,
-                group["name"],
-                (
-                    f"آدرس: {group['address']}\n"
-                    f"فعالیت: {group['activity']}\n\n"
-                    f"توضیحات:\n{group['description']}\n\n"
-                    f"کارکنان:\n{employee_text}"
-                )
-            )
-
-        except Exception as error:
-
-            print("MANAGE GROUP ERROR:", error)
-
-            NiceMessageBox.error(
-                self, "خطا",
-                "در دریافت اطلاعات مجموعه مشکلی به وجود آمد."
-            )

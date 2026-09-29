@@ -9,106 +9,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QFrame,
     QLineEdit,
-    QComboBox,
-    QTimeEdit,
-    QScrollArea,
-    QScrollBar,
+    QCheckBox,
     QDialog
 )
 
-from PySide6.QtCore import Qt, QTime, QTimer
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtCore import Qt
 
 from database import Database
-
-# =========================================================
-# ROUND SCROLL BAR
-# =========================================================
-
-class RoundScrollBar(QScrollBar):
-
-    def __init__(self, orientation=Qt.Vertical, parent=None):
-        super().__init__(orientation, parent)
-
-        self.setFixedWidth(12)
-
-        self.setStyleSheet("""
-            QScrollBar {
-                background: transparent;
-                border: none;
-                margin: 0px;
-            }
-        """)
-
-    def paintEvent(self, event):
-
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        track_width = 6
-        track_x = (self.width() - track_width) / 2
-        track_top = 6
-        track_bottom = self.height() - 6
-        track_height = track_bottom - track_top
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#EEF3FA"))
-
-        painter.drawRoundedRect(
-            int(track_x),
-            int(track_top),
-            track_width,
-            int(track_height),
-            track_width / 2,
-            track_width / 2
-        )
-
-        minimum = self.minimum()
-        maximum = self.maximum()
-        page_step = self.pageStep()
-
-        if maximum <= minimum:
-            return
-
-        groove_top = 6
-        groove_bottom = self.height() - 6
-        groove_height = groove_bottom - groove_top
-
-        total_range = maximum - minimum + page_step
-
-        handle_height = int(
-            groove_height * page_step / total_range
-        )
-
-        handle_height = max(42, handle_height)
-        handle_height = min(handle_height, groove_height)
-
-        available_space = groove_height - handle_height
-
-        if maximum == minimum:
-            handle_y = groove_top
-        else:
-            value_ratio = (
-                self.value() - minimum
-            ) / (maximum - minimum)
-
-            handle_y = (
-                groove_top + available_space * value_ratio
-            )
-
-        handle_width = 8
-        handle_x = (self.width() - handle_width) / 2
-
-        painter.setBrush(QColor("#4589E8"))
-
-        painter.drawRoundedRect(
-            int(handle_x),
-            int(handle_y),
-            handle_width,
-            int(handle_height),
-            handle_width / 2,
-            handle_width / 2
-        )
 
 # =========================================================
 # NICE MESSAGE BOX
@@ -255,348 +162,6 @@ class NiceMessageBox:
         NiceMessageDialog(parent, title, text, "warning").exec()
 
 # =========================================================
-# USER PICKER DIALOG
-# =========================================================
-
-class UserPickerDialog(QDialog):
-
-    def __init__(self, parent, complex_id, db):
-
-        super().__init__(parent)
-
-        self.complex_id = complex_id
-        self.db = db
-        self.selected_user = None
-        self.user_cards = []
-        self.users = []
-
-        self.setModal(True)
-        self.setWindowTitle("انتخاب کارمند")
-        self.setLayoutDirection(Qt.RightToLeft)
-        self.setMinimumSize(500, 600)
-        self.resize(520, 640)
-
-        self.setObjectName("userPickerDialog")
-
-        self.setup_ui()
-        self.load_users()
-
-    def setup_ui(self):
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(22, 22, 22, 22)
-        main_layout.setSpacing(14)
-
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
-
-        title = QLabel("انتخاب کارمند")
-        title.setObjectName("pickerTitle")
-
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-
-        close_button = QPushButton("✕")
-        close_button.setObjectName("pickerClose")
-        close_button.setFixedSize(34, 34)
-        close_button.setCursor(Qt.PointingHandCursor)
-        close_button.clicked.connect(self.reject)
-
-        header_layout.addWidget(close_button)
-
-        main_layout.addLayout(header_layout)
-
-        self.search_input = QLineEdit()
-        self.search_input.setObjectName("pickerSearch")
-        self.search_input.setPlaceholderText("🔍  جستجوی نام یا شماره تلفن...")
-        self.search_input.setFixedHeight(46)
-        self.search_input.textChanged.connect(self.filter_users)
-
-        main_layout.addWidget(self.search_input)
-
-        self.scroll = QScrollArea()
-        self.scroll.setObjectName("pickerScroll")
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        scroll_bar = RoundScrollBar(Qt.Vertical)
-        self.scroll.setVerticalScrollBar(scroll_bar)
-
-        self.list_content = QWidget()
-        self.list_content.setObjectName("pickerContent")
-        self.list_content.setAttribute(Qt.WA_TranslucentBackground, True)
-
-        self.list_layout = QVBoxLayout(self.list_content)
-        self.list_layout.setContentsMargins(6, 6, 16, 6)
-        self.list_layout.setSpacing(10)
-
-        self.scroll.setWidget(self.list_content)
-
-        main_layout.addWidget(self.scroll, 1)
-
-        self.empty_label = QLabel(
-            "کاربری برای افزودن وجود ندارد.\n"
-            "همه‌ی کاربران یا عضو این مجموعه هستند،\n"
-            "یا هنوز در سیستم ثبت‌نام نکرده‌اند."
-        )
-        self.empty_label.setObjectName("pickerEmpty")
-        self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setWordWrap(True)
-        self.empty_label.hide()
-
-        main_layout.addWidget(self.empty_label)
-
-        self.setStyleSheet("""
-
-            QDialog#userPickerDialog {
-                background-color: #F5F8FC;
-            }
-
-            QLabel#pickerTitle {
-                color: #17324D;
-                font-size: 20px;
-                font-weight: 700;
-                background: transparent;
-            }
-
-            QPushButton#pickerClose {
-                background-color: #FFFFFF;
-                color: #526273;
-                border: 1px solid #DCE6F2;
-                border-radius: 17px;
-                font-size: 14px;
-                font-weight: 700;
-            }
-
-            QPushButton#pickerClose:hover {
-                background-color: #FEE2E2;
-                color: #D93025;
-                border-color: #FBD5D5;
-            }
-
-            QLineEdit#pickerSearch {
-                background-color: #FFFFFF;
-                border: 1px solid #DCE6F2;
-                border-radius: 14px;
-                padding: 0 16px;
-                color: #17324D;
-                font-size: 13px;
-            }
-
-            QLineEdit#pickerSearch:focus {
-                border: 2px solid #4589E8;
-            }
-
-            QScrollArea#pickerScroll {
-                background: transparent;
-                border: none;
-            }
-
-            QScrollArea#pickerScroll > QWidget {
-                background: transparent;
-                border: none;
-            }
-
-            QWidget#pickerContent {
-                background: transparent;
-            }
-
-            QFrame#userCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
-                border-radius: 16px;
-            }
-
-            QFrame#userCard:hover {
-                background-color: #EAF3FF;
-                border: 1px solid #4589E8;
-            }
-
-            QLabel#userAvatar {
-                background-color: #EAF3FF;
-                border: none;
-                border-radius: 24px;
-                color: #1961C7;
-                font-size: 22px;
-                font-weight: 700;
-            }
-
-            QLabel#userName {
-                color: #17324D;
-                font-size: 14px;
-                font-weight: 700;
-                background: transparent;
-            }
-
-            QLabel#userInfo {
-                color: #8290A1;
-                font-size: 11px;
-                background: transparent;
-            }
-
-            QLabel#pickerEmpty {
-                color: #8290A1;
-                font-size: 12px;
-                background: transparent;
-                padding: 20px;
-            }
-
-        """)
-
-    def load_users(self):
-
-        try:
-
-            users = self.db.fetch_all(
-                """
-                SELECT
-                    u.userId,
-                    u.name,
-                    u.profession,
-                    u.phoneNumber,
-                    u.nationalId,
-                    u.imageBase64
-                FROM users u
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM complex_members cm
-                    WHERE cm.userId = u.userId
-                      AND cm.complexId = %s
-                )
-                ORDER BY u.name ASC
-                """,
-                (self.complex_id,)
-            )
-
-            self.users = users or []
-
-        except Exception as e:
-
-            print("LOAD USERS ERROR:", e)
-            self.users = []
-
-        self.refresh_cards()
-
-    def refresh_cards(self):
-
-        for card in self.user_cards:
-            card.deleteLater()
-
-        self.user_cards.clear()
-
-        while self.list_layout.count():
-
-            item = self.list_layout.takeAt(0)
-            widget = item.widget()
-
-            if widget:
-                widget.deleteLater()
-
-        if not self.users:
-
-            self.empty_label.show()
-            self.scroll.hide()
-            return
-
-        self.empty_label.hide()
-        self.scroll.show()
-
-        for user in self.users:
-
-            card = self.create_user_card(user)
-            self.list_layout.addWidget(card)
-            self.user_cards.append(card)
-
-        self.list_layout.addStretch()
-
-    def create_user_card(self, user):
-
-        card = QFrame()
-        card.setObjectName("userCard")
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setCursor(Qt.PointingHandCursor)
-        card.setFixedHeight(72)
-
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(12)
-
-        avatar = QLabel()
-        avatar.setObjectName("userAvatar")
-        avatar.setFixedSize(48, 48)
-        avatar.setAlignment(Qt.AlignCenter)
-
-        name_text = user.get("name") or "?"
-        first_letter = name_text[0] if name_text else "?"
-
-        avatar.setText(first_letter)
-        avatar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-
-        layout.addWidget(avatar)
-
-        info_layout = QVBoxLayout()
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(3)
-
-        name_label = QLabel(name_text)
-        name_label.setObjectName("userName")
-        name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-
-        profession = user.get("profession") or "unknown"
-
-        if profession == "unknown" or not profession:
-            profession_display = "نامشخص"
-        else:
-            profession_display = profession
-
-        phone = user.get("phoneNumber") or "-"
-
-        info_label = QLabel(
-            f"{profession_display}  •  {phone}"
-        )
-        info_label.setObjectName("userInfo")
-        info_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-
-        info_layout.addWidget(name_label)
-        info_layout.addWidget(info_label)
-
-        layout.addLayout(info_layout, 1)
-
-        def select(event):
-            self.selected_user = user
-            self.accept()
-            event.accept()
-
-        card.mousePressEvent = select
-
-        return card
-
-    def filter_users(self, text):
-
-        text = text.strip().lower()
-
-        for user, card in zip(self.users, self.user_cards):
-
-            if not text:
-                card.show()
-                continue
-
-            name = (user.get("name") or "").lower()
-            phone = (user.get("phoneNumber") or "").lower()
-            profession = (user.get("profession") or "").lower()
-
-            if (
-                text in name
-                or text in phone
-                or text in profession
-            ):
-                card.show()
-            else:
-                card.hide()
-
-# =========================================================
 # ADD EMPLOYEES WINDOW
 # =========================================================
 
@@ -617,35 +182,24 @@ class AddEmployees(QWidget):
 
         self.db = Database()
 
-        # کاربر انتخاب‌شده
-        self.selected_user = None
-
-        # اسم مجموعه
         self.complex_name = "—"
 
         self.setWindowTitle("افزودن کارمند")
-        self.resize(900, 700)
-        self.setMinimumSize(600, 500)
+        self.resize(560, 640)
+        self.setMinimumSize(500, 550)
         self.setLayoutDirection(Qt.RightToLeft)
 
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("addEmployeesWindow")
 
-        # ← اول اسم مجموعه رو بخون
         self.load_complex_name()
-
         self.setup_ui()
-
-        # بعد از رندر، پاپ‌آپ انتخاب کاربر
-        QTimer.singleShot(50, self.open_user_picker)
 
     # =========================================================
     # LOAD COMPLEX NAME
     # =========================================================
 
     def load_complex_name(self):
-
-        self.complex_name = "—"
 
         if not self.complex_id:
             return
@@ -676,7 +230,7 @@ class AddEmployees(QWidget):
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(28, 22, 28, 22)
-        main_layout.setSpacing(16)
+        main_layout.setSpacing(14)
 
         # =====================================================
         # HEADER
@@ -714,51 +268,6 @@ class AddEmployees(QWidget):
         main_layout.addLayout(header_layout)
 
         # =====================================================
-        # SELECTED USER CARD
-        # =====================================================
-
-        self.user_card = QFrame()
-        self.user_card.setObjectName("selectedUserCard")
-        self.user_card.setAttribute(Qt.WA_StyledBackground, True)
-        self.user_card.setFixedHeight(78)
-
-        user_card_layout = QHBoxLayout(self.user_card)
-        user_card_layout.setContentsMargins(18, 12, 18, 12)
-        user_card_layout.setSpacing(14)
-
-        self.selected_avatar = QLabel()
-        self.selected_avatar.setObjectName("selectedAvatar")
-        self.selected_avatar.setFixedSize(52, 52)
-        self.selected_avatar.setAlignment(Qt.AlignCenter)
-
-        user_card_layout.addWidget(self.selected_avatar)
-
-        info_layout = QVBoxLayout()
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(3)
-
-        self.selected_name_label = QLabel("—")
-        self.selected_name_label.setObjectName("selectedName")
-
-        self.selected_info_label = QLabel("—")
-        self.selected_info_label.setObjectName("selectedInfo")
-
-        info_layout.addWidget(self.selected_name_label)
-        info_layout.addWidget(self.selected_info_label)
-
-        user_card_layout.addLayout(info_layout, 1)
-
-        change_button = QPushButton("تغییر")
-        change_button.setObjectName("changeUserButton")
-        change_button.setFixedSize(70, 34)
-        change_button.setCursor(Qt.PointingHandCursor)
-        change_button.clicked.connect(self.open_user_picker)
-
-        user_card_layout.addWidget(change_button)
-
-        main_layout.addWidget(self.user_card)
-
-        # =====================================================
         # FORM BOX
         # =====================================================
 
@@ -766,223 +275,105 @@ class AddEmployees(QWidget):
         form_box.setObjectName("formBox")
         form_box.setAttribute(Qt.WA_StyledBackground, True)
 
-        form_box_layout = QVBoxLayout(form_box)
-        form_box_layout.setContentsMargins(18, 18, 18, 18)
-        form_box_layout.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setObjectName("formScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        scroll_bar = RoundScrollBar(Qt.Vertical)
-        scroll.setVerticalScrollBar(scroll_bar)
-
-        content = QWidget()
-        content.setObjectName("scrollContent")
-
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(6, 6, 16, 6)
-        content_layout.setSpacing(10)
+        form_layout = QVBoxLayout(form_box)
+        form_layout.setContentsMargins(24, 24, 24, 24)
+        form_layout.setSpacing(8)
 
         # =====================================================
-        # JOB TITLE (با نام مجموعه)
+        # NAME
         # =====================================================
 
-        job_label = QLabel(
-            f"شغل در مجموعه «{self.complex_name}»"
+        name_label = QLabel("نام و نام خانوادگی")
+        name_label.setObjectName("fieldLabel")
+
+        self.name_input = QLineEdit()
+        self.name_input.setObjectName("formInput")
+        self.name_input.setPlaceholderText("مثلاً: علی رضایی")
+        self.name_input.setFixedHeight(48)
+        self.name_input.textChanged.connect(self.clear_name_error)
+
+        self.name_error = QLabel()
+        self.name_error.setObjectName("fieldError")
+        self.name_error.setFixedHeight(18)
+        self.name_error.setWordWrap(True)
+        self.name_error.hide()
+
+        form_layout.addWidget(name_label)
+        form_layout.addWidget(self.name_input)
+        form_layout.addWidget(self.name_error)
+
+        form_layout.addSpacing(4)
+
+        # =====================================================
+        # ROLE
+        # =====================================================
+
+        role_label = QLabel(
+            f"نقش در مجموعه «{self.complex_name}»"
         )
-        job_label.setObjectName("fieldLabel")
+        role_label.setObjectName("fieldLabel")
 
-        self.job_input = QLineEdit()
-        self.job_input.setObjectName("formInput")
-        self.job_input.setPlaceholderText("مثلاً حسابدار ارشد")
-        self.job_input.setFixedHeight(48)
-        self.job_input.textChanged.connect(self.clear_job_error)
-
-        self.job_error = QLabel()
-        self.job_error.setObjectName("fieldError")
-        self.job_error.setFixedHeight(20)
-        self.job_error.setWordWrap(True)
-        self.job_error.hide()
-
-        content_layout.addWidget(job_label)
-        content_layout.addWidget(self.job_input)
-        content_layout.addWidget(self.job_error)
-
-        # =====================================================
-        # WORK TYPE
-        # =====================================================
-
-        work_type_label = QLabel("نوع همکاری")
-        work_type_label.setObjectName("fieldLabel")
-
-        self.work_type_combo = QComboBox()
-        self.work_type_combo.setObjectName("formCombo")
-        self.work_type_combo.addItems([
-            "تمام‌وقت",
-            "پاره‌وقت"
-        ])
-        self.work_type_combo.setFixedHeight(48)
-
-        content_layout.addWidget(work_type_label)
-        content_layout.addWidget(self.work_type_combo)
-
-        # =====================================================
-        # SALARY TYPE
-        # =====================================================
-
-        salary_type_label = QLabel("نوع حقوق")
-        salary_type_label.setObjectName("fieldLabel")
-
-        self.salary_type_combo = QComboBox()
-        self.salary_type_combo.setObjectName("formCombo")
-        self.salary_type_combo.addItems([
-            "ماهانه",
-            "روزانه",
-            "ساعتی"
-        ])
-        self.salary_type_combo.setFixedHeight(48)
-
-        content_layout.addWidget(salary_type_label)
-        content_layout.addWidget(self.salary_type_combo)
-
-        # =====================================================
-        # SALARY
-        # =====================================================
-
-        salary_label = QLabel("مبلغ حقوق (تومان)")
-        salary_label.setObjectName("fieldLabel")
-
-        self.salary_input = QLineEdit()
-        self.salary_input.setObjectName("formInput")
-        self.salary_input.setPlaceholderText("مثلاً 20000000")
-        self.salary_input.setFixedHeight(48)
-        self.salary_input.setLayoutDirection(Qt.LeftToRight)
-        self.salary_input.textChanged.connect(self.clear_salary_error)
-
-        self.salary_error = QLabel()
-        self.salary_error.setObjectName("fieldError")
-        self.salary_error.setFixedHeight(20)
-        self.salary_error.setWordWrap(True)
-        self.salary_error.hide()
-
-        content_layout.addWidget(salary_label)
-        content_layout.addWidget(self.salary_input)
-        content_layout.addWidget(self.salary_error)
-
-        # =====================================================
-        # WORK DAYS / HOURS
-        # =====================================================
-
-        work_info_layout = QHBoxLayout()
-        work_info_layout.setSpacing(15)
-
-        work_days_container = QVBoxLayout()
-        work_days_container.setSpacing(6)
-
-        work_days_label = QLabel("روز کاری در ماه")
-        work_days_label.setObjectName("fieldLabel")
-
-        self.work_days_input = QLineEdit()
-        self.work_days_input.setObjectName("formInput")
-        self.work_days_input.setPlaceholderText("26")
-        self.work_days_input.setText("26")
-        self.work_days_input.setFixedHeight(48)
-        self.work_days_input.setLayoutDirection(Qt.LeftToRight)
-
-        work_days_container.addWidget(work_days_label)
-        work_days_container.addWidget(self.work_days_input)
-
-        work_hours_container = QVBoxLayout()
-        work_hours_container.setSpacing(6)
-
-        work_hours_label = QLabel("ساعت کاری روزانه")
-        work_hours_label.setObjectName("fieldLabel")
-
-        self.work_hours_input = QLineEdit()
-        self.work_hours_input.setObjectName("formInput")
-        self.work_hours_input.setPlaceholderText("8")
-        self.work_hours_input.setText("8")
-        self.work_hours_input.setFixedHeight(48)
-        self.work_hours_input.setLayoutDirection(Qt.LeftToRight)
-
-        work_hours_container.addWidget(work_hours_label)
-        work_hours_container.addWidget(self.work_hours_input)
-
-        work_info_layout.addLayout(work_days_container)
-        work_info_layout.addLayout(work_hours_container)
-
-        content_layout.addLayout(work_info_layout)
-
-        # =====================================================
-        # START / END TIME
-        # =====================================================
-
-        time_layout = QHBoxLayout()
-        time_layout.setSpacing(15)
-
-        start_time_container = QVBoxLayout()
-        start_time_container.setSpacing(6)
-
-        start_time_label = QLabel("ساعت شروع")
-        start_time_label.setObjectName("fieldLabel")
-
-        self.start_time_input = QTimeEdit()
-        self.start_time_input.setObjectName("formTime")
-        self.start_time_input.setTime(QTime(8, 0))
-        self.start_time_input.setDisplayFormat("HH:mm")
-        self.start_time_input.setFixedHeight(48)
-        self.start_time_input.setLayoutDirection(Qt.LeftToRight)
-
-        start_time_container.addWidget(start_time_label)
-        start_time_container.addWidget(self.start_time_input)
-
-        end_time_container = QVBoxLayout()
-        end_time_container.setSpacing(6)
-
-        end_time_label = QLabel("ساعت پایان")
-        end_time_label.setObjectName("fieldLabel")
-
-        self.end_time_input = QTimeEdit()
-        self.end_time_input.setObjectName("formTime")
-        self.end_time_input.setTime(QTime(16, 0))
-        self.end_time_input.setDisplayFormat("HH:mm")
-        self.end_time_input.setFixedHeight(48)
-        self.end_time_input.setLayoutDirection(Qt.LeftToRight)
-
-        end_time_container.addWidget(end_time_label)
-        end_time_container.addWidget(self.end_time_input)
-
-        time_layout.addLayout(start_time_container)
-        time_layout.addLayout(end_time_container)
-
-        content_layout.addLayout(time_layout)
-
-        # =====================================================
-        # DESCRIPTION
-        # =====================================================
-
-        description_label = QLabel("توضیحات (اختیاری)")
-        description_label.setObjectName("fieldLabel")
-
-        self.description_input = QLineEdit()
-        self.description_input.setObjectName("formInput")
-        self.description_input.setPlaceholderText(
-            "توضیحات مربوط به این کارمند"
+        self.role_input = QLineEdit()
+        self.role_input.setObjectName("formInput")
+        self.role_input.setPlaceholderText(
+            "مثلاً: حسابدار، فروشنده، سرپرست"
         )
-        self.description_input.setFixedHeight(48)
+        self.role_input.setFixedHeight(48)
+        self.role_input.textChanged.connect(self.clear_role_error)
 
-        content_layout.addWidget(description_label)
-        content_layout.addWidget(self.description_input)
+        self.role_error = QLabel()
+        self.role_error.setObjectName("fieldError")
+        self.role_error.setFixedHeight(18)
+        self.role_error.setWordWrap(True)
+        self.role_error.hide()
 
-        content_layout.addStretch()
+        form_layout.addWidget(role_label)
+        form_layout.addWidget(self.role_input)
+        form_layout.addWidget(self.role_error)
 
-        scroll.setWidget(content)
+        form_layout.addSpacing(4)
 
-        form_box_layout.addWidget(scroll)
+        # =====================================================
+        # PHONE
+        # =====================================================
+
+        phone_label = QLabel("شماره تلفن")
+        phone_label.setObjectName("fieldLabel")
+
+        self.phone_input = QLineEdit()
+        self.phone_input.setObjectName("formInput")
+        self.phone_input.setPlaceholderText("مثلاً: 09123456789")
+        self.phone_input.setFixedHeight(48)
+        self.phone_input.setLayoutDirection(Qt.LeftToRight)
+        self.phone_input.setMaxLength(11)
+        self.phone_input.textChanged.connect(self.clear_phone_error)
+
+        self.phone_error = QLabel()
+        self.phone_error.setObjectName("fieldError")
+        self.phone_error.setFixedHeight(18)
+        self.phone_error.setWordWrap(True)
+        self.phone_error.hide()
+
+        form_layout.addWidget(phone_label)
+        form_layout.addWidget(self.phone_input)
+        form_layout.addWidget(self.phone_error)
+
+        form_layout.addSpacing(10)
+
+        # =====================================================
+        # PERMISSION CHECKBOX
+        # =====================================================
+
+        self.permission_checkbox = QCheckBox(
+            "این کارمند اجازه دارد بقیه کارمندان را ببیند"
+        )
+        self.permission_checkbox.setObjectName("permissionCheckbox")
+        self.permission_checkbox.setChecked(True)
+        self.permission_checkbox.setCursor(Qt.PointingHandCursor)
+
+        form_layout.addWidget(self.permission_checkbox)
+
+        form_layout.addStretch()
 
         main_layout.addWidget(form_box, 1)
 
@@ -1011,13 +402,6 @@ class AddEmployees(QWidget):
         main_layout.addLayout(buttons_layout)
 
         # =====================================================
-        # POLISH COMBO POPUPS
-        # =====================================================
-
-        self.polish_combo_popup(self.work_type_combo)
-        self.polish_combo_popup(self.salary_type_combo)
-
-        # =====================================================
         # STYLE
         # =====================================================
 
@@ -1025,12 +409,13 @@ class AddEmployees(QWidget):
 
             QWidget#addEmployeesWindow {
                 background-color: #F5F8FC;
+                font-family: "Vazirmatn";
             }
 
             QLabel#pageTitle {
                 background: transparent;
                 color: #17324D;
-                font-size: 24px;
+                font-size: 22px;
                 font-weight: 700;
             }
 
@@ -1072,70 +457,13 @@ class AddEmployees(QWidget):
                 border-color: #C9DDF5;
             }
 
-            QFrame#selectedUserCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
-                border-radius: 18px;
-            }
-
-            QLabel#selectedAvatar {
-                background-color: #EAF3FF;
-                border: none;
-                border-radius: 26px;
-                color: #1961C7;
-                font-size: 22px;
-                font-weight: 700;
-            }
-
-            QLabel#selectedName {
-                color: #17324D;
-                font-size: 15px;
-                font-weight: 700;
-                background: transparent;
-            }
-
-            QLabel#selectedInfo {
-                color: #8290A1;
-                font-size: 11px;
-                background: transparent;
-            }
-
-            QPushButton#changeUserButton {
-                background-color: #EAF3FF;
-                color: #1961C7;
-                border: 1px solid #C9DDF5;
-                border-radius: 12px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            QPushButton#changeUserButton:hover {
-                background-color: #D8E9FF;
-            }
-
             QFrame#formBox {
                 background-color: #FFFFFF;
                 border: 1px solid #E2EAF4;
                 border-radius: 28px;
             }
 
-            QScrollArea#formScroll {
-                background: transparent;
-                border: none;
-            }
-
-            QScrollArea#formScroll > QWidget {
-                background: transparent;
-                border: none;
-            }
-
-            QWidget#scrollContent {
-                background: transparent;
-                border: none;
-            }
-
-            QLineEdit#formInput,
-            QTimeEdit#formTime {
+            QLineEdit#formInput {
                 background: #F7F9FC;
                 border: 1px solid #DCE6F2;
                 border-radius: 14px;
@@ -1144,63 +472,48 @@ class AddEmployees(QWidget):
                 font-size: 13px;
             }
 
-            QLineEdit#formInput:hover,
-            QTimeEdit#formTime:hover {
+            QLineEdit#formInput:hover {
                 background: #FFFFFF;
                 border: 1px solid #C9DDF5;
             }
 
-            QLineEdit#formInput:focus,
-            QTimeEdit#formTime:focus {
+            QLineEdit#formInput:focus {
                 background: #FFFFFF;
                 border: 2px solid #4589E8;
             }
 
-            QComboBox#formCombo {
+            QCheckBox#permissionCheckbox {
                 background: #F7F9FC;
                 border: 1px solid #DCE6F2;
                 border-radius: 14px;
-                padding: 0 16px;
-                padding-left: 40px;
+                padding: 14px 16px;
                 color: #17324D;
                 font-size: 13px;
+                font-weight: 600;
+                spacing: 12px;
             }
 
-            QComboBox#formCombo:hover {
+            QCheckBox#permissionCheckbox:hover {
                 background: #FFFFFF;
                 border: 1px solid #C9DDF5;
             }
 
-            QComboBox#formCombo:focus {
+            QCheckBox#permissionCheckbox::indicator {
+                width: 22px;
+                height: 22px;
+                border-radius: 6px;
+                border: 2px solid #C9D5E2;
                 background: #FFFFFF;
-                border: 2px solid #4589E8;
             }
 
-            QComboBox#formCombo::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: center left;
-                width: 32px;
-                border: none;
-                background: transparent;
-            }
-
-            QComboBox#formCombo::down-arrow {
+            QCheckBox#permissionCheckbox::indicator:checked {
+                background: #1961C7;
+                border: 2px solid #1961C7;
                 image: none;
-                width: 0px;
-                height: 0px;
-                border-left: 6px solid transparent;
-                border-right: 6px solid transparent;
-                border-top: 7px solid #4589E8;
-                margin-left: 14px;
-                margin-right: 0px;
             }
 
-            QTimeEdit#formTime::up-button,
-            QTimeEdit#formTime::down-button {
-                width: 0px;
-                height: 0px;
-                border: none;
-                background: transparent;
+            QCheckBox#permissionCheckbox::indicator:hover {
+                border: 2px solid #4589E8;
             }
 
             QPushButton#saveButton {
@@ -1240,113 +553,6 @@ class AddEmployees(QWidget):
         """)
 
     # =========================================================
-    # OPEN USER PICKER
-    # =========================================================
-
-    def open_user_picker(self):
-
-        picker = UserPickerDialog(
-            self,
-            self.complex_id,
-            self.db
-        )
-
-        result = picker.exec()
-
-        if result == QDialog.Accepted and picker.selected_user:
-
-            self.selected_user = picker.selected_user
-            self.update_selected_user_card()
-
-    # =========================================================
-    # UPDATE SELECTED USER CARD
-    # =========================================================
-
-    def update_selected_user_card(self):
-
-        if not self.selected_user:
-            return
-
-        user = self.selected_user
-
-        name = user.get("name") or "?"
-        first_letter = name[0] if name else "?"
-
-        self.selected_avatar.setText(first_letter)
-
-        self.selected_name_label.setText(name)
-
-        profession = user.get("profession") or "unknown"
-
-        if profession == "unknown" or not profession:
-            profession_display = "نامشخص"
-        else:
-            profession_display = profession
-
-        phone = user.get("phoneNumber") or "-"
-
-        self.selected_info_label.setText(
-            f"{profession_display}  •  {phone}"
-        )
-
-    # =========================================================
-    # POLISH COMBO POPUP
-    # =========================================================
-
-    def polish_combo_popup(self, combo):
-
-        view = combo.view()
-
-        view.setStyleSheet("""
-            QAbstractItemView {
-                background: white;
-                border: 1px solid #DCE6F2;
-                border-radius: 14px;
-                padding: 6px;
-                outline: 0;
-                color: #17324D;
-                font-size: 13px;
-                selection-background-color: #EAF3FF;
-                selection-color: #1961C7;
-            }
-
-            QAbstractItemView::item {
-                min-height: 34px;
-                border-radius: 10px;
-                padding: 0 10px;
-                margin: 2px 2px;
-            }
-
-            QAbstractItemView::item:hover {
-                background-color: #EAF3FF;
-                color: #1961C7;
-            }
-
-            QAbstractItemView::item:selected {
-                background-color: #EAF3FF;
-                color: #1961C7;
-            }
-        """)
-
-        popup_window = view.window()
-
-        if popup_window is not None:
-
-            popup_window.setAttribute(
-                Qt.WA_TranslucentBackground, True
-            )
-
-            popup_window.setWindowFlags(
-                Qt.Popup
-                | Qt.FramelessWindowHint
-                | Qt.NoDropShadowWindowHint
-            )
-
-            popup_window.setStyleSheet("""
-                background: transparent;
-            """)
-
-    # =========================================================
     # ERROR HELPERS
     # =========================================================
 
@@ -1363,11 +569,14 @@ class AddEmployees(QWidget):
         label.clear()
         label.hide()
 
-    def clear_job_error(self):
-        self.clear_error(self.job_error)
+    def clear_name_error(self):
+        self.clear_error(self.name_error)
 
-    def clear_salary_error(self):
-        self.clear_error(self.salary_error)
+    def clear_role_error(self):
+        self.clear_error(self.role_error)
+
+    def clear_phone_error(self):
+        self.clear_error(self.phone_error)
 
     def contains_digit(self, text):
 
@@ -1382,123 +591,112 @@ class AddEmployees(QWidget):
 
     def save_employee(self):
 
-        if not self.selected_user:
+        name = self.name_input.text().strip()
+        role = self.role_input.text().strip()
+        phone = self.phone_input.text().strip()
 
-            NiceMessageBox.warning(
-                self,
-                "خطا",
-                "لطفاً یک کارمند انتخاب کنید."
-            )
-
-            self.open_user_picker()
-            return
-
-        job = self.job_input.text().strip()
-        salary_text = self.salary_input.text().strip()
-
-        work_type = self.work_type_combo.currentText()
-        salary_type = self.salary_type_combo.currentText()
-
-        work_days_text = self.work_days_input.text().strip()
-        work_hours_text = self.work_hours_input.text().strip()
-        description_text = self.description_input.text().strip()
+        can_see = "1" if self.permission_checkbox.isChecked() else "0"
 
         # =====================================================
-        # JOB VALIDATION
+        # NAME VALIDATION
         # =====================================================
 
-        self.clear_error(self.job_error)
+        self.clear_error(self.name_error)
 
-        if not job:
+        if not name:
 
             self.show_error(
-                self.job_error,
-                "لطفاً شغل را وارد کنید."
+                self.name_error,
+                "لطفاً نام و نام خانوادگی را وارد کنید."
             )
 
-            self.job_input.setFocus()
+            self.name_input.setFocus()
             return
 
-        if self.contains_digit(job):
+        if self.contains_digit(name):
 
             self.show_error(
-                self.job_error,
-                "شغل نباید شامل عدد باشد."
+                self.name_error,
+                "نام نباید شامل عدد باشد."
             )
 
-            self.job_input.setFocus()
+            self.name_input.setFocus()
             return
 
         # =====================================================
-        # SALARY VALIDATION
+        # ROLE VALIDATION
         # =====================================================
 
-        self.clear_error(self.salary_error)
+        self.clear_error(self.role_error)
 
-        if not salary_text:
+        if not role:
 
             self.show_error(
-                self.salary_error,
-                "لطفاً مبلغ حقوق را وارد کنید."
+                self.role_error,
+                "لطفاً نقش کارمند را وارد کنید."
             )
 
-            self.salary_input.setFocus()
+            self.role_input.setFocus()
             return
 
-        try:
-
-            salary = float(
-                salary_text.replace(",", "").replace("٬", "")
-            )
-
-        except ValueError:
+        if self.contains_digit(role):
 
             self.show_error(
-                self.salary_error,
-                "مبلغ حقوق صحیح نیست."
+                self.role_error,
+                "نقش نباید شامل عدد باشد."
             )
 
-            self.salary_input.setFocus()
-            return
-
-        MAX_SALARY = 999_999_999_999_999
-
-        if salary <= 0:
-
-            self.show_error(
-                self.salary_error,
-                "مبلغ حقوق باید بیشتر از صفر باشد."
-            )
-
-            self.salary_input.setFocus()
-            return
-
-        if salary > MAX_SALARY:
-
-            self.show_error(
-                self.salary_error,
-                "مبلغ حقوق بیش از حد بزرگ است."
-            )
-
-            self.salary_input.setFocus()
+            self.role_input.setFocus()
             return
 
         # =====================================================
-        # WORK DAYS / HOURS
+        # PHONE VALIDATION
         # =====================================================
 
-        try:
-            work_days = int(work_days_text) if work_days_text else 26
-        except ValueError:
-            work_days = 26
+        self.clear_error(self.phone_error)
 
-        try:
-            work_hours = float(work_hours_text) if work_hours_text else 8
-        except ValueError:
-            work_hours = 8
+        if not phone:
+
+            self.show_error(
+                self.phone_error,
+                "لطفاً شماره تلفن را وارد کنید."
+            )
+
+            self.phone_input.setFocus()
+            return
+
+        if not phone.isdigit():
+
+            self.show_error(
+                self.phone_error,
+                "شماره تلفن باید فقط شامل عدد باشد."
+            )
+
+            self.phone_input.setFocus()
+            return
+
+        if len(phone) != 11:
+
+            self.show_error(
+                self.phone_error,
+                "شماره تلفن باید دقیقاً ۱۱ رقم باشد."
+            )
+
+            self.phone_input.setFocus()
+            return
+
+        if not phone.startswith("09"):
+
+            self.show_error(
+                self.phone_error,
+                "شماره تلفن باید با ۰۹ شروع شود."
+            )
+
+            self.phone_input.setFocus()
+            return
 
         # =====================================================
-        # COMPLEX
+        # COMPLEX CHECK
         # =====================================================
 
         if not self.complex_id:
@@ -1511,28 +709,86 @@ class AddEmployees(QWidget):
             return
 
         # =====================================================
-        # PREPARE DATA
+        # FIND OR CREATE USER
         # =====================================================
 
-        user = self.selected_user
-        user_id = user["userId"]
+        user = self.db.fetch_one(
+            """
+            SELECT userId, name
+            FROM users
+            WHERE phoneNumber = %s
+            LIMIT 1
+            """,
+            (phone,)
+        )
 
-        national_code = user.get("nationalId") or None
+        if user:
 
-        if work_type == "تمام‌وقت":
-            employment_type = "fullTime"
+            user_id = user["userId"]
+
         else:
-            employment_type = "partTime"
 
-        if salary_type == "ماهانه":
-            salary_type_db = "monthly"
-        elif salary_type == "روزانه":
-            salary_type_db = "daily"
-        else:
-            salary_type_db = "hourly"
+            # کاربر جدید
+            user_id = self.db.execute(
+                """
+                INSERT INTO users (
+                    name,
+                    profession,
+                    countryCode,
+                    phoneNumber,
+                    createdDate,
+                    sentOtp,
+                    otpSentDateTime,
+                    otpUsed,
+                    isActive
+                )
+                VALUES (
+                    %s,
+                    'unknown',
+                    '+98',
+                    %s,
+                    NOW(),
+                    0,
+                    NULL,
+                    '0',
+                    '1'
+                )
+                """,
+                (name, phone)
+            )
 
-        start_time = self.start_time_input.time().toString("HH:mm:ss")
-        end_time = self.end_time_input.time().toString("HH:mm:ss")
+            if not user_id:
+
+                NiceMessageBox.error(
+                    self,
+                    "خطا",
+                    "ساخت کاربر جدید انجام نشد."
+                )
+                return
+
+        # =====================================================
+        # CHECK EXISTING MEMBER
+        # =====================================================
+
+        existing_member = self.db.fetch_one(
+            """
+            SELECT memberId
+            FROM complex_members
+            WHERE complexId = %s
+              AND userId = %s
+            LIMIT 1
+            """,
+            (self.complex_id, user_id)
+        )
+
+        if existing_member:
+
+            NiceMessageBox.warning(
+                self,
+                "قبلاً عضو است",
+                "این کاربر قبلاً در این مجموعه اضافه شده است."
+            )
+            return
 
         # =====================================================
         # INSERT MEMBER
@@ -1574,7 +830,6 @@ class AddEmployees(QWidget):
             INSERT INTO employee_profiles (
                 memberId,
                 jobTitle,
-                nationalCode,
                 employmentType,
                 salaryType,
                 baseSalary,
@@ -1583,26 +838,28 @@ class AddEmployees(QWidget):
                 workStartTime,
                 workEndTime,
                 description,
+                canSeeEmployees,
                 createdDate
             )
             VALUES (
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s
+                %s,
+                %s,
+                'fullTime',
+                'monthly',
+                0,
+                26,
+                8,
+                '08:00:00',
+                '16:00:00',
+                NULL,
+                %s,
+                NOW()
             )
             """,
             (
                 member_id,
-                job,
-                national_code,
-                employment_type,
-                salary_type_db,
-                salary,
-                work_days,
-                work_hours,
-                start_time,
-                end_time,
-                description_text or None,
-                datetime.now()
+                role,
+                can_see
             )
         )
 
@@ -1633,13 +890,13 @@ class AddEmployees(QWidget):
                 self.parent_window.refresh_employees()
 
         # =====================================================
-        # SUCCESS msg show
+        # SUCCESS
         # =====================================================
 
         NiceMessageBox.success(
             self,
             "ثبت موفق",
-            f"{user.get('name', 'کارمند')} به مجموعه "
+            f"{name} با موفقیت به مجموعه "
             f"«{self.complex_name}» اضافه شد."
         )
 
