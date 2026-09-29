@@ -9,16 +9,117 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QFrame,
     QMessageBox,
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect,
+    QScrollArea,
+    QScrollBar
 )
 
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QPixmap, QIcon, QColor
+from PySide6.QtCore import Qt, QSize, QRegularExpression
+from PySide6.QtGui import (
+    QPixmap,
+    QIcon,
+    QColor,
+    QRegularExpressionValidator,
+    QPainter
+)
 
 from homeWindow import HomeWindow
+from database import Database
 
 # ======================================================
-# دکمه با Hover
+# ROUND SCROLL BAR
+# ======================================================
+
+class RoundScrollBar(QScrollBar):
+
+    def __init__(self, orientation=Qt.Vertical, parent=None):
+        super().__init__(orientation, parent)
+
+        self.setFixedWidth(12)
+
+        self.setStyleSheet("""
+            QScrollBar {
+                background: transparent;
+                border: none;
+                margin: 0px;
+            }
+        """)
+
+    def paintEvent(self, event):
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        track_width = 6
+
+        track_x = (self.width() - track_width) / 2
+
+        track_top = 6
+        track_bottom = self.height() - 6
+
+        track_height = track_bottom - track_top
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#EEF3FA"))
+
+        painter.drawRoundedRect(
+            int(track_x),
+            int(track_top),
+            track_width,
+            int(track_height),
+            track_width / 2,
+            track_width / 2
+        )
+
+        minimum = self.minimum()
+        maximum = self.maximum()
+        page_step = self.pageStep()
+
+        if maximum <= minimum:
+            return
+
+        groove_top = 6
+        groove_bottom = self.height() - 6
+        groove_height = groove_bottom - groove_top
+
+        total_range = maximum - minimum + page_step
+
+        handle_height = int(
+            groove_height * page_step / total_range
+        )
+
+        handle_height = max(42, handle_height)
+        handle_height = min(handle_height, groove_height)
+
+        available_space = groove_height - handle_height
+
+        if maximum == minimum:
+            handle_y = groove_top
+        else:
+            value_ratio = (
+                self.value() - minimum
+            ) / (maximum - minimum)
+
+            handle_y = (
+                groove_top + available_space * value_ratio
+            )
+
+        handle_width = 8
+        handle_x = (self.width() - handle_width) / 2
+
+        painter.setBrush(QColor("#4589E8"))
+
+        painter.drawRoundedRect(
+            int(handle_x),
+            int(handle_y),
+            handle_width,
+            int(handle_height),
+            handle_width / 2,
+            handle_width / 2
+        )
+
+# ======================================================
+# HOVER BUTTON
 # ======================================================
 
 class HoverButton(QPushButton):
@@ -55,6 +156,10 @@ class HoverButton(QPushButton):
 
         super().leaveEvent(event)
 
+# ======================================================
+# PROFILE SETUP WINDOW
+# ======================================================
+
 class ProfileSetupWindow(QWidget):
 
     def __init__(self, phone_number):
@@ -63,39 +168,32 @@ class ProfileSetupWindow(QWidget):
         self.phone_number = phone_number
         self.selected_avatar = None
 
+        self.db = Database()
+
         self.setWindowTitle("ساخت پروفایل")
-        self.resize(1200, 750)
+        self.resize(1000, 750)
+        self.setMinimumSize(550, 550)
         self.setLayoutDirection(Qt.RightToLeft)
         self.setObjectName("profileWindow")
 
         self.setup_ui()
         self.setStyleSheet(STYLE)
 
+    # ==================================================
+    # UI
+    # ==================================================
+
     def setup_ui(self):
 
-        # ==========================================
-        # صفحه اصلی
-        # ==========================================
-
         main_layout = QVBoxLayout(self)
-
-        main_layout.setContentsMargins(
-            30,
-            28,
-            30,
-            25
-        )
-
-        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(20, 15, 20, 15)
+        main_layout.setSpacing(8)
 
         # ==========================================
         # عنوان
         # ==========================================
 
-        title = QLabel(
-            "پروفایلت رو بساز ✨"
-        )
-
+        title = QLabel("پروفایلت رو بساز ✨")
         title.setObjectName("title")
         title.setAlignment(Qt.AlignCenter)
         title.setFixedHeight(45)
@@ -106,205 +204,210 @@ class ProfileSetupWindow(QWidget):
         # توضیحات
         # ==========================================
 
-        description = QLabel(
-            "یک نام کاربری و آواتار برای خودت انتخاب کن"
-        )
-
+        description = QLabel("اطلاعات خودت رو کامل کن")
         description.setObjectName("description")
         description.setAlignment(Qt.AlignCenter)
-        description.setFixedHeight(30)
+        description.setFixedHeight(28)
 
         main_layout.addWidget(description)
 
         # ==========================================
-        # فاصله
+        # SCROLL
         # ==========================================
 
-        top_space = QWidget()
+        scroll = QScrollArea()
+        scroll.setObjectName("profileScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-        top_space.setFixedHeight(15)
+        scroll_bar = RoundScrollBar(Qt.Vertical)
+        scroll.setVerticalScrollBar(scroll_bar)
 
-        top_space.setStyleSheet(
-            "background-color: transparent;"
-        )
+        scroll_content = QWidget()
+        scroll_content.setObjectName("scrollContent")
+        scroll_content.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        main_layout.addWidget(top_space)
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(10, 15, 10, 15)
+        scroll_layout.setSpacing(0)
+
+        scroll_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
         # ==========================================
-        # کارت اطلاعات پروفایل
+        # کارت
         # ==========================================
 
         card = QFrame()
-
         card.setObjectName("card")
+        card.setFixedWidth(520)
 
-        card.setFixedSize(
-            470,
-            520
-        )
-
-        # سایه کارت
         shadow = QGraphicsDropShadowEffect()
-
         shadow.setBlurRadius(35)
         shadow.setOffset(0, 10)
-
-        shadow.setColor(
-            QColor(
-                30,
-                60,
-                90,
-                35
-            )
-        )
+        shadow.setColor(QColor(30, 60, 90, 35))
 
         card.setGraphicsEffect(shadow)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(38, 28, 38, 28)
+        card_layout.setSpacing(6)
 
         # ==========================================
         # عنوان کارت
         # ==========================================
 
-        profile_title = QLabel(
-            "اطلاعات پروفایل",
-            card
-        )
+        profile_title = QLabel("اطلاعات پروفایل")
+        profile_title.setObjectName("profileTitle")
 
-        profile_title.setObjectName(
-            "profileTitle"
-        )
+        card_layout.addWidget(profile_title)
 
-        profile_title.setGeometry(
-            38,
-            25,
-            394,
-            28
-        )
-
-        # ==========================================
-        # عنوان نام کاربری
-        # ==========================================
-
-        username_label = QLabel(
-            "نام کاربری",
-            card
-        )
-
-        username_label.setObjectName(
-            "fieldTitle"
-        )
-
-        username_label.setGeometry(
-            38,
-            65,
-            394,
-            22
-        )
+        card_layout.addSpacing(6)
 
         # ==========================================
         # نام کاربری
         # ==========================================
 
-        self.username_input = QLineEdit(
-            card
-        )
+        username_label = QLabel("نام کاربری")
+        username_label.setObjectName("fieldTitle")
 
-        self.username_input.setObjectName(
-            "usernameInput"
-        )
+        self.username_input = QLineEdit()
+        self.username_input.setObjectName("usernameInput")
+        self.username_input.setPlaceholderText("مثلاً: Danesh")
+        self.username_input.setFixedHeight(50)
+        self.username_input.setLayoutDirection(Qt.LeftToRight)
+        self.username_input.textChanged.connect(self.validate_username)
 
-        self.username_input.setPlaceholderText(
-            "مثلاً: Danesh"
-        )
+        self.username_error = QLabel()
+        self.username_error.setObjectName("fieldError")
+        self.username_error.setFixedHeight(20)
+        self.username_error.setWordWrap(True)
+        self.username_error.hide()
 
-        self.username_input.setGeometry(
-            38,
-            93,
-            394,
-            50
-        )
-
-        self.username_input.setLayoutDirection(
-            Qt.LeftToRight
-        )
+        card_layout.addWidget(username_label)
+        card_layout.addWidget(self.username_input)
+        card_layout.addWidget(self.username_error)
 
         # ==========================================
-        # عنوان آواتار
+        # حرفه / تخصص
         # ==========================================
 
-        avatar_label = QLabel(
-            "آواتار خودت رو انتخاب کن",
-            card
-        )
+        profession_label = QLabel("حرفه / تخصص")
+        profession_label.setObjectName("fieldTitle")
 
-        avatar_label.setObjectName(
-            "fieldTitle"
+        self.profession_input = QLineEdit()
+        self.profession_input.setObjectName("professionInput")
+        self.profession_input.setPlaceholderText(
+            "مثلاً: برنامه‌نویس، حسابدار، معلم"
         )
+        self.profession_input.setFixedHeight(50)
+        self.profession_input.textChanged.connect(self.validate_profession)
 
-        avatar_label.setGeometry(
-            38,
-            160,
-            394,
-            22
-        )
+        self.profession_error = QLabel()
+        self.profession_error.setObjectName("fieldError")
+        self.profession_error.setFixedHeight(20)
+        self.profession_error.setWordWrap(True)
+        self.profession_error.hide()
+
+        card_layout.addWidget(profession_label)
+        card_layout.addWidget(self.profession_input)
+        card_layout.addWidget(self.profession_error)
 
         # ==========================================
-        # آواتارها
+        # کد ملی
         # ==========================================
 
-        avatars_widget = QWidget(card)
+        national_id_label = QLabel("کد ملی")
+        national_id_label.setObjectName("fieldTitle")
 
-        avatars_widget.setGeometry(
-            38,
-            188,
-            394,
-            90
+        self.national_id_input = QLineEdit()
+        self.national_id_input.setObjectName("nationalIdInput")
+        self.national_id_input.setPlaceholderText("کد ملی ۱۰ رقمی")
+        self.national_id_input.setFixedHeight(50)
+        self.national_id_input.setLayoutDirection(Qt.LeftToRight)
+        self.national_id_input.setMaxLength(10)
+
+        national_id_validator = QRegularExpressionValidator(
+            QRegularExpression(r"[0-9]*"),
+            self.national_id_input
         )
 
-        avatars_widget.setStyleSheet(
-            "background-color: transparent;"
+        self.national_id_input.setValidator(national_id_validator)
+        self.national_id_input.textChanged.connect(
+            self.validate_national_id_live
         )
 
-        avatars_layout = QHBoxLayout(
-            avatars_widget
+        self.national_id_error = QLabel()
+        self.national_id_error.setObjectName("fieldError")
+        self.national_id_error.setFixedHeight(20)
+        self.national_id_error.setWordWrap(True)
+        self.national_id_error.hide()
+
+        card_layout.addWidget(national_id_label)
+        card_layout.addWidget(self.national_id_input)
+        card_layout.addWidget(self.national_id_error)
+
+        # ==========================================
+        # تاریخ تولد
+        # ==========================================
+
+        birth_date_label = QLabel("تاریخ تولد")
+        birth_date_label.setObjectName("fieldTitle")
+
+        self.birth_date_input = QLineEdit()
+        self.birth_date_input.setObjectName("birthDateInput")
+        self.birth_date_input.setPlaceholderText("مثلاً: 1380/05/20")
+        self.birth_date_input.setFixedHeight(50)
+        self.birth_date_input.setLayoutDirection(Qt.LeftToRight)
+        self.birth_date_input.setMaxLength(10)
+
+        birth_date_validator = QRegularExpressionValidator(
+            QRegularExpression(r"[0-9/]*"),
+            self.birth_date_input
         )
 
-        avatars_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
+        self.birth_date_input.setValidator(birth_date_validator)
+        self.birth_date_input.textChanged.connect(
+            self.validate_birth_date_live
         )
 
-        avatars_layout.setSpacing(
-            35
-        )
+        self.birth_date_error = QLabel()
+        self.birth_date_error.setObjectName("fieldError")
+        self.birth_date_error.setFixedHeight(20)
+        self.birth_date_error.setWordWrap(True)
+        self.birth_date_error.hide()
 
-        avatars_layout.setAlignment(
-            Qt.AlignCenter
-        )
+        card_layout.addWidget(birth_date_label)
+        card_layout.addWidget(self.birth_date_input)
+        card_layout.addWidget(self.birth_date_error)
+
+        # ==========================================
+        # آواتار
+        # ==========================================
+
+        avatar_label = QLabel("آواتار خودت رو انتخاب کن")
+        avatar_label.setObjectName("fieldTitle")
+
+        card_layout.addWidget(avatar_label)
+
+        avatars_widget = QWidget()
+        avatars_widget.setStyleSheet("background: transparent;")
+
+        avatars_layout = QHBoxLayout(avatars_widget)
+        avatars_layout.setContentsMargins(0, 4, 0, 4)
+        avatars_layout.setSpacing(35)
+        avatars_layout.setAlignment(Qt.AlignCenter)
 
         self.avatar_buttons = []
 
-        for filename in [
-            "men.png",
-            "woman.png"
-        ]:
+        for filename in ["men.png", "woman.png"]:
 
             button = QPushButton()
+            button.setObjectName("avatarButton")
+            button.setFixedSize(90, 90)
 
-            button.setObjectName(
-                "avatarButton"
-            )
-
-            button.setFixedSize(
-                90,
-                90
-            )
-
-            path = self.avatar_path(
-                filename
-            )
-
+            path = self.avatar_path(filename)
             pixmap = QPixmap(path)
 
             if not pixmap.isNull():
@@ -316,96 +419,47 @@ class ProfileSetupWindow(QWidget):
                     Qt.SmoothTransformation
                 )
 
-                button.setIcon(
-                    QIcon(pixmap)
-                )
-
-                button.setIconSize(
-                    QSize(74, 74)
-                )
-
-            else:
-
-                print(
-                    "عکس پیدا نشد:",
-                    path
-                )
+                button.setIcon(QIcon(pixmap))
+                button.setIconSize(QSize(74, 74))
 
             button.clicked.connect(
-                lambda checked=False,
-                       f=filename:
+                lambda checked=False, f=filename:
                 self.select_avatar(f)
             )
 
-            avatars_layout.addWidget(
-                button
-            )
+            avatars_layout.addWidget(button)
+            self.avatar_buttons.append((filename, button))
 
-            self.avatar_buttons.append(
-                (
-                    filename,
-                    button
-                )
-            )
+        card_layout.addWidget(avatars_widget)
+
+        self.avatar_error = QLabel()
+        self.avatar_error.setObjectName("fieldError")
+        self.avatar_error.setFixedHeight(20)
+        self.avatar_error.setWordWrap(True)
+        self.avatar_error.hide()
+
+        card_layout.addWidget(self.avatar_error)
 
         # ==========================================
         # دکمه ادامه
         # ==========================================
 
+        card_layout.addSpacing(6)
+
         self.continue_button = HoverButton(
-            "ادامه و ورود به سامانه  →",
-            card
+            "ادامه و ورود به سامانه  →"
         )
+        self.continue_button.setObjectName("continueButton")
+        self.continue_button.setFixedHeight(56)
+        self.continue_button.clicked.connect(self.finish_profile)
 
-        self.continue_button.setObjectName(
-            "continueButton"
-        )
+        card_layout.addWidget(self.continue_button)
 
-        self.continue_button.setGeometry(
-            38,
-            400,
-            394,
-            56
-        )
+        scroll_layout.addWidget(card)
 
-        self.continue_button.clicked.connect(
-            self.finish_profile
-        )
+        scroll.setWidget(scroll_content)
 
-        self.continue_button.raise_()
-
-        # ==========================================
-        # کارت وسط صفحه
-        # ==========================================
-
-        card_container = QWidget()
-
-        card_container.setStyleSheet(
-            "background-color: transparent;"
-        )
-
-        card_container_layout = QHBoxLayout(
-            card_container
-        )
-
-        card_container_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
-        card_container_layout.setAlignment(
-            Qt.AlignHCenter
-        )
-
-        card_container_layout.addWidget(
-            card
-        )
-
-        main_layout.addWidget(
-            card_container
-        )
+        main_layout.addWidget(scroll, 1)
 
     # ==========================================
     # مسیر آواتار
@@ -423,9 +477,9 @@ class ProfileSetupWindow(QWidget):
             filename
         )
 
-    # ==========================================
+    # ============================================
     # انتخاب آواتار
-    # ==========================================
+    # ============================================
 
     def select_avatar(self, filename):
 
@@ -442,39 +496,509 @@ class ProfileSetupWindow(QWidget):
             button.style().polish(button)
             button.update()
 
+        self.clear_field_error(self.avatar_error)
+
+    # ============================================
+    # اعتبارسنجی کد ملی ایران
+    # ============================================
+
+    def is_valid_national_id(self, national_id):
+
+        if len(national_id) != 10:
+            return False
+
+        if not national_id.isdigit():
+            return False
+
+        if len(set(national_id)) == 1:
+            return False
+
+        digits = [int(d) for d in national_id]
+        first_nine = digits[:9]
+        control_digit = digits[9]
+
+        total = 0
+
+        for index in range(9):
+            weight = 10 - index
+            total += first_nine[index] * weight
+
+        remainder = total % 11
+
+        if remainder < 2:
+            calculated_digit = remainder
+        else:
+            calculated_digit = 11 - remainder
+
+        return control_digit == calculated_digit
+
+    # ============================================
+    # اعتبارسنجی نام کاربری
+    # ============================================
+
+    def validate_username(self, text):
+
+        if not text:
+            self.clear_field_error(self.username_error)
+            return
+
+        for character in text:
+
+            if character.isdigit():
+
+                self.show_field_error(
+                    self.username_error,
+                    "نام کاربری نباید شامل عدد باشد."
+                )
+
+                return
+
+        self.clear_field_error(self.username_error)
+
+    # ============================================
+    # اعتبارسنجی حرفه
+    # ============================================
+
+    def validate_profession(self, text):
+
+        if not text:
+            self.clear_field_error(self.profession_error)
+            return
+
+        # فقط حرف و فاصله
+        for character in text:
+
+            if character.isdigit():
+
+                self.show_field_error(
+                    self.profession_error,
+                    "حرفه نباید شامل عدد باشد."
+                )
+
+                return
+
+        self.clear_field_error(self.profession_error)
+
+    # ============================================
+    # اعتبارسنجی کد ملی (زنده)
+    # ============================================
+
+    def validate_national_id_live(self, text):
+
+        if not text:
+            self.clear_field_error(self.national_id_error)
+            return
+
+        if not text.isdigit():
+
+            self.show_field_error(
+                self.national_id_error,
+                "کد ملی باید فقط شامل عدد باشد."
+            )
+
+            return
+
+        if len(text) < 10:
+            self.clear_field_error(self.national_id_error)
+            return
+
+        if not self.is_valid_national_id(text):
+
+            self.show_field_error(
+                self.national_id_error,
+                "کد ملی وارد شده معتبر نیست."
+            )
+
+            return
+
+        self.clear_field_error(self.national_id_error)
+
+    # ============================================
+    # اعتبارسنجی تاریخ تولد (زنده)
+    # ============================================
+
+    def validate_birth_date_live(self, text):
+
+        if not text:
+            self.clear_field_error(self.birth_date_error)
+            return
+
+        if len(text) < 10:
+            self.clear_field_error(self.birth_date_error)
+            return
+
+        if not self.is_valid_jalali_date(text):
+
+            self.show_field_error(
+                self.birth_date_error,
+                "تاریخ تولد معتبر نیست."
+            )
+
+            return
+
+        self.clear_field_error(self.birth_date_error)
+
+    # ============================================
+    # اعتبارسنجی تاریخ شمسی
+    # ============================================
+
+    def is_valid_jalali_date(self, date_string):
+
+        if len(date_string) != 10:
+            return False
+
+        if date_string[4] != "/":
+            return False
+
+        if date_string[7] != "/":
+            return False
+
+        year_text = date_string[0:4]
+        month_text = date_string[5:7]
+        day_text = date_string[8:10]
+
+        if not year_text.isdigit():
+            return False
+
+        if not month_text.isdigit():
+            return False
+
+        if not day_text.isdigit():
+            return False
+
+        year = int(year_text)
+        month = int(month_text)
+        day = int(day_text)
+
+        if year < 1300 or year > 1500:
+            return False
+
+        if month < 1 or month > 12:
+            return False
+
+        if month <= 6:
+            max_day = 31
+
+        elif month <= 11:
+            max_day = 30
+
+        else:
+            if (year % 33) in [1, 5, 9, 13, 17, 22, 26, 30]:
+                max_day = 30
+            else:
+                max_day = 29
+
+        if day < 1 or day > max_day:
+            return False
+
+        return True
+
+    # ============================================
+    # نمایش خطا
+    # ============================================
+
+    def show_field_error(self, error_label, message):
+
+        error_label.setText(message)
+
+        error_label.setAlignment(
+            Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
+        )
+
+        error_label.show()
+
+    # ============================================
+    # حذف خطا
+    # ============================================
+
+    def clear_field_error(self, error_label):
+
+        error_label.clear()
+        error_label.hide()
+
     # ==========================================
     # ادامه
     # ==========================================
 
     def finish_profile(self):
 
-        username = (
-            self.username_input
-            .text()
-            .strip()
-        )
+        username = self.username_input.text().strip()
+        profession = self.profession_input.text().strip()
+        national_id = self.national_id_input.text().strip()
+        birth_date_string = self.birth_date_input.text().strip()
+
+        # ==========================================
+        # بررسی نام کاربری
+        # ==========================================
 
         if not username:
 
-            QMessageBox.warning(
-                self,
-                "نام کاربری",
+            self.show_field_error(
+                self.username_error,
                 "لطفاً نام کاربری خودت را وارد کن."
             )
 
             self.username_input.setFocus()
-
             return
+
+        for character in username:
+
+            if character.isdigit():
+
+                self.show_field_error(
+                    self.username_error,
+                    "نام کاربری نباید شامل عدد باشد."
+                )
+
+                self.username_input.setFocus()
+                return
+
+        self.clear_field_error(self.username_error)
+
+        # ==========================================
+        # بررسی حرفه (اجباری)
+        # ==========================================
+
+        if not profession:
+
+            self.show_field_error(
+                self.profession_error,
+                "لطفاً حرفه یا تخصص خودت را وارد کن."
+            )
+
+            self.profession_input.setFocus()
+            return
+
+        for character in profession:
+
+            if character.isdigit():
+
+                self.show_field_error(
+                    self.profession_error,
+                    "حرفه نباید شامل عدد باشد."
+                )
+
+                self.profession_input.setFocus()
+                return
+
+        # حداقل ۳ حرف
+        letter_count = sum(
+            1 for c in profession if c.isalpha()
+        )
+
+        if letter_count < 3:
+
+            self.show_field_error(
+                self.profession_error,
+                "حرفه باید حداقل ۳ حرف داشته باشد."
+            )
+
+            self.profession_input.setFocus()
+            return
+
+        self.clear_field_error(self.profession_error)
+
+        # ==========================================
+        # بررسی کد ملی
+        # ==========================================
+
+        if not national_id:
+
+            self.show_field_error(
+                self.national_id_error,
+                "لطفاً کد ملی خودت را وارد کن."
+            )
+
+            self.national_id_input.setFocus()
+            return
+
+        if not national_id.isdigit():
+
+            self.show_field_error(
+                self.national_id_error,
+                "کد ملی باید فقط شامل عدد باشد."
+            )
+
+            self.national_id_input.setFocus()
+            return
+
+        if len(national_id) != 10:
+
+            self.show_field_error(
+                self.national_id_error,
+                "کد ملی باید ۱۰ رقم باشد."
+            )
+
+            self.national_id_input.setFocus()
+            return
+
+        if not self.is_valid_national_id(national_id):
+
+            self.show_field_error(
+                self.national_id_error,
+                "کد ملی وارد شده معتبر نیست."
+            )
+
+            self.national_id_input.setFocus()
+            return
+
+        self.clear_field_error(self.national_id_error)
+
+        # ==========================================
+        # بررسی تاریخ تولد
+        # ==========================================
+
+        if not birth_date_string:
+
+            self.show_field_error(
+                self.birth_date_error,
+                "لطفاً تاریخ تولد خودت را وارد کن."
+            )
+
+            self.birth_date_input.setFocus()
+            return
+
+        if not self.is_valid_jalali_date(birth_date_string):
+
+            self.show_field_error(
+                self.birth_date_error,
+                "تاریخ تولد معتبر نیست."
+            )
+
+            self.birth_date_input.setFocus()
+            return
+
+        self.clear_field_error(self.birth_date_error)
+
+        # ==========================================
+        # بررسی آواتار
+        # ==========================================
 
         if self.selected_avatar is None:
 
-            QMessageBox.warning(
-                self,
-                "انتخاب آواتار",
+            self.show_field_error(
+                self.avatar_error,
                 "لطفاً یکی از آواتارها را انتخاب کن."
             )
 
             return
+
+        self.clear_field_error(self.avatar_error)
+
+        # ==========================================
+        # دریافت اطلاعات OTP تأییدشده
+        # ==========================================
+
+        otp_data = self.db.fetch_one(
+            """
+            SELECT
+                countryCode,
+                otpCode,
+                createdDate
+            FROM pending_otps
+            WHERE phoneNumber = %s
+            AND used = '1'
+            ORDER BY otpId DESC
+            LIMIT 1
+            """,
+            (self.phone_number,)
+        )
+
+        if not otp_data:
+
+            QMessageBox.warning(
+                self,
+                "خطا",
+                "اطلاعات تأیید شماره تلفن پیدا نشد."
+            )
+
+            return
+
+        # ==========================================
+        # بررسی تکراری نبودن کد ملی
+        # ==========================================
+
+        existing_national_id = self.db.fetch_one(
+            """
+            SELECT userId
+            FROM users
+            WHERE nationalId = %s
+            LIMIT 1
+            """,
+            (national_id,)
+        )
+
+        if existing_national_id:
+
+            self.show_field_error(
+                self.national_id_error,
+                "این کد ملی قبلاً ثبت شده است."
+            )
+
+            self.national_id_input.setFocus()
+            return
+
+        # ==========================================
+        # ثبت کاربر
+        # ==========================================
+
+        user_id = self.db.execute(
+            """
+            INSERT INTO users (
+                name,
+                profession,
+                nationalId,
+                birthDate,
+                countryCode,
+                phoneNumber,
+                createdDate,
+                sentOtp,
+                otpSentDateTime,
+                otpUsed,
+                isActive,
+                imageBase64
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                %s,
+                NOW(),
+                %s,
+                %s,
+                '1',
+                '1',
+                %s
+            )
+            """,
+            (
+                username,
+                profession,
+                national_id,
+                birth_date_string,
+                otp_data["countryCode"],
+                self.phone_number,
+                otp_data["otpCode"],
+                otp_data["createdDate"],
+                self.selected_avatar
+            )
+        )
+
+        if user_id is None:
+
+            QMessageBox.critical(
+                self,
+                "خطا",
+                "ثبت اطلاعات پروفایل انجام نشد."
+            )
+
+            return
+
+        # ==========================================
+        # ورود به سامانه
+        # ==========================================
 
         self.home_window = HomeWindow(
             self.phone_number,
@@ -492,57 +1016,47 @@ class ProfileSetupWindow(QWidget):
 
 STYLE = """
 
-/* ==========================================
-   تنظیمات کلی
-   ========================================== */
-
 QWidget {
     font-family: "Vazirmatn";
     color: #243447;
 }
 
-/* ==========================================
-   پس زمینه کل صفحه
-   ========================================== */
-
 QWidget#profileWindow {
-    background-color: #FFFFFF;
+    background-color: #F5F8FC;
 }
-
-/* ==========================================
-   عنوان اصلی
-   ========================================== */
 
 QLabel#title {
     background-color: transparent;
     color: #173B67;
-    font-size: 30px;
+    font-size: 28px;
     font-weight: 800;
 }
-
-/* ==========================================
-   توضیحات
-   ========================================== */
 
 QLabel#description {
     background-color: transparent;
     color: #7A8999;
-    font-size: 14px;
+    font-size: 13px;
 }
 
-/* ==========================================
-   کارت اطلاعات پروفایل
-   ========================================== */
+QScrollArea#profileScroll {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea#profileScroll > QWidget {
+    background: transparent;
+    border: none;
+}
+
+QWidget#scrollContent {
+    background: transparent;
+}
 
 QFrame#card {
-    background-color: #F8FBFF;
-    border: 1px solid #DCE8F5;
+    background-color: #FFFFFF;
+    border: 1px solid #E2EAF4;
     border-radius: 26px;
 }
-
-/* ==========================================
-   عنوان اطلاعات پروفایل
-   ========================================== */
 
 QLabel#profileTitle {
     background-color: transparent;
@@ -551,10 +1065,6 @@ QLabel#profileTitle {
     font-weight: 800;
 }
 
-/* ==========================================
-   عنوان فیلدها
-   ========================================== */
-
 QLabel#fieldTitle {
     background-color: transparent;
     color: #536779;
@@ -562,32 +1072,42 @@ QLabel#fieldTitle {
     font-weight: 600;
 }
 
-/* ==========================================
-   کادر نام کاربری
-   ========================================== */
+QLabel#fieldError {
+    background-color: transparent;
+    color: #D9534F;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 0px;
+    qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
+}
 
-QLineEdit#usernameInput {
-    background-color: #FFFFFF;
+QLineEdit#usernameInput,
+QLineEdit#professionInput,
+QLineEdit#nationalIdInput,
+QLineEdit#birthDateInput {
+    background-color: #F5F8FC;
     color: #243B53;
-    border: 1px solid #C9D5E2;
+    border: 1px solid #DCE6F2;
     border-radius: 13px;
     padding: 0 17px;
     font-size: 13px;
 }
 
-QLineEdit#usernameInput:hover {
-    background-color: #F9FBFD;
-    border: 1px solid #91A8BF;
+QLineEdit#usernameInput:hover,
+QLineEdit#professionInput:hover,
+QLineEdit#nationalIdInput:hover,
+QLineEdit#birthDateInput:hover {
+    background-color: #FFFFFF;
+    border: 1px solid #C9DDF5;
 }
 
-QLineEdit#usernameInput:focus {
+QLineEdit#usernameInput:focus,
+QLineEdit#professionInput:focus,
+QLineEdit#nationalIdInput:focus,
+QLineEdit#birthDateInput:focus {
     background-color: #FFFFFF;
     border: 2px solid #4B82C3;
 }
-
-/* ==========================================
-   آواتار
-   ========================================== */
 
 QPushButton#avatarButton {
     background-color: #FFFFFF;
@@ -605,10 +1125,6 @@ QPushButton#avatarButton[selected="true"] {
     background-color: #E8F1FB;
     border: 3px solid #3978B9;
 }
-
-/* ==========================================
-   دکمه ادامه
-   ========================================== */
 
 QPushButton#continueButton {
     background-color: #FFFFFF;

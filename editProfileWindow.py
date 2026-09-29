@@ -17,6 +17,8 @@ from PySide6.QtGui import QPixmap, QPainter, QColor
 
 import os
 
+from database import Database
+
 # =========================================================
 # ROUND SCROLL BAR
 # =========================================================
@@ -91,7 +93,6 @@ class RoundScrollBar(QScrollBar):
             groove_bottom - groove_top
         )
 
-        # اندازه دسته
         total_range = (
             maximum - minimum + page_step
         )
@@ -102,13 +103,11 @@ class RoundScrollBar(QScrollBar):
             total_range
         )
 
-        # حداقل ارتفاع دسته
         handle_height = max(
             42,
             handle_height
         )
 
-        # نباید از فضای موجود بزرگ‌تر شود
         handle_height = min(
             handle_height,
             groove_height
@@ -181,7 +180,46 @@ class EditProfileWindow(QWidget):
         self.national_code = national_code
         self.avatar = avatar
 
-        if birth_date is None:
+        # =================================================
+        # LOAD USER INFORMATION FROM DATABASE
+        # =================================================
+
+        self.birth_date_string = None
+
+        self.load_user_information()
+
+        if self.birth_date_string:
+
+            parts = self.birth_date_string.split("/")
+
+            if len(parts) == 3:
+
+                try:
+
+                    self.birth_date = QDate(
+                        int(parts[0]),
+                        int(parts[1]),
+                        int(parts[2])
+                    )
+
+                except Exception:
+
+                    self.birth_date = QDate(
+                        1370,
+                        1,
+                        1
+                    )
+
+            else:
+
+                self.birth_date = QDate(
+                    1370,
+                    1,
+                    1
+                )
+
+        elif birth_date is None:
+
             self.birth_date = QDate(
                 1370,
                 1,
@@ -192,9 +230,11 @@ class EditProfileWindow(QWidget):
             birth_date,
             QDate
         ):
+
             self.birth_date = birth_date
 
         else:
+
             self.birth_date = QDate(
                 1370,
                 1,
@@ -205,9 +245,11 @@ class EditProfileWindow(QWidget):
             "ویرایش پروفایل"
         )
 
+        self.resize(900, 700)
+
         self.setMinimumSize(
-            700,
-            650
+            500,
+            450
         )
 
         self.setLayoutDirection(
@@ -215,6 +257,75 @@ class EditProfileWindow(QWidget):
         )
 
         self.setup_ui()
+
+    # =====================================================
+    # LOAD USER INFORMATION
+    # =====================================================
+
+    def load_user_information(self):
+
+        try:
+
+            db = Database()
+
+            user = db.fetch_one(
+                """
+                SELECT
+                    userId,
+                    name,
+                    nationalId,
+                    birthDate,
+                    imageBase64
+                FROM users
+                WHERE phoneNumber = %s
+                LIMIT 1
+                """,
+                (self.phone_number,)
+            )
+
+            db.close()
+
+            if user:
+
+                # -------------------------------
+                # Name
+                # -------------------------------
+
+                if user.get("name"):
+                    self.username = user["name"]
+
+                # -------------------------------
+                # National ID
+                # -------------------------------
+
+                if user.get("nationalId") is not None:
+                    self.national_code = str(
+                        user["nationalId"]
+                    )
+
+                # -------------------------------
+                # Birth Date
+                # -------------------------------
+
+                if user.get("birthDate"):
+
+                    self.birth_date_string = str(
+                        user["birthDate"]
+                    )
+
+                # -------------------------------
+                # Avatar
+                # -------------------------------
+
+                if user.get("imageBase64"):
+                    self.avatar = user["imageBase64"]
+
+        except Exception as e:
+
+            print(
+                "Error loading user information:",
+                e
+            )
 
     # =====================================================
     # UI
@@ -324,7 +435,6 @@ class EditProfileWindow(QWidget):
             Qt.ScrollBarAsNeeded
         )
 
-        # اسکرول‌بار واقعی خودمان
         scroll_bar = RoundScrollBar(
             Qt.Vertical
         )
@@ -343,8 +453,6 @@ class EditProfileWindow(QWidget):
             content
         )
 
-        # فاصله سمت راست برای اینکه اسکرول
-        # به کارت‌ها نچسبد
         content_layout.setContentsMargins(
             0,
             0,
@@ -528,6 +636,26 @@ class EditProfileWindow(QWidget):
             self.name_input
         )
 
+        self.name_error = QLabel()
+
+        self.name_error.setObjectName(
+            "fieldError"
+        )
+
+        self.name_error.setAlignment(
+            Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
+        )
+
+        self.name_error.setFixedHeight(
+            20
+        )
+
+        self.name_error.hide()
+
+        information_layout.addWidget(
+            self.name_error
+        )
+
         # -------------------------------------------------
         # PHONE
         # -------------------------------------------------
@@ -660,12 +788,36 @@ class EditProfileWindow(QWidget):
             "کد ملی"
         )
 
+        self.national_input.setMaxLength(
+            10
+        )
+
         information_layout.addWidget(
             national_label
         )
 
         information_layout.addWidget(
             self.national_input
+        )
+
+        self.national_error = QLabel()
+
+        self.national_error.setObjectName(
+            "fieldError"
+        )
+
+        self.national_error.setAlignment(
+            Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
+        )
+
+        self.national_error.setFixedHeight(
+            20
+        )
+
+        self.national_error.hide()
+
+        information_layout.addWidget(
+            self.national_error
         )
 
         # -------------------------------------------------
@@ -706,6 +858,26 @@ class EditProfileWindow(QWidget):
             self.birth_date_input
         )
 
+        self.birth_date_error = QLabel()
+
+        self.birth_date_error.setObjectName(
+            "fieldError"
+        )
+
+        self.birth_date_error.setAlignment(
+            Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
+        )
+
+        self.birth_date_error.setFixedHeight(
+            20
+        )
+
+        self.birth_date_error.hide()
+
+        information_layout.addWidget(
+            self.birth_date_error
+        )
+
         content_layout.addWidget(
             information_box
         )
@@ -713,7 +885,8 @@ class EditProfileWindow(QWidget):
         content_layout.addStretch()
 
         main_layout.addWidget(
-            scroll
+            scroll,
+            1
         )
 
         # =================================================
@@ -868,6 +1041,17 @@ class EditProfileWindow(QWidget):
                 font-weight: 600;
             }
 
+            QLabel#fieldError {
+                color: #D9534F;
+                background-color: transparent;
+                border: none;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0px;
+                margin: 0px;
+                qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
+            }
+
             QLineEdit#profileInput {
                 background-color: #F5F8FC;
                 color: #1E2F43;
@@ -965,6 +1149,158 @@ class EditProfileWindow(QWidget):
                 background-color: #4589E8;
             }
         """)
+
+    # =========================================================
+    # SHOW ERROR
+    # =========================================================
+
+    def show_field_error(
+        self,
+        label,
+        message
+    ):
+
+        label.setText(
+            message
+        )
+
+        label.setAlignment(
+            Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
+        )
+
+        label.show()
+
+    # =========================================================
+    # CLEAR ERROR
+    # =========================================================
+
+    def clear_field_error(
+        self,
+        label
+    ):
+
+        label.clear()
+        label.hide()
+
+    # =========================================================
+    # NATIONAL ID VALIDATION
+    # =========================================================
+
+    def is_valid_national_id(
+        self,
+        national_id
+    ):
+
+        if len(national_id) != 10:
+            return False
+
+        if not national_id.isdigit():
+            return False
+
+        if len(set(national_id)) == 1:
+            return False
+
+        digits = [
+            int(digit)
+            for digit in national_id
+        ]
+
+        first_nine = digits[:9]
+
+        control_digit = digits[9]
+
+        total = 0
+
+        for index in range(9):
+
+            weight = 10 - index
+
+            total += (
+                first_nine[index] *
+                weight
+            )
+
+        remainder = total % 11
+
+        if remainder < 2:
+
+            calculated_digit = remainder
+
+        else:
+
+            calculated_digit = 11 - remainder
+
+        return (
+            control_digit ==
+            calculated_digit
+        )
+
+    # =========================================================
+    # JALALI DATE VALIDATION
+    # =========================================================
+
+    def is_valid_jalali_date(
+        self,
+        date_string
+    ):
+
+        if len(date_string) != 10:
+            return False
+
+        if date_string[4] != "/":
+            return False
+
+        if date_string[7] != "/":
+            return False
+
+        year_text = date_string[0:4]
+        month_text = date_string[5:7]
+        day_text = date_string[8:10]
+
+        if not year_text.isdigit():
+            return False
+
+        if not month_text.isdigit():
+            return False
+
+        if not day_text.isdigit():
+            return False
+
+        year = int(year_text)
+        month = int(month_text)
+        day = int(day_text)
+
+        if year < 1300 or year > 1500:
+            return False
+
+        if month < 1 or month > 12:
+            return False
+
+        if month <= 6:
+
+            max_day = 31
+
+        elif month <= 11:
+
+            max_day = 30
+
+        else:
+
+            if (
+                (year % 33) in
+                [1, 5, 9, 13, 17, 22, 26, 30]
+            ):
+
+                max_day = 30
+
+            else:
+
+                max_day = 29
+
+        if day < 1 or day > max_day:
+            return False
+
+        return True
 
     # =========================================================
     # AVATAR
@@ -1082,11 +1418,14 @@ class EditProfileWindow(QWidget):
             .strip()
         )
 
+        # =================================================
+        # NAME VALIDATION
+        # =================================================
+
         if not name:
 
-            QMessageBox.warning(
-                self,
-                "خطا",
+            self.show_field_error(
+                self.name_error,
                 "لطفاً نام و نام خانوادگی را وارد کنید."
             )
 
@@ -1094,16 +1433,225 @@ class EditProfileWindow(QWidget):
 
             return
 
-        self.username = name
+        for character in name:
 
-        self.national_code = national_code
+            if character.isdigit():
 
-        self.birth_date = (
+                self.show_field_error(
+                    self.name_error,
+                    "نام و نام خانوادگی نباید شامل عدد باشد."
+                )
+
+                self.name_input.setFocus()
+
+                return
+
+        self.clear_field_error(
+            self.name_error
+        )
+
+        # =================================================
+        # NATIONAL CODE VALIDATION
+        # =================================================
+
+        if not national_code:
+
+            self.show_field_error(
+                self.national_error,
+                "لطفاً کد ملی را وارد کنید."
+            )
+
+            self.national_input.setFocus()
+
+            return
+
+        if not national_code.isdigit():
+
+            self.show_field_error(
+                self.national_error,
+                "کد ملی باید فقط شامل عدد باشد."
+            )
+
+            self.national_input.setFocus()
+
+            return
+
+        if len(national_code) != 10:
+
+            self.show_field_error(
+                self.national_error,
+                "کد ملی باید ۱۰ رقم باشد."
+            )
+
+            self.national_input.setFocus()
+
+            return
+
+        if not self.is_valid_national_id(
+            national_code
+        ):
+
+            self.show_field_error(
+                self.national_error,
+                "کد ملی وارد شده معتبر نیست."
+            )
+
+            self.national_input.setFocus()
+
+            return
+
+        self.clear_field_error(
+            self.national_error
+        )
+
+        # =================================================
+        # BIRTH DATE
+        # =================================================
+
+        selected_date = (
             self.birth_date_input.date()
         )
 
-        QMessageBox.information(
-            self,
-            "ذخیره شد",
-            "اطلاعات پروفایل با موفقیت ذخیره شد."
+        birth_date_string = (
+            f"{selected_date.year():04d}/"
+            f"{selected_date.month():02d}/"
+            f"{selected_date.day():02d}"
         )
+
+        if not self.is_valid_jalali_date(
+            birth_date_string
+        ):
+
+            self.show_field_error(
+                self.birth_date_error,
+                "تاریخ تولد معتبر نیست."
+            )
+
+            self.birth_date_input.setFocus()
+
+            return
+
+        self.clear_field_error(
+            self.birth_date_error
+        )
+
+        # =================================================
+        # DATABASE
+        # =================================================
+
+        try:
+
+            db = Database()
+
+            current_user = db.fetch_one(
+                """
+                SELECT userId
+                FROM users
+                WHERE phoneNumber = %s
+                LIMIT 1
+                """,
+                (self.phone_number,)
+            )
+
+            if not current_user:
+
+                db.close()
+
+                QMessageBox.warning(
+                    self,
+                    "خطا",
+                    "اطلاعات کاربر پیدا نشد."
+                )
+
+                return
+
+            user_id = current_user["userId"]
+
+            # ---------------------------------------------
+            # Check if national ID belongs to another user
+            # ---------------------------------------------
+
+            existing_user = db.fetch_one(
+                """
+                SELECT userId
+                FROM users
+                WHERE nationalId = %s
+                AND userId <> %s
+                LIMIT 1
+                """,
+                (
+                    national_code,
+                    user_id
+                )
+            )
+
+            if existing_user:
+
+                db.close()
+
+                self.show_field_error(
+                    self.national_error,
+                    "این کد ملی قبلاً برای کاربر دیگری ثبت شده است."
+                )
+
+                self.national_input.setFocus()
+
+                return
+
+            # ---------------------------------------------
+            # UPDATE USER
+            # ---------------------------------------------
+
+            db.execute(
+                """
+                UPDATE users
+                SET
+                    name = %s,
+                    nationalId = %s,
+                    birthDate = %s
+                WHERE userId = %s
+                """,
+                (
+                    name,
+                    national_code,
+                    birth_date_string,
+                    user_id
+                )
+            )
+
+            db.close()
+
+            # ---------------------------------------------
+            # Update local values
+            # ---------------------------------------------
+
+            self.username = name
+
+            self.national_code = national_code
+
+            self.birth_date_string = (
+                birth_date_string
+            )
+
+            self.birth_date = (
+                self.birth_date_input.date()
+            )
+
+            QMessageBox.information(
+                self,
+                "ذخیره شد",
+                "اطلاعات پروفایل با موفقیت ذخیره شد."
+            )
+
+        except Exception as e:
+
+            print(
+                "Error saving profile:",
+                e
+            )
+
+            QMessageBox.critical(
+                self,
+                "خطا",
+                "در ذخیره اطلاعات مشکلی پیش آمد."
+            )

@@ -7,13 +7,105 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QFrame,
-    QScrollArea
+    QScrollArea,
+    QScrollBar
 )
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QPainter, QPainterPath
+from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QColor
+
+from database import Database
 
 from addEmployees import AddEmployees
+
+# =========================================================
+# ROUND SCROLL BAR
+# =========================================================
+
+class RoundScrollBar(QScrollBar):
+
+    def __init__(self, orientation=Qt.Vertical, parent=None):
+        super().__init__(orientation, parent)
+
+        self.setFixedWidth(12)
+
+        self.setStyleSheet("""
+            QScrollBar {
+                background: transparent;
+                border: none;
+                margin: 0px;
+            }
+        """)
+
+    def paintEvent(self, event):
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        track_width = 6
+        track_x = (self.width() - track_width) / 2
+        track_top = 6
+        track_bottom = self.height() - 6
+        track_height = track_bottom - track_top
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#EEF3FA"))
+
+        painter.drawRoundedRect(
+            int(track_x),
+            int(track_top),
+            track_width,
+            int(track_height),
+            track_width / 2,
+            track_width / 2
+        )
+
+        minimum = self.minimum()
+        maximum = self.maximum()
+        page_step = self.pageStep()
+
+        if maximum <= minimum:
+            return
+
+        groove_top = 6
+        groove_bottom = self.height() - 6
+        groove_height = groove_bottom - groove_top
+
+        total_range = maximum - minimum + page_step
+
+        handle_height = int(
+            groove_height * page_step / total_range
+        )
+
+        handle_height = max(42, handle_height)
+        handle_height = min(handle_height, groove_height)
+
+        available_space = groove_height - handle_height
+
+        if maximum == minimum:
+            handle_y = groove_top
+        else:
+            value_ratio = (
+                self.value() - minimum
+            ) / (maximum - minimum)
+
+            handle_y = (
+                groove_top + available_space * value_ratio
+            )
+
+        handle_width = 8
+        handle_x = (self.width() - handle_width) / 2
+
+        painter.setBrush(QColor("#4589E8"))
+
+        painter.drawRoundedRect(
+            int(handle_x),
+            int(handle_y),
+            handle_width,
+            int(handle_height),
+            handle_width / 2,
+            handle_width / 2
+        )
 
 # =========================================================
 # ROUNDED AVATAR
@@ -83,24 +175,33 @@ class RoundedAvatar(QLabel):
 
 class EmployeesWindow(QWidget):
 
-    def __init__(self, phone_number):
+    def __init__(
+        self,
+        phone_number,
+        complex_id
+    ):
 
         super().__init__()
 
         self.phone_number = phone_number
 
+        self.complex_id = complex_id
+
+        self.db = Database()
+
         self.setWindowTitle("کارمندان")
 
+        self.resize(1000, 700)
+
         self.setMinimumSize(
-            900,
-            620
+            600,
+            450
         )
 
         self.setLayoutDirection(
             Qt.RightToLeft
         )
 
-        # تنظیمات پیش فرض
         self.full_time_hours_per_day = 8
         self.part_time_hours_per_day = 4
         self.default_work_days_per_month = 26
@@ -132,12 +233,8 @@ class EmployeesWindow(QWidget):
 
         header_layout.setSpacing(12)
 
-        # =================================================
-        # BACK BUTTON
-        # =================================================
-
         back_button = QPushButton(
-           "›" 
+            "›"
         )
 
         back_button.setObjectName(
@@ -188,10 +285,6 @@ class EmployeesWindow(QWidget):
 
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
-
-        # =================================================
-        # ADD BUTTON
-        # =================================================
 
         add_button = QPushButton(
             "+  افزودن کارمند"
@@ -281,6 +374,10 @@ class EmployeesWindow(QWidget):
             QFrame.NoFrame
         )
 
+        scroll_bar = RoundScrollBar(Qt.Vertical)
+
+        self.scroll.setVerticalScrollBar(scroll_bar)
+
         scroll_content = QWidget()
 
         scroll_content.setObjectName(
@@ -299,7 +396,7 @@ class EmployeesWindow(QWidget):
         self.employees_layout.setContentsMargins(
             4,
             4,
-            4,
+            16,
             4
         )
 
@@ -320,48 +417,10 @@ class EmployeesWindow(QWidget):
         )
 
         # =================================================
-        # SAMPLE EMPLOYEES
+        # EMPLOYEES
         # =================================================
 
-        self.employees = [
-
-            {
-                "name": "علی رضایی",
-                "position": "مدیر فروش",
-                "work_type": "تمام‌وقت",
-                "salary_type": "ماهانه",
-                "salary": 25000000,
-                "work_days": 26,
-                "work_hours": 8,
-                "status": "فعال",
-                "avatar": "men.png"
-            },
-
-            {
-                "name": "سارا محمدی",
-                "position": "حسابدار",
-                "work_type": "پاره‌وقت",
-                "salary_type": "ساعتی",
-                "salary": 150000,
-                "work_days": 20,
-                "work_hours": 4,
-                "status": "فعال",
-                "avatar": "woman.png"
-            },
-
-            {
-                "name": "محمد احمدی",
-                "position": "کارشناس فروش",
-                "work_type": "تمام‌وقت",
-                "salary_type": "روزانه",
-                "salary": 900000,
-                "work_days": 18,
-                "work_hours": 8,
-                "status": "غیرفعال",
-                "avatar": "men.png"
-            }
-
-        ]
+        self.employees = []
 
         # =================================================
         # STYLE
@@ -433,8 +492,9 @@ class EmployeesWindow(QWidget):
         }
 
         QFrame#employeeCard:hover {
-            background-color: #EAF3FF;
-            border-color: #C9DDF5;
+            background-color: #FAFCFF;
+            border: 1px solid #C9DDF5;
+            border-radius: 20px;
         }
 
         QLabel#employeeName {
@@ -444,9 +504,23 @@ class EmployeesWindow(QWidget):
             background: transparent;
         }
 
-        QLabel#employeePosition {
-            color: #8290A1;
+        QLabel#employeeProfession {
+            color: #4589E8;
             font-size: 11px;
+            font-weight: 600;
+            background: transparent;
+        }
+
+        QLabel#employeeJob {
+            color: #617287;
+            font-size: 11px;
+            background: transparent;
+        }
+
+        QLabel#employeeJobValue {
+            color: #1E2F43;
+            font-size: 11px;
+            font-weight: 600;
             background: transparent;
         }
 
@@ -463,21 +537,28 @@ class EmployeesWindow(QWidget):
             background: transparent;
         }
 
+        QFrame#divider {
+            background-color: #EEF3FA;
+            border: none;
+        }
+
         QLabel#activeStatus {
             color: #238B5B;
             background-color: #E8F7F0;
-            border-radius: 10px;
-            padding: 4px 10px;
-            font-size: 9px;
+            border: none;
+            border-radius: 13px;
+            padding: 0px;
+            font-size: 10px;
             font-weight: 600;
         }
 
         QLabel#inactiveStatus {
             color: #7B8794;
             background-color: #EEF1F5;
-            border-radius: 10px;
-            padding: 4px 10px;
-            font-size: 9px;
+            border: none;
+            border-radius: 13px;
+            padding: 0px;
+            font-size: 10px;
             font-weight: 600;
         }
 
@@ -485,38 +566,193 @@ class EmployeesWindow(QWidget):
             background-color: #EAF3FF;
             color: #1961C7;
             border: none;
-            border-radius: 10px;
-            padding: 5px 10px;
-            font-size: 9px;
+            border-radius: 13px;
+            padding: 0px;
+            font-size: 10px;
+            font-weight: 600;
         }
 
         QPushButton#statusButton:hover {
             background-color: #D8E9FF;
+            border-radius: 13px;
         }
 
-        QScrollBar:vertical {
-            background-color: #E8EEF6;
-            width: 10px;
-            border-radius: 5px;
-            margin: 3px;
+        QPushButton#statusButton:pressed {
+            background-color: #C8DDF5;
+            border-radius: 13px;
         }
 
-        QScrollBar::handle:vertical {
-            background-color: #4589E8;
-            min-height: 35px;
-            border-radius: 5px;
+        QScrollArea#employeesScroll {
+            background: transparent;
+            border: none;
         }
 
-        QScrollBar::handle:vertical:hover {
-            background-color: #1961C7;
-        }
-
-        QScrollBar::add-line:vertical,
-        QScrollBar::sub-line:vertical {
-            height: 0px;
+        QScrollArea#employeesScroll > QWidget > QWidget {
+            background: transparent;
         }
 
         """)
+
+        # =================================================
+        # LOAD EMPLOYEES
+        # =================================================
+
+        self.load_employees_from_database()
+
+    # =====================================================
+    # LOAD EMPLOYEES FROM DATABASE
+    # =====================================================
+
+    def load_employees_from_database(self):
+
+        self.employees = []
+
+        if not self.complex_id:
+
+            print(
+                "LOAD EMPLOYEES ERROR: COMPLEX ID IS NONE"
+            )
+
+            self.refresh_employees()
+
+            return
+
+        try:
+
+            employees = self.db.fetch_all(
+                """
+                SELECT
+                    cm.memberId,
+                    cm.userId,
+                    cm.role,
+                    cm.isActive,
+
+                    u.name,
+                    u.profession,
+                    u.phoneNumber,
+                    u.nationalId,
+                    u.imageBase64,
+
+                    ep.jobTitle,
+                    ep.nationalCode,
+                    ep.employmentType,
+                    ep.salaryType,
+                    ep.baseSalary,
+                    ep.workDays,
+                    ep.workHours,
+                    ep.workStartTime,
+                    ep.workEndTime,
+                    ep.description
+
+                FROM complex_members cm
+
+                INNER JOIN users u
+                    ON u.userId = cm.userId
+
+                LEFT JOIN employee_profiles ep
+                    ON ep.memberId = cm.memberId
+
+                WHERE cm.complexId = %s
+                  AND cm.role IN ('employee', 'both')
+
+                ORDER BY cm.memberId DESC
+                """,
+                (self.complex_id,)
+            )
+
+            for row in employees:
+
+                employment_type = row.get("employmentType")
+
+                if employment_type == "fullTime":
+                    work_type = "تمام‌وقت"
+
+                elif employment_type == "partTime":
+                    work_type = "پاره‌وقت"
+
+                else:
+                    work_type = employment_type or "-"
+
+                salary_type = row.get("salaryType")
+
+                if salary_type == "monthly":
+                    salary_type_text = "ماهانه"
+
+                elif salary_type == "daily":
+                    salary_type_text = "روزانه"
+
+                elif salary_type == "hourly":
+                    salary_type_text = "ساعتی"
+
+                else:
+                    salary_type_text = "-"
+
+                is_active = row.get("isActive")
+
+                if str(is_active) == "1":
+                    status = "فعال"
+
+                else:
+                    status = "غیرفعال"
+
+                # ==========================================
+                # حرفه از users
+                # ==========================================
+
+                profession = row.get("profession") or "unknown"
+
+                if profession == "unknown" or not profession:
+                    profession_display = "نامشخص"
+                else:
+                    profession_display = profession
+
+                # ==========================================
+                # ساعت کاری
+                # ==========================================
+
+                start_time = str(row.get("workStartTime") or "")
+                end_time = str(row.get("workEndTime") or "")
+
+                # فقط HH:mm (حذف ثانیه)
+                if start_time and ":" in start_time:
+                    start_time = ":".join(start_time.split(":")[:2])
+
+                if end_time and ":" in end_time:
+                    end_time = ":".join(end_time.split(":")[:2])
+
+                if start_time and end_time:
+                    work_time_text = f"{start_time} تا {end_time}"
+                else:
+                    work_time_text = "-"
+
+                employee = {
+                    "memberId": row.get("memberId"),
+                    "userId": row.get("userId"),
+                    "name": row.get("name") or "بدون نام",
+                    "profession": profession_display,
+                    "position": row.get("jobTitle") or "بدون شغل",
+                    "phone": row.get("phoneNumber") or "-",
+                    "work_type": work_type,
+                    "salary_type": salary_type_text,
+                    "salary": float(row.get("baseSalary") or 0),
+                    "work_days": float(row.get("workDays") or 0),
+                    "work_hours": float(row.get("workHours") or 0),
+                    "work_time": work_time_text,
+                    "status": status,
+                    "avatar": "men.png",
+                    "national_code": row.get("nationalCode") or "",
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "description": row.get("description") or ""
+                }
+
+                self.employees.append(employee)
+
+        except Exception as error:
+
+            print("LOAD EMPLOYEES ERROR:")
+            print(type(error).__name__)
+            print(error)
 
         self.refresh_employees()
 
@@ -537,9 +773,7 @@ class EmployeesWindow(QWidget):
 
         for employee in self.employees:
 
-            self.add_employee_card(
-                employee
-            )
+            self.add_employee_card(employee)
 
         self.employees_layout.addStretch()
 
@@ -549,142 +783,71 @@ class EmployeesWindow(QWidget):
 
     def calculate_hourly_salary(self, employee):
 
-        salary_type = employee.get(
-            "salary_type",
-            ""
-        )
-
-        salary = employee.get(
-            "salary",
-            0
-        )
-
-        work_days = employee.get(
-            "work_days",
-            26
-        )
-
-        work_hours = employee.get(
-            "work_hours",
-            8
-        )
+        salary_type = employee.get("salary_type", "")
+        salary = employee.get("salary", 0)
+        work_days = employee.get("work_days", 26)
+        work_hours = employee.get("work_hours", 8)
 
         if salary_type == "ساعتی":
-
             return salary
 
         if salary_type == "روزانه":
-
             if work_hours == 0:
                 return 0
-
             return salary / work_hours
 
         if salary_type == "ماهانه":
-
-            total_hours = (
-                work_days *
-                work_hours
-            )
-
+            total_hours = work_days * work_hours
             if total_hours == 0:
                 return 0
-
             return salary / total_hours
 
         return 0
 
     def calculate_daily_salary(self, employee):
 
-        salary_type = employee.get(
-            "salary_type",
-            ""
-        )
-
-        salary = employee.get(
-            "salary",
-            0
-        )
-
-        work_hours = employee.get(
-            "work_hours",
-            8
-        )
+        salary_type = employee.get("salary_type", "")
+        salary = employee.get("salary", 0)
+        work_hours = employee.get("work_hours", 8)
 
         if salary_type == "ساعتی":
-
             return salary * work_hours
 
         if salary_type == "روزانه":
-
             return salary
 
         if salary_type == "ماهانه":
-
-            work_days = employee.get(
-                "work_days",
-                26
-            )
-
+            work_days = employee.get("work_days", 26)
             if work_days == 0:
                 return 0
-
             return salary / work_days
 
         return 0
 
     def calculate_monthly_salary(self, employee):
 
-        salary_type = employee.get(
-            "salary_type",
-            ""
-        )
-
-        salary = employee.get(
-            "salary",
-            0
-        )
-
-        work_days = employee.get(
-            "work_days",
-            26
-        )
-
-        work_hours = employee.get(
-            "work_hours",
-            8
-        )
+        salary_type = employee.get("salary_type", "")
+        salary = employee.get("salary", 0)
+        work_days = employee.get("work_days", 26)
+        work_hours = employee.get("work_hours", 8)
 
         if salary_type == "ماهانه":
-
             return salary
 
         if salary_type == "روزانه":
-
             return salary * work_days
 
         if salary_type == "ساعتی":
-
-            return (
-                salary *
-                work_days *
-                work_hours
-            )
+            return salary * work_days * work_hours
 
         return 0
 
     def calculate_payment(self, employee):
 
         return {
-            "hourly": self.calculate_hourly_salary(
-                employee
-            ),
-            "daily": self.calculate_daily_salary(
-                employee
-            ),
-            "monthly": self.calculate_monthly_salary(
-                employee
-            )
+            "hourly": self.calculate_hourly_salary(employee),
+            "daily": self.calculate_daily_salary(employee),
+            "monthly": self.calculate_monthly_salary(employee)
         }
 
     # =====================================================
@@ -697,7 +860,6 @@ class EmployeesWindow(QWidget):
             return f"{amount:,.0f} تومان"
 
         except:
-
             return "0 تومان"
 
     # =====================================================
@@ -707,307 +869,206 @@ class EmployeesWindow(QWidget):
     def add_employee_card(self, employee):
 
         card = QFrame()
+        card.setObjectName("employeeCard")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setMinimumHeight(160)
 
-        card.setObjectName(
-            "employeeCard"
-        )
-
-        card.setMinimumHeight(
-            118
-        )
-
-        card_layout = QHBoxLayout(
-            card
-        )
-
-        card_layout.setContentsMargins(
-            14,
-            12,
-            14,
-            12
-        )
-
-        card_layout.setSpacing(
-            14
-        )
+        card_layout = QHBoxLayout(card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
+        card_layout.setSpacing(16)
 
         # =================================================
         # AVATAR
         # =================================================
 
-        avatar = RoundedAvatar(
-            56
-        )
+        avatar = RoundedAvatar(60)
 
         avatar_path = os.path.join(
-            os.path.dirname(
-                os.path.abspath(__file__)
-            ),
+            os.path.dirname(os.path.abspath(__file__)),
             "avatars",
-            employee.get(
-                "avatar",
-                "men.png"
-            )
+            employee.get("avatar", "men.png")
         )
 
-        avatar_pixmap = QPixmap(
-            avatar_path
-        )
-
-        avatar.set_avatar(
-            avatar_pixmap
-        )
+        avatar_pixmap = QPixmap(avatar_path)
+        avatar.set_avatar(avatar_pixmap)
 
         card_layout.addWidget(
-            avatar
+            avatar,
+            0,
+            Qt.AlignTop
         )
 
         # =================================================
         # MAIN INFO
         # =================================================
 
-        info_layout = QVBoxLayout()
+        info_widget = QWidget()
+        info_widget.setStyleSheet("background: transparent;")
 
-        info_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
+        info_layout = QVBoxLayout(info_widget)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(4)
+
+        # نام
+        name_label = QLabel(employee.get("name", "بدون نام"))
+        name_label.setObjectName("employeeName")
+
+        # حرفه + شماره تلفن
+        profession = employee.get("profession", "نامشخص")
+        phone = employee.get("phone", "-")
+
+        profession_row = QLabel(
+            f"{profession}   •   {phone}"
         )
+        profession_row.setObjectName("employeeProfession")
 
-        info_layout.setSpacing(
-            3
+        # جداکننده
+        divider = QFrame()
+        divider.setObjectName("divider")
+        divider.setFixedHeight(1)
+
+        # شغل در مجموعه
+        job_row = QHBoxLayout()
+        job_row.setSpacing(6)
+
+        job_title_label = QLabel("شغل در مجموعه:")
+        job_title_label.setObjectName("employeeJob")
+
+        job_value_label = QLabel(
+            employee.get("position", "بدون شغل")
         )
+        job_value_label.setObjectName("employeeJobValue")
 
-        name_label = QLabel(
-            employee.get(
-                "name",
-                "بدون نام"
-            )
+        job_row.addWidget(job_title_label)
+        job_row.addWidget(job_value_label)
+        job_row.addStretch()
+
+        # نوع همکاری
+        work_type_row = QLabel(
+            f"نوع همکاری: {employee.get('work_type', '-')}"
         )
+        work_type_row.setObjectName("employeeInfo")
 
-        name_label.setObjectName(
-            "employeeName"
+        # ساعت کاری
+        work_time_row = QLabel(
+            f"ساعت کاری: {employee.get('work_time', '-')}"
         )
+        work_time_row.setObjectName("employeeInfo")
 
-        position_label = QLabel(
-            employee.get(
-                "position",
-                "بدون سمت"
-            )
-        )
-
-        position_label.setObjectName(
-            "employeePosition"
-        )
-
-        work_label = QLabel(
-            f"نوع همکاری: "
-            f"{employee.get('work_type', '-')}"
-        )
-
-        work_label.setObjectName(
-            "employeeInfo"
-        )
-
-        days_hours_label = QLabel(
-            f"روز کاری: "
-            f"{employee.get('work_days', 0)} روز"
+        # روز/ساعت
+        days_hours_row = QLabel(
+            f"روز کاری: {employee.get('work_days', 0):g} روز"
             f"   •   "
-            f"ساعت روزانه: "
-            f"{employee.get('work_hours', 0)} ساعت"
+            f"ساعت روزانه: {employee.get('work_hours', 0):g} ساعت"
         )
+        days_hours_row.setObjectName("employeeInfo")
 
-        days_hours_label.setObjectName(
-            "employeeInfo"
-        )
-
-        info_layout.addWidget(
-            name_label
-        )
-
-        info_layout.addWidget(
-            position_label
-        )
-
-        info_layout.addWidget(
-            work_label
-        )
-
-        info_layout.addWidget(
-            days_hours_label
-        )
-
+        info_layout.addWidget(name_label)
+        info_layout.addWidget(profession_row)
+        info_layout.addSpacing(4)
+        info_layout.addWidget(divider)
+        info_layout.addSpacing(4)
+        info_layout.addLayout(job_row)
+        info_layout.addWidget(work_type_row)
+        info_layout.addWidget(work_time_row)
+        info_layout.addWidget(days_hours_row)
         info_layout.addStretch()
 
-        card_layout.addLayout(
-            info_layout,
-            2
-        )
+        card_layout.addWidget(info_widget, 2)
 
         # =================================================
         # PAYMENT INFO
         # =================================================
 
-        payment = self.calculate_payment(
-            employee
-        )
+        payment = self.calculate_payment(employee)
 
-        payment_layout = QVBoxLayout()
+        payment_widget = QWidget()
+        payment_widget.setStyleSheet("background: transparent;")
 
-        payment_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
-        payment_layout.setSpacing(
-            3
-        )
+        payment_layout = QVBoxLayout(payment_widget)
+        payment_layout.setContentsMargins(0, 0, 0, 0)
+        payment_layout.setSpacing(4)
+        payment_layout.setAlignment(Qt.AlignCenter)
 
         salary_type_label = QLabel(
-            f"پرداخت: "
-            f"{employee.get('salary_type', '-')}"
+            f"پرداخت: {employee.get('salary_type', '-')}"
         )
-
-        salary_type_label.setObjectName(
-            "employeeInfo"
-        )
+        salary_type_label.setObjectName("employeeInfo")
+        salary_type_label.setAlignment(Qt.AlignCenter)
 
         monthly_label = QLabel(
-            "ماهانه: "
-            + self.format_money(
-                payment["monthly"]
-            )
+            "ماهانه: " + self.format_money(payment["monthly"])
         )
-
-        monthly_label.setObjectName(
-            "employeeSalary"
-        )
+        monthly_label.setObjectName("employeeSalary")
+        monthly_label.setAlignment(Qt.AlignCenter)
 
         daily_label = QLabel(
-            "روزانه: "
-            + self.format_money(
-                payment["daily"]
-            )
+            "روزانه: " + self.format_money(payment["daily"])
         )
-
-        daily_label.setObjectName(
-            "employeeInfo"
-        )
+        daily_label.setObjectName("employeeInfo")
+        daily_label.setAlignment(Qt.AlignCenter)
 
         hourly_label = QLabel(
-            "ساعتی: "
-            + self.format_money(
-                payment["hourly"]
-            )
+            "ساعتی: " + self.format_money(payment["hourly"])
         )
-
-        hourly_label.setObjectName(
-            "employeeInfo"
-        )
-
-        payment_layout.addWidget(
-            salary_type_label
-        )
-
-        payment_layout.addWidget(
-            monthly_label
-        )
-
-        payment_layout.addWidget(
-            daily_label
-        )
-
-        payment_layout.addWidget(
-            hourly_label
-        )
+        hourly_label.setObjectName("employeeInfo")
+        hourly_label.setAlignment(Qt.AlignCenter)
 
         payment_layout.addStretch()
+        payment_layout.addWidget(salary_type_label, 0, Qt.AlignHCenter)
+        payment_layout.addWidget(monthly_label, 0, Qt.AlignHCenter)
+        payment_layout.addWidget(daily_label, 0, Qt.AlignHCenter)
+        payment_layout.addWidget(hourly_label, 0, Qt.AlignHCenter)
+        payment_layout.addStretch()
 
-        card_layout.addLayout(
-            payment_layout,
-            2
-        )
+        card_layout.addWidget(payment_widget, 2)
 
         # =================================================
         # STATUS
         # =================================================
 
-        status_layout = QVBoxLayout()
+        status_widget = QWidget()
+        status_widget.setFixedWidth(120)
+        status_widget.setStyleSheet("background-color: transparent;")
 
-        status_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
+        status_layout = QVBoxLayout(status_widget)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(6)
+        status_layout.setAlignment(Qt.AlignCenter)
 
-        status_layout.setSpacing(
-            7
-        )
+        status = employee.get("status", "فعال")
 
-        status = employee.get(
-            "status",
-            "فعال"
-        )
-
-        status_label = QLabel(
-            status
-        )
+        status_label = QLabel(status)
+        status_label.setFixedSize(100, 26)
+        status_label.setAlignment(Qt.AlignCenter)
 
         if status == "فعال":
-
-            status_label.setObjectName(
-                "activeStatus"
-            )
-
+            status_label.setObjectName("activeStatus")
         else:
+            status_label.setObjectName("inactiveStatus")
 
-            status_label.setObjectName(
-                "inactiveStatus"
-            )
-
-        status_label.setAlignment(
-            Qt.AlignCenter
-        )
-
-        status_button = QPushButton(
-            "تغییر وضعیت"
-        )
-
-        status_button.setObjectName(
-            "statusButton"
-        )
-
-        status_button.setCursor(
-            Qt.PointingHandCursor
-        )
+        status_button = QPushButton("تغییر وضعیت")
+        status_button.setObjectName("statusButton")
+        status_button.setFixedSize(100, 26)
+        status_button.setCursor(Qt.PointingHandCursor)
 
         status_button.clicked.connect(
-            lambda checked=False,
-            e=employee:
+            lambda checked=False, e=employee:
             self.toggle_employee_status(e)
         )
 
-        status_layout.addWidget(
-            status_label
-        )
-
-        status_layout.addWidget(
-            status_button
-        )
-
+        status_layout.addStretch()
+        status_layout.addWidget(status_label, 0, Qt.AlignHCenter)
+        status_layout.addWidget(status_button, 0, Qt.AlignHCenter)
         status_layout.addStretch()
 
-        card_layout.addLayout(
-            status_layout
+        card_layout.addWidget(
+            status_widget,
+            0,
+            Qt.AlignVCenter
         )
 
-        self.employees_layout.addWidget(
-            card
-        )
+        self.employees_layout.addWidget(card)
 
     # =====================================================
     # TOGGLE STATUS
@@ -1015,15 +1076,48 @@ class EmployeesWindow(QWidget):
 
     def toggle_employee_status(self, employee):
 
-        if employee.get("status") == "فعال":
+        member_id = employee.get("memberId")
 
-            employee["status"] = "غیرفعال"
+        if not member_id:
+            return
 
+        current_status = employee.get("status")
+
+        if current_status == "فعال":
+            new_status = "0"
+            new_status_text = "غیرفعال"
         else:
+            new_status = "1"
+            new_status_text = "فعال"
 
-            employee["status"] = "فعال"
+        try:
 
-        self.refresh_employees()
+            result = self.db.execute(
+                """
+                UPDATE complex_members
+                SET isActive = %s
+                WHERE memberId = %s
+                  AND complexId = %s
+                """,
+                (
+                    new_status,
+                    member_id,
+                    self.complex_id
+                )
+            )
+
+            if result is None:
+                return
+
+            employee["status"] = new_status_text
+
+            self.refresh_employees()
+
+        except Exception as error:
+
+            print("TOGGLE EMPLOYEE STATUS ERROR:")
+            print(type(error).__name__)
+            print(error)
 
     # =====================================================
     # ADD EMPLOYEE
@@ -1031,16 +1125,26 @@ class EmployeesWindow(QWidget):
 
     def add_employee(self):
 
+        if not self.complex_id:
+
+            print(
+                "ADD EMPLOYEE ERROR: COMPLEX ID IS NONE"
+            )
+
+            return
+
         self.add_employee_window = AddEmployees(
-            self
+            self,
+            complex_id=self.complex_id
         )
 
-        self.add_employee_window.resize(
-            self.size()
-        )
+        self.add_employee_window.setWindowFlags(Qt.Window)
 
-        self.add_employee_window.move(
-            self.pos()
+        self.add_employee_window.setGeometry(
+            self.x(),
+            self.y(),
+            self.width(),
+            self.height()
         )
 
         self.add_employee_window.show()

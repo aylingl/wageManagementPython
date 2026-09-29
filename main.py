@@ -1,5 +1,9 @@
 import sys
 import os
+import re
+import random
+
+from datetime import datetime, timedelta
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,6 +28,15 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QPixmap
 
 from verifyWindow import VerifyWindow
+from database import Database
+
+# =========================================================
+# EMAIL VALIDATION
+# =========================================================
+
+def is_valid_email(email):
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
 
 # =========================================================
 # FLAG COMBO BOX
@@ -342,6 +355,491 @@ class FlagComboBox(QComboBox):
             self.popup_menu = None
 
 # =========================================================
+# PASSWORD WINDOW
+# =========================================================
+
+class PasswordWindow(QWidget):
+
+    CONTENT_WIDTH = 360
+
+    def __init__(
+        self,
+        email,
+        parent_login=None
+    ):
+
+        super().__init__()
+
+        self.email = email
+        self.parent_login = parent_login
+
+        self.setWindowTitle(
+            "ورود با رمز عبور"
+        )
+
+        self.resize(
+            900,
+            700
+        )
+
+        self.setMinimumSize(
+            600,
+            500
+        )
+
+        self.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.setup_ui()
+
+    def setup_ui(self):
+
+        main_layout = QVBoxLayout(
+            self
+        )
+
+        main_layout.setContentsMargins(
+            0,
+            30,
+            0,
+            20
+        )
+
+        main_layout.setSpacing(
+            6
+        )
+
+        # =====================================
+        # BACK BUTTON
+        # =====================================
+
+        back_row = QHBoxLayout()
+
+        back_row.setContentsMargins(
+            30,
+            0,
+            30,
+            0
+        )
+
+        back_button = QPushButton(
+            "→"
+        )
+
+        back_button.setFixedSize(
+            40,
+            40
+        )
+
+        back_button.setLayoutDirection(
+            Qt.LeftToRight
+        )
+
+        back_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        back_button.clicked.connect(
+            self.go_back
+        )
+
+        back_button.setStyleSheet("""
+            QPushButton {
+                background-color: white;
+                border: 1px solid #D9E2EC;
+                border-radius: 20px;
+                padding: 0px;
+                margin: 0px;
+                color: #1D2939;
+                font-size: 22px;
+            }
+
+            QPushButton:hover {
+                background-color: #EAF3FF;
+                border: 1px solid #BFD5EE;
+                color: #1961C7;
+            }
+
+            QPushButton:pressed {
+                background-color: #EAF3FF;
+                border: 1px solid #BFD5EE;
+            }
+        """)
+
+        back_row.addWidget(
+            back_button,
+            0,
+            Qt.AlignRight
+        )
+
+        back_row.addStretch()
+
+        main_layout.addLayout(
+            back_row
+        )
+
+        main_layout.addSpacing(
+            30
+        )
+
+        # =====================================
+        # TITLE
+        # =====================================
+
+        title = QLabel(
+            "رمز عبور خود را وارد کنید"
+        )
+
+        title.setObjectName(
+            "pwdTitle"
+        )
+
+        title.setFixedWidth(
+            self.CONTENT_WIDTH
+        )
+
+        title.setFixedHeight(
+            40
+        )
+
+        title.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        main_layout.addWidget(
+            title,
+            0,
+            Qt.AlignHCenter
+        )
+
+        # =====================================
+        # SUBTITLE
+        # =====================================
+
+        subtitle = QLabel(
+            f"ورود با حساب {self.email}"
+        )
+
+        subtitle.setObjectName(
+            "pwdSubtitle"
+        )
+
+        subtitle.setFixedWidth(
+            self.CONTENT_WIDTH
+        )
+
+        subtitle.setFixedHeight(
+            30
+        )
+
+        subtitle.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        subtitle.setWordWrap(
+            True
+        )
+
+        main_layout.addWidget(
+            subtitle,
+            0,
+            Qt.AlignHCenter
+        )
+
+        main_layout.addSpacing(
+            24
+        )
+
+        # =====================================
+        # PASSWORD LABEL
+        # =====================================
+
+        password_label = QLabel(
+            "رمز عبور"
+        )
+
+        password_label.setObjectName(
+            "fieldLabel"
+        )
+
+        password_label.setFixedWidth(
+            self.CONTENT_WIDTH
+        )
+
+        password_label.setFixedHeight(
+            22
+        )
+
+        password_label.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        main_layout.addWidget(
+            password_label,
+            0,
+            Qt.AlignHCenter
+        )
+
+        main_layout.addSpacing(
+            4
+        )
+
+        # =====================================
+        # PASSWORD INPUT
+        # =====================================
+
+        self.password_input = QLineEdit()
+
+        self.password_input.setObjectName(
+            "passwordInput"
+        )
+
+        self.password_input.setPlaceholderText(
+            "رمز عبور را وارد کنید"
+        )
+
+        self.password_input.setEchoMode(
+            QLineEdit.Password
+        )
+
+        self.password_input.setFixedSize(
+            self.CONTENT_WIDTH,
+            48
+        )
+
+        self.password_input.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.password_input.setAlignment(
+            Qt.AlignRight | Qt.AlignAbsolute
+        )
+
+        self.password_input.textChanged.connect(
+            self.clear_error
+        )
+
+        main_layout.addWidget(
+            self.password_input,
+            0,
+            Qt.AlignHCenter
+        )
+
+        main_layout.addSpacing(
+            6
+        )
+
+        # =====================================
+        # ERROR LABEL
+        # =====================================
+
+        self.password_error = QLabel()
+
+        self.password_error.setObjectName(
+            "passwordError"
+        )
+
+        self.password_error.setFixedWidth(
+            self.CONTENT_WIDTH
+        )
+
+        self.password_error.setFixedHeight(
+            24
+        )
+
+        self.password_error.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.password_error.setWordWrap(
+            True
+        )
+
+        self.password_error.hide()
+
+        main_layout.addWidget(
+            self.password_error,
+            0,
+            Qt.AlignHCenter
+        )
+
+        main_layout.addSpacing(
+            12
+        )
+
+        # =====================================
+        # CONTINUE BUTTON
+        # =====================================
+
+        continue_button = QPushButton(
+            "ادامه"
+        )
+
+        continue_button.setObjectName(
+            "loginButton"
+        )
+
+        continue_button.setFixedSize(
+            self.CONTENT_WIDTH,
+            44
+        )
+
+        continue_button.setCursor(
+            Qt.PointingHandCursor
+        )
+
+        continue_button.clicked.connect(
+            self.check_password
+        )
+
+        main_layout.addWidget(
+            continue_button,
+            0,
+            Qt.AlignHCenter
+        )
+
+        main_layout.addStretch()
+
+        # =====================================
+        # STYLE
+        # =====================================
+
+        self.setStyleSheet("""
+
+            QWidget {
+                background-color: #F5F8FC;
+                color: #1D2939;
+                font-family: "Vazirmatn";
+            }
+
+            #pwdTitle {
+                background-color: transparent;
+                color: #1D2939;
+                font-size: 22px;
+                font-weight: 700;
+                qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
+            }
+
+            #pwdSubtitle {
+                background-color: transparent;
+                color: #667085;
+                font-size: 13px;
+                font-weight: 500;
+                qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
+            }
+
+            #fieldLabel {
+                background-color: transparent;
+                color: #475467;
+                font-size: 12px;
+                font-weight: 600;
+                qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
+            }
+
+            #passwordInput {
+                background-color: white;
+                color: #1D2939;
+                border: 1px solid #D9E2EC;
+                border-radius: 11px;
+                font-size: 13px;
+                padding: 0 15px;
+            }
+
+            #passwordInput:focus {
+                border: 1px solid #4589E8;
+            }
+
+            #passwordError {
+                background-color: transparent;
+                color: #D92D20;
+                font-size: 11px;
+                font-weight: 500;
+                qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
+            }
+
+            #loginButton {
+                background-color: #4589E8;
+                color: white;
+                border: none;
+                border-radius: 11px;
+                font-size: 14px;
+                font-weight: 600;
+            }
+
+            #loginButton:hover {
+                background-color: #3479D8;
+            }
+        """)
+
+    def clear_error(self):
+
+        self.password_error.clear()
+
+        self.password_error.hide()
+
+    def check_password(self):
+
+        password = (
+            self.password_input
+            .text()
+            .strip()
+        )
+
+        self.password_error.clear()
+        self.password_error.hide()
+
+        if not password:
+
+            self.password_error.setText(
+                "لطفاً رمز عبور را وارد کنید."
+            )
+
+            self.password_error.show()
+
+            self.password_input.setFocus()
+
+            return
+
+        if len(password) < 6:
+
+            self.password_error.setText(
+                "رمز عبور باید حداقل ۶ کاراکتر باشد."
+            )
+
+            self.password_error.show()
+
+            self.password_input.setFocus()
+
+            return
+
+        from profileSetupWindow import ProfileSetupWindow
+
+        self.profile_window = ProfileSetupWindow(
+            self.email
+        )
+
+        self.profile_window.show()
+
+        self.close()
+
+        if self.parent_login is not None:
+
+            self.parent_login.close()
+
+    def go_back(self):
+
+        if self.parent_login is not None:
+
+            self.parent_login.show()
+
+            self.parent_login.raise_()
+
+            self.parent_login.activateWindow()
+
+        self.close()
+
+# =========================================================
 # GOOGLE LOGIN WINDOW
 # =========================================================
 
@@ -363,6 +861,11 @@ class GoogleLoginWindow(QWidget):
         self.resize(
             500,
             600
+        )
+
+        self.setMinimumSize(
+            400,
+            450
         )
 
         self.setLayoutDirection(
@@ -846,19 +1349,22 @@ class GoogleLoginWindow(QWidget):
         email
     ):
 
-        from profileSetupWindow import ProfileSetupWindow
-
-        self.profile_window = ProfileSetupWindow(
-            email
+        self.password_window = PasswordWindow(
+            email,
+            self.parent_window
         )
 
-        self.profile_window.show()
+        self.password_window.show()
+
+        self.password_window.raise_()
+
+        self.password_window.activateWindow()
 
         self.close()
 
         if self.parent_window is not None:
 
-            self.parent_window.close()
+            self.parent_window.hide()
 
     def open_other_account(self):
 
@@ -892,6 +1398,11 @@ class OtherGoogleWindow(QWidget):
         self.resize(
             500,
             500
+        )
+
+        self.setMinimumSize(
+            400,
+            400
         )
 
         self.setLayoutDirection(
@@ -1085,6 +1596,30 @@ class OtherGoogleWindow(QWidget):
             self.email_input
         )
 
+        self.email_error = QLabel()
+
+        self.email_error.setObjectName(
+            "emailError"
+        )
+
+        self.email_error.setFixedHeight(
+            22
+        )
+
+        self.email_error.setAlignment(
+            Qt.AlignRight | Qt.AlignVCenter
+        )
+
+        self.email_error.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.email_error.hide()
+
+        layout.addWidget(
+            self.email_error
+        )
+
         continue_button = QPushButton(
             "ادامه"
         )
@@ -1136,6 +1671,13 @@ class OtherGoogleWindow(QWidget):
             QLineEdit:focus {
                 border: 2px solid #1A73E8;
             }
+
+            #emailError {
+                background-color: transparent;
+                color: #D92D20;
+                font-size: 11px;
+                font-weight: 500;
+            }
         """)
 
     def continue_login(self):
@@ -1146,18 +1688,45 @@ class OtherGoogleWindow(QWidget):
             .strip()
         )
 
+        self.email_error.clear()
+        self.email_error.hide()
+
         if not email:
+
+            self.email_error.setText(
+                "لطفاً ایمیل خود را وارد کنید."
+            )
+
+            self.email_error.show()
+
             return
 
-        from profileSetupWindow import ProfileSetupWindow
+        if not is_valid_email(email):
 
-        self.profile_window = ProfileSetupWindow(
-            email
+            self.email_error.setText(
+                "ایمیل واردشده معتبر نیست."
+            )
+
+            self.email_error.show()
+
+            return
+
+        self.password_window = PasswordWindow(
+            email,
+            self.parent_google.parent_window
         )
 
-        self.profile_window.show()
+        self.password_window.show()
+
+        self.password_window.raise_()
+
+        self.password_window.activateWindow()
 
         self.close()
+
+        if self.parent_google is not None:
+
+            self.parent_google.hide()
 
     def back_to_accounts(self):
 
@@ -1190,6 +1759,8 @@ class LoginWindow(QWidget):
         self.change_phone_mode = change_phone
         self.parent_profile = parent_profile
 
+        self.db = Database()
+
         self.setWindowTitle(
             "ورود"
         )
@@ -1197,6 +1768,11 @@ class LoginWindow(QWidget):
         self.resize(
             900,
             700
+        )
+
+        self.setMinimumSize(
+            500,
+            550
         )
 
         self.setLayoutDirection(
@@ -1751,6 +2327,24 @@ class LoginWindow(QWidget):
                 font-size: 11px;
                 padding: 0;
             }
+
+            #phoneError {
+                background-color: transparent;
+                color: #D92D20;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 0px;
+                text-align: right;
+            }
+
+            #emailError {
+                background-color: transparent;
+                color: #D92D20;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 0px;
+                text-align: right;
+            }
         """)
 
         self.set_tabs(
@@ -1779,6 +2373,16 @@ class LoginWindow(QWidget):
         phone_selected,
         email_selected
     ):
+
+        self.phone_tab.setProperty(
+            "selected",
+            phone_selected
+        )
+
+        self.email_tab.setProperty(
+            "selected",
+            email_selected
+        )
 
         selected_style = """
 
@@ -1841,7 +2445,44 @@ class LoginWindow(QWidget):
         )
 
         self.form_layout.addWidget(
-            country_selector
+            country_selector,
+            0,
+            Qt.AlignHCenter
+        )
+
+        self.phone_error = QLabel()
+
+        self.phone_error.setObjectName(
+            "phoneError"
+        )
+
+        self.phone_error.setWordWrap(
+            True
+        )
+
+        self.phone_error.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.phone_error.setAlignment(
+            Qt.AlignRight |
+            Qt.AlignVCenter
+        )
+
+        self.phone_error.setFixedWidth(
+            self.CONTENT_WIDTH
+        )
+
+        self.phone_error.setFixedHeight(
+            29
+        )
+
+        self.phone_error.hide()
+
+        self.form_layout.addWidget(
+            self.phone_error,
+            0,
+            Qt.AlignRight
         )
 
         self.login_button.setText(
@@ -1875,8 +2516,47 @@ class LoginWindow(QWidget):
             Qt.LeftToRight
         )
 
+        self.email_input.textChanged.connect(
+            self.clear_email_error
+        )
+
         self.form_layout.addWidget(
             self.email_input
+        )
+
+        self.email_error = QLabel()
+
+        self.email_error.setObjectName(
+            "emailError"
+        )
+
+        self.email_error.setWordWrap(
+            True
+        )
+
+        self.email_error.setLayoutDirection(
+            Qt.RightToLeft
+        )
+
+        self.email_error.setAlignment(
+            Qt.AlignRight |
+            Qt.AlignVCenter
+        )
+
+        self.email_error.setFixedWidth(
+            self.CONTENT_WIDTH
+        )
+
+        self.email_error.setFixedHeight(
+            29
+        )
+
+        self.email_error.hide()
+
+        self.form_layout.addWidget(
+            self.email_error,
+            0,
+            Qt.AlignRight
         )
 
         self.login_button.setText(
@@ -1896,6 +2576,51 @@ class LoginWindow(QWidget):
             if widget is not None:
 
                 widget.deleteLater()
+
+        if hasattr(
+            self,
+            "email_input"
+        ):
+
+            self.email_input = None
+
+        if hasattr(
+            self,
+            "email_error"
+        ):
+
+            self.email_error = None
+
+    def show_email_error(
+        self,
+        message
+    ):
+
+        if hasattr(
+            self,
+            "email_error"
+        ):
+
+            if self.email_error is not None:
+
+                self.email_error.setText(
+                    f'<div align="right">{message}</div>'
+                )
+
+                self.email_error.show()
+
+    def clear_email_error(self):
+
+        if hasattr(
+            self,
+            "email_error"
+        ):
+
+            if self.email_error is not None:
+
+                self.email_error.clear()
+
+                self.email_error.hide()
 
     def flag_path(
         self,
@@ -1920,7 +2645,8 @@ class LoginWindow(QWidget):
             "countryBox"
         )
 
-        country_box.setFixedHeight(
+        country_box.setFixedSize(
+            360,
             60
         )
 
@@ -1928,18 +2654,43 @@ class LoginWindow(QWidget):
             Qt.LeftToRight
         )
 
-        layout = QHBoxLayout(
+        layout = QVBoxLayout(
             country_box
         )
 
         layout.setContentsMargins(
+            0,
+            3,
+            0,
+            0
+        )
+
+        layout.setSpacing(
+            0
+        )
+
+        phone_row = QFrame()
+
+        phone_row.setFixedHeight(
+            60
+        )
+
+        phone_row.setStyleSheet(
+            "background-color: transparent; border: none;"
+        )
+
+        phone_layout = QHBoxLayout(
+            phone_row
+        )
+
+        phone_layout.setContentsMargins(
             8,
             3,
             8,
             3
         )
 
-        layout.setSpacing(
+        phone_layout.setSpacing(
             0
         )
 
@@ -1982,11 +2733,6 @@ class LoginWindow(QWidget):
             )
 
             if pixmap.isNull():
-
-                print(
-                    "پرچم پیدا نشد:",
-                    path
-                )
 
                 self.country_combo.addItem(
                     code
@@ -2042,27 +2788,68 @@ class LoginWindow(QWidget):
             Qt.LeftToRight
         )
 
-        layout.addWidget(
+        phone_layout.addWidget(
             self.country_combo
         )
 
-        layout.addWidget(
+        phone_layout.addWidget(
             line
         )
 
-        layout.addWidget(
+        phone_layout.addWidget(
             self.phone_input,
             1
         )
 
+        layout.addWidget(
+            phone_row
+        )
+
         return country_box
 
-    def open_login(self):
+    def show_phone_error(
+        self,
+        message
+    ):
 
         if hasattr(
             self,
-            "email_input"
+            "phone_error"
         ):
+
+            self.phone_error.setText(
+                f'<div align="right">{message}</div>'
+            )
+
+            self.phone_error.show()
+
+    def clear_phone_error(self):
+
+        if hasattr(
+            self,
+            "phone_error"
+        ):
+
+            self.phone_error.clear()
+
+            self.phone_error.hide()
+
+    def open_login(self):
+
+        if self.email_tab.property(
+            "selected"
+        ) == True:
+
+            if not hasattr(
+                self,
+                "email_input"
+            ):
+
+                return
+
+            if self.email_input is None:
+
+                return
 
             email = (
                 self.email_input
@@ -2070,24 +2857,50 @@ class LoginWindow(QWidget):
                 .strip()
             )
 
+            self.clear_email_error()
+
             if not email:
+
+                self.show_email_error(
+                    "لطفاً ایمیل خود را وارد کنید."
+                )
+
+                self.email_input.setFocus()
+
                 return
 
-            from profileSetupWindow import ProfileSetupWindow
+            if not is_valid_email(email):
 
-            self.profile_window = (
-                ProfileSetupWindow(
-                    email
+                self.show_email_error(
+                    "ایمیل واردشده معتبر نیست."
                 )
+
+                self.email_input.setFocus()
+
+                return
+
+            self.password_window = PasswordWindow(
+                email,
+                self
             )
 
-            self.profile_window.show()
+            self.password_window.show()
 
-            self.close()
+            self.password_window.raise_()
+
+            self.password_window.activateWindow()
+
+            self.hide()
 
             return
 
-        self.open_verify()
+        if self.phone_tab.property(
+            "selected"
+        ) == True:
+
+            self.open_verify()
+
+            return
 
     def open_verify(self):
 
@@ -2098,6 +2911,8 @@ class LoginWindow(QWidget):
 
             return
 
+        self.clear_phone_error()
+
         phone_number = (
             self.phone_input
             .text()
@@ -2105,7 +2920,162 @@ class LoginWindow(QWidget):
         )
 
         if not phone_number:
+
+            self.show_phone_error(
+                "لطفاً شماره موبایل را وارد کنید."
+            )
+
+            self.phone_input.setFocus()
+
             return
+
+        if " " in phone_number:
+
+            self.show_phone_error(
+                "شماره موبایل نباید شامل فاصله باشد."
+            )
+
+            self.phone_input.setFocus()
+
+            return
+
+        if "+" in phone_number or "-" in phone_number:
+
+            self.show_phone_error(
+                "شماره موبایل را فقط با اعداد وارد کنید."
+            )
+
+            self.phone_input.setFocus()
+
+            return
+
+        if not phone_number.isdigit():
+
+            self.show_phone_error(
+                "شماره موبایل باید فقط شامل اعداد باشد."
+            )
+
+            self.phone_input.setFocus()
+
+            return
+
+        if len(phone_number) != 11:
+
+            self.show_phone_error(
+                "شماره موبایل باید دقیقاً ۱۱ رقم باشد."
+            )
+
+            self.phone_input.setFocus()
+
+            return
+
+        if not phone_number.startswith("0"):
+
+            self.show_phone_error(
+                "شماره موبایل باید با ۰ شروع شود."
+            )
+
+            self.phone_input.setFocus()
+
+            return
+
+        if not phone_number.startswith("09"):
+
+            self.show_phone_error(
+                "شماره موبایل واردشده معتبر نیست."
+            )
+
+            self.phone_input.setFocus()
+
+            return
+
+        if phone_number == "00000000000":
+
+            self.show_phone_error(
+                "شماره موبایل واردشده معتبر نیست."
+            )
+
+            self.phone_input.setFocus()
+
+            return
+
+        country_code = (
+            self.country_combo
+            .currentText()
+            .strip()
+        )
+
+        if not country_code:
+
+            self.show_phone_error(
+                "لطفاً کشور را انتخاب کنید."
+            )
+
+            return
+
+        valid_country_codes = [
+            "+98",
+            "+994",
+            "+90",
+            "+971",
+            "+44",
+            "+1",
+            "+49"
+        ]
+
+        if country_code not in valid_country_codes:
+
+            self.show_phone_error(
+                "کد کشور معتبر نیست."
+            )
+
+            return
+
+        otp_code = random.randint(
+            100000,
+            999999
+        )
+
+        created_date = datetime.now()
+
+        expires_date = (
+            created_date +
+            timedelta(seconds=45)
+        )
+
+        otp_id = self.db.execute(
+            """
+            INSERT INTO pending_otps (
+                countryCode,
+                phoneNumber,
+                otpCode,
+                createdDate,
+                expiresDate,
+                used
+            )
+            VALUES (%s, %s, %s, %s, %s, '0')
+            """,
+            (
+                country_code,
+                phone_number,
+                otp_code,
+                created_date,
+                expires_date
+            )
+        )
+
+        if otp_id is None:
+
+            self.show_phone_error(
+                "خطایی در ثبت کد تأیید رخ داد. دوباره تلاش کنید."
+            )
+
+            return
+
+        print(
+            "OTP:",
+            otp_code
+        )
 
         self.verify_window = VerifyWindow(
             phone_number,
