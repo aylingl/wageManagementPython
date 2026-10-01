@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from database import Database
+from signals import signals
 
 # =========================================================
 # NICE MESSAGE BOX
@@ -174,11 +175,7 @@ class AddEmployees(QWidget):
         self.complex_id = complex_id
 
         if self.complex_id is None and self.parent_window is not None:
-            self.complex_id = getattr(
-                self.parent_window,
-                "complex_id",
-                None
-            )
+            self.complex_id = getattr(self.parent_window, "complex_id", None)
 
         self.db = Database()
 
@@ -205,7 +202,6 @@ class AddEmployees(QWidget):
             return
 
         try:
-
             row = self.db.fetch_one(
                 """
                 SELECT name
@@ -305,12 +301,10 @@ class AddEmployees(QWidget):
         form_layout.addSpacing(4)
 
         # =====================================================
-        # ROLE
+        # ROLE (شغل در مجموعه) — متن آزاد
         # =====================================================
 
-        role_label = QLabel(
-            f"نقش در مجموعه «{self.complex_name}»"
-        )
+        role_label = QLabel(f"نقش در مجموعه «{self.complex_name}»")
         role_label.setObjectName("fieldLabel")
 
         self.role_input = QLineEdit()
@@ -604,22 +598,18 @@ class AddEmployees(QWidget):
         self.clear_error(self.name_error)
 
         if not name:
-
             self.show_error(
                 self.name_error,
                 "لطفاً نام و نام خانوادگی را وارد کنید."
             )
-
             self.name_input.setFocus()
             return
 
         if self.contains_digit(name):
-
             self.show_error(
                 self.name_error,
                 "نام نباید شامل عدد باشد."
             )
-
             self.name_input.setFocus()
             return
 
@@ -630,22 +620,18 @@ class AddEmployees(QWidget):
         self.clear_error(self.role_error)
 
         if not role:
-
             self.show_error(
                 self.role_error,
                 "لطفاً نقش کارمند را وارد کنید."
             )
-
             self.role_input.setFocus()
             return
 
         if self.contains_digit(role):
-
             self.show_error(
                 self.role_error,
                 "نقش نباید شامل عدد باشد."
             )
-
             self.role_input.setFocus()
             return
 
@@ -656,42 +642,34 @@ class AddEmployees(QWidget):
         self.clear_error(self.phone_error)
 
         if not phone:
-
             self.show_error(
                 self.phone_error,
                 "لطفاً شماره تلفن را وارد کنید."
             )
-
             self.phone_input.setFocus()
             return
 
         if not phone.isdigit():
-
             self.show_error(
                 self.phone_error,
                 "شماره تلفن باید فقط شامل عدد باشد."
             )
-
             self.phone_input.setFocus()
             return
 
         if len(phone) != 11:
-
             self.show_error(
                 self.phone_error,
                 "شماره تلفن باید دقیقاً ۱۱ رقم باشد."
             )
-
             self.phone_input.setFocus()
             return
 
         if not phone.startswith("09"):
-
             self.show_error(
                 self.phone_error,
                 "شماره تلفن باید با ۰۹ شروع شود."
             )
-
             self.phone_input.setFocus()
             return
 
@@ -700,10 +678,8 @@ class AddEmployees(QWidget):
         # =====================================================
 
         if not self.complex_id:
-
             NiceMessageBox.warning(
-                self,
-                "خطا",
+                self, "خطا",
                 "مجموعه فعلی مشخص نیست."
             )
             return
@@ -723,12 +699,8 @@ class AddEmployees(QWidget):
         )
 
         if user:
-
             user_id = user["userId"]
-
         else:
-
-            # کاربر جدید
             user_id = self.db.execute(
                 """
                 INSERT INTO users (
@@ -758,10 +730,8 @@ class AddEmployees(QWidget):
             )
 
             if not user_id:
-
                 NiceMessageBox.error(
-                    self,
-                    "خطا",
+                    self, "خطا",
                     "ساخت کاربر جدید انجام نشد."
                 )
                 return
@@ -782,7 +752,6 @@ class AddEmployees(QWidget):
         )
 
         if existing_member:
-
             NiceMessageBox.warning(
                 self,
                 "قبلاً عضو است",
@@ -791,7 +760,7 @@ class AddEmployees(QWidget):
             return
 
         # =====================================================
-        # INSERT MEMBER
+        # INSERT MEMBER — همیشه employee
         # =====================================================
 
         member_id = self.db.execute(
@@ -813,7 +782,6 @@ class AddEmployees(QWidget):
         )
 
         if not member_id:
-
             NiceMessageBox.error(
                 self,
                 "خطا",
@@ -864,12 +832,10 @@ class AddEmployees(QWidget):
         )
 
         if not profile_id:
-
             self.db.execute(
                 "DELETE FROM complex_members WHERE memberId = %s",
                 (member_id,)
             )
-
             NiceMessageBox.error(
                 self,
                 "خطا",
@@ -882,12 +848,16 @@ class AddEmployees(QWidget):
         # =====================================================
 
         if self.parent_window is not None:
-
             if hasattr(self.parent_window, "load_employees_from_database"):
                 self.parent_window.load_employees_from_database()
-
             elif hasattr(self.parent_window, "refresh_employees"):
                 self.parent_window.refresh_employees()
+
+        # =====================================================
+        # SIGNAL
+        # =====================================================
+
+        signals.employee_added.emit(self.complex_id)
 
         # =====================================================
         # SUCCESS

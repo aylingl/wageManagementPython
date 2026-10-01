@@ -66,7 +66,7 @@ class RoundedAvatar(QLabel):
         self.setPixmap(result)
 
 # =========================================================
-# HOME
+# HOME WINDOW
 # =========================================================
 
 class HomeWindow(QWidget):
@@ -92,12 +92,6 @@ class HomeWindow(QWidget):
 
         self.current_group = "بدون مجموعه"
         self.current_role = "کاربر"
-
-        # =================================================
-        # CURRENT COMPLEX
-        # =================================================
-
-        self.current_complex_id = None
 
         self.groups = []
 
@@ -169,20 +163,14 @@ class HomeWindow(QWidget):
 
                 self.current_group = first_group["name"] or "بدون نام"
 
-                # =================================================
-                # SAVE CURRENT COMPLEX ID
-                # =================================================
+                rv = first_group.get("role", "employee")
 
-                self.current_complex_id = first_group["complexId"]
-
-                role = first_group.get("role")
-
-                if role == "owner":
+                if rv == "owner":
                     self.current_role = "مالک"
-
-                elif role == "employee":
+                elif rv == "employee":
                     self.current_role = "کارمند"
-
+                elif rv == "both":
+                    self.current_role = "مالک و کارمند"
                 else:
                     self.current_role = "کاربر"
 
@@ -209,12 +197,12 @@ class HomeWindow(QWidget):
                     c.address,
                     c.ownerId,
                     cm.role
-                FROM complex_members cm
-                INNER JOIN complexes c
-                    ON c.complexId = cm.complexId
-                WHERE cm.userId = %s
-                  AND cm.isActive = '1'
-                  AND c.isActive = '1'
+                FROM complexes c
+                INNER JOIN complex_members cm
+                    ON cm.complexId = c.complexId
+                    AND cm.userId = %s
+                    AND cm.isActive = '1'
+                WHERE c.isActive = '1'
                 ORDER BY c.complexId ASC
                 """,
                 (self.user_id,)
@@ -238,6 +226,23 @@ class HomeWindow(QWidget):
             return []
 
     # =====================================================
+    # GET CURRENT COMPLEX ID
+    # =====================================================
+
+    def get_current_complex_id(self):
+
+        for group in self.groups:
+
+            if (group.get("name") or "بدون نام") == self.current_group:
+
+                return group.get("complexId")
+
+        if self.groups:
+            return self.groups[0].get("complexId")
+
+        return None
+
+    # =====================================================
     # CLOSE GROUP MENU
     # =====================================================
 
@@ -253,6 +258,21 @@ class HomeWindow(QWidget):
                 print("GROUP MENU CLOSE ERROR:", error)
 
             self.group_menu = None
+
+    # =====================================================
+    # ROLE HELPER
+    # =====================================================
+
+    def get_role_text(self, role_value):
+
+        if role_value == "owner":
+            return "مالک"
+        elif role_value == "employee":
+            return "کارمند"
+        elif role_value == "both":
+            return "مالک و کارمند"
+        else:
+            return "کاربر"
 
     # =====================================================
     # REFRESH GROUPS FROM DATABASE
@@ -290,50 +310,20 @@ class HomeWindow(QWidget):
 
                     self.current_group = first_group["name"] or "بدون نام"
 
-                    self.current_complex_id = first_group["complexId"]
+                    rv = first_group.get("role", "employee")
 
-                    role = first_group.get("role")
-
-                    if role == "owner":
-                        self.current_role = "مالک"
-
-                    elif role == "employee":
-                        self.current_role = "کارمند"
-
-                    else:
-                        self.current_role = "کاربر"
-
-                else:
-
-                    # =================================================
-                    # KEEP COMPLEX ID IN SYNC WITH CURRENT GROUP
-                    # =================================================
-
-                    current_group_data = next(
-                        (
-                            group
-                            for group in self.groups
-                            if (group["name"] or "بدون نام") == self.current_group
-                        ),
-                        None
-                    )
-
-                    if current_group_data:
-                        self.current_complex_id = current_group_data["complexId"]
+                    self.current_role = self.get_role_text(rv)
 
             else:
 
                 self.current_group = "بدون مجموعه"
                 self.current_role = "کاربر"
-                self.current_complex_id = None
 
             self.update_group_text()
             self.update_services()
 
             print("NEW GROUPS:", self.groups)
             print("NEW CURRENT GROUP:", self.current_group)
-            print("NEW CURRENT ROLE:", self.current_role)
-            print("NEW CURRENT COMPLEX ID:", self.current_complex_id)
             print("========================================")
 
             if popup_was_visible:
@@ -369,7 +359,6 @@ class HomeWindow(QWidget):
         profile_card = QFrame()
         profile_card.setObjectName("profileCard")
         profile_card.setAttribute(Qt.WA_StyledBackground, True)
-        profile_card.setMinimumHeight(68)
 
         profile_layout = QHBoxLayout(profile_card)
         profile_layout.setContentsMargins(16, 10, 16, 10)
@@ -417,7 +406,7 @@ class HomeWindow(QWidget):
         self.group_card.setObjectName("groupCard")
         self.group_card.setAttribute(Qt.WA_StyledBackground, True)
         self.group_card.setCursor(Qt.PointingHandCursor)
-        self.group_card.setMinimumHeight(68)
+        self.group_card.setFixedHeight(72)
 
         group_layout = QHBoxLayout(self.group_card)
         group_layout.setContentsMargins(18, 8, 18, 8)
@@ -507,7 +496,6 @@ class HomeWindow(QWidget):
         services_layout.addSpacing(4)
 
         # SCROLL
-
         self.scroll = QScrollArea()
         self.scroll.setObjectName("servicesScroll")
         self.scroll.setWidgetResizable(True)
@@ -542,29 +530,10 @@ class HomeWindow(QWidget):
         nav_layout.setContentsMargins(12, 8, 12, 8)
         nav_layout.setSpacing(8)
 
-        settings_btn = self.create_nav_button(
-            "⚙",
-            "تنظیمات",
-            self.open_settings
-        )
-
-        group_btn = self.create_nav_button(
-            "🏢",
-            "مجموعه",
-            self.Open_groups
-        )
-
-        home_btn = self.create_nav_button(
-            "⌂",
-            "خانه",
-            lambda: None
-        )
-
-        message_btn = self.create_nav_button(
-            "✉",
-            "پیام",
-            self.open_messages
-        )
+        settings_btn = self.create_nav_button("⚙", "تنظیمات", self.open_settings)
+        group_btn = self.create_nav_button("🏢", "مجموعه", self.Open_groups)
+        home_btn = self.create_nav_button("⌂", "خانه", lambda: None)
+        message_btn = self.create_nav_button("✉", "پیام", self.open_messages)
 
         nav_layout.addWidget(settings_btn)
         nav_layout.addWidget(group_btn)
@@ -941,56 +910,25 @@ class HomeWindow(QWidget):
 
                     group_name = group["name"] or "بدون نام"
 
-                    role = group.get("role")
-
-                    if role == "owner":
-                        role_text = "مالک"
-
-                    elif role == "employee":
-                        role_text = "کارمند"
-
-                    else:
-                        role_text = "کاربر"
+                    role_value = group.get("role", "employee")
+                    role_text = self.get_role_text(role_value)
 
                     group_label = QLabel(
                         f"{group_name}   •   {role_text}"
                     )
-
                     group_label.setObjectName("groupOptionLabel")
-                    group_label.setAttribute(
-                        Qt.WA_TransparentForMouseEvents,
-                        True
-                    )
-                    group_label.setAlignment(
-                        Qt.AlignRight | Qt.AlignVCenter
-                    )
+                    group_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+                    group_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
                     group_layout.addWidget(group_label)
 
-                    def select_group(
-                        event,
-                        selected_group=group,
-                        selected_role=role_text
-                    ):
+                    def select_group(event, selected_group=group):
 
-                        self.current_group = (
-                            selected_group["name"] or "بدون نام"
-                        )
+                        self.current_group = selected_group["name"] or "بدون نام"
 
-                        self.current_role = selected_role
+                        rv = selected_group.get("role", "employee")
 
-                        # =================================================
-                        # SAVE SELECTED COMPLEX ID
-                        # =================================================
-
-                        self.current_complex_id = (
-                            selected_group["complexId"]
-                        )
-
-                        print(
-                            "SELECTED COMPLEX ID:",
-                            self.current_complex_id
-                        )
+                        self.current_role = self.get_role_text(rv)
 
                         self.update_group_text()
                         self.update_services()
@@ -1014,9 +952,7 @@ class HomeWindow(QWidget):
 
                 empty_label = QLabel("هنوز مجموعه‌ای ثبت نشده")
                 empty_label.setObjectName("groupOptionLabel")
-                empty_label.setAlignment(
-                    Qt.AlignRight | Qt.AlignVCenter
-                )
+                empty_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
                 empty_layout.addWidget(empty_label)
                 layout.addWidget(empty_option)
@@ -1074,53 +1010,29 @@ class HomeWindow(QWidget):
                 widget.deleteLater()
 
         self.scroll_layout.addWidget(
-            self.create_service_card(
-                "🕒",
-                "حضور و غیاب",
-                self.open_attendance
-            )
+            self.create_service_card("🕒", "حضور و غیاب", self.open_attendance)
         )
 
         self.scroll_layout.addWidget(
-            self.create_service_card(
-                "💰",
-                "امور مالی",
-                self.open_finance
-            )
+            self.create_service_card("💰", "امور مالی", self.open_finance)
         )
 
-        if self.current_role == "مالک":
+        if self.current_role in ("مالک", "مالک و کارمند"):
 
             self.scroll_layout.addWidget(
-                self.create_service_card(
-                    "👥",
-                    "کارمندان",
-                    self.open_employees
-                )
+                self.create_service_card("👥", "کارمندان", self.open_employees)
             )
 
             self.scroll_layout.addWidget(
-                self.create_service_card(
-                    "📥",
-                    "کارتابل",
-                    self.open_cartable
-                )
+                self.create_service_card("📥", "کارتابل", self.open_cartable)
             )
 
         self.scroll_layout.addWidget(
-            self.create_service_card(
-                "📅",
-                "رویدادها و سوابق",
-                self.open_events
-            )
+            self.create_service_card("📅", "رویدادها و سوابق", self.open_events)
         )
 
         self.scroll_layout.addWidget(
-            self.create_service_card(
-                "📊",
-                "گزارش‌ها",
-                self.open_reports
-            )
+            self.create_service_card("📊", "گزارش‌ها", self.open_reports)
         )
 
         self.scroll_layout.addStretch()
@@ -1145,26 +1057,17 @@ class HomeWindow(QWidget):
         icon_label.setObjectName("serviceIcon")
         icon_label.setFixedSize(38, 38)
         icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setAttribute(
-            Qt.WA_TransparentForMouseEvents,
-            True
-        )
+        icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         title_label = QLabel(title)
         title_label.setObjectName("serviceTitle")
-        title_label.setAttribute(
-            Qt.WA_TransparentForMouseEvents,
-            True
-        )
+        title_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         arrow = QLabel("‹")
         arrow.setObjectName("serviceArrow")
         arrow.setFixedWidth(20)
         arrow.setAlignment(Qt.AlignCenter)
-        arrow.setAttribute(
-            Qt.WA_TransparentForMouseEvents,
-            True
-        )
+        arrow.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         layout.addWidget(icon_label)
         layout.addWidget(title_label)
@@ -1218,8 +1121,11 @@ class HomeWindow(QWidget):
 
         from attendanceWindow import AttendanceWindow
 
+        complex_id = self.get_current_complex_id()
+
         self.attendance_window = AttendanceWindow(
-            self.phone_number
+            self.phone_number,
+            complex_id
         )
 
         self.attendance_window.resize(self.size())
@@ -1230,8 +1136,11 @@ class HomeWindow(QWidget):
 
         from financeWindow import FinanceWindow
 
+        complex_id = self.get_current_complex_id()
+
         self.finance_window = FinanceWindow(
-            self.phone_number
+            self.phone_number,
+            complex_id
         )
 
         self.finance_window.resize(self.size())
@@ -1242,21 +1151,11 @@ class HomeWindow(QWidget):
 
         from employeesWindow import EmployeesWindow
 
-        # =================================================
-        # CHECK CURRENT COMPLEX
-        # =================================================
-
-        if not self.current_complex_id:
-
-            print(
-                "OPEN EMPLOYEES ERROR: CURRENT COMPLEX ID IS NONE"
-            )
-
-            return
+        complex_id = self.get_current_complex_id()
 
         self.employees_window = EmployeesWindow(
             self.phone_number,
-            self.current_complex_id
+            complex_id
         )
 
         self.employees_window.resize(self.size())
@@ -1266,9 +1165,7 @@ class HomeWindow(QWidget):
     def open_events(self):
 
         from eventsWindow import EventsWindow
-
         self.events_window = EventsWindow(self)
-
         self.events_window.resize(self.size())
         self.events_window.move(self.pos())
         self.events_window.show()
@@ -1277,23 +1174,16 @@ class HomeWindow(QWidget):
     def open_reports(self):
 
         from reportsWindow import ReportsWindow
-
-        self.reports_window = ReportsWindow(
-            self,
-            self.phone_number
-        )
-
+        self.reports_window = ReportsWindow(self, self.phone_number)
         self.reports_window.resize(self.size())
         self.reports_window.move(self.pos())
         self.reports_window.show()
-        self.events_window.raise_()
+        self.reports_window.raise_()
 
     def open_settings(self):
 
         from settingsWindow import SettingsWindow
-
         self.settings_window = SettingsWindow(self)
-
         self.settings_window.resize(self.size())
         self.settings_window.move(self.pos())
         self.settings_window.show()
@@ -1302,9 +1192,7 @@ class HomeWindow(QWidget):
     def open_messages(self):
 
         from messagesWindow import MessagesWindow
-
         self.messages_window = MessagesWindow(self)
-
         self.messages_window.resize(self.size())
         self.messages_window.move(self.pos())
         self.messages_window.show()
@@ -1313,9 +1201,7 @@ class HomeWindow(QWidget):
     def open_cartable(self):
 
         from cartableWindow import CartableWindow
-
         self.cartable_window = CartableWindow(self)
-
         self.cartable_window.resize(self.size())
         self.cartable_window.move(self.pos())
         self.cartable_window.show()
@@ -1325,11 +1211,7 @@ class HomeWindow(QWidget):
 
         from groupsWindow import GroupsWindow
 
-        self.groups_window = GroupsWindow(
-            self,
-            self.phone_number
-        )
-
+        self.groups_window = GroupsWindow(self, self.phone_number)
         self.groups_window.resize(self.size())
         self.groups_window.move(self.pos())
         self.groups_window.show()

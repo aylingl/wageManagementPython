@@ -22,6 +22,7 @@ from PySide6.QtCore import Qt, QTimer, QTime, QPoint, QDate, Signal
 from PySide6.QtGui import QPainter, QColor
 
 from database import Database
+from signals import signals
 
 # =========================================================
 # JALALI CONVERSION
@@ -244,14 +245,9 @@ class PersianCalendarPopup(QFrame):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
-        # =================================================
-        # HEADER — فلش‌ها: راست > / چپ <
-        # =================================================
-
         header = QHBoxLayout()
         header.setSpacing(6)
 
-        # فلش راست (>) → ماه قبل
         prev_btn = QPushButton(">")
         prev_btn.setObjectName("calNavBtn")
         prev_btn.setFixedSize(30, 30)
@@ -262,7 +258,6 @@ class PersianCalendarPopup(QFrame):
         self.month_label.setObjectName("calMonthLabel")
         self.month_label.setAlignment(Qt.AlignCenter)
 
-        # فلش چپ (<) → ماه بعد
         next_btn = QPushButton("<")
         next_btn.setObjectName("calNavBtn")
         next_btn.setFixedSize(30, 30)
@@ -274,10 +269,6 @@ class PersianCalendarPopup(QFrame):
         header.addWidget(next_btn)
 
         layout.addLayout(header)
-
-        # =================================================
-        # WEEKDAY ROW
-        # =================================================
 
         wd_layout = QHBoxLayout()
         wd_layout.setSpacing(2)
@@ -291,10 +282,6 @@ class PersianCalendarPopup(QFrame):
 
         layout.addLayout(wd_layout)
 
-        # =================================================
-        # DAYS GRID
-        # =================================================
-
         self.days_layout = QGridLayout()
         self.days_layout.setSpacing(2)
 
@@ -302,10 +289,6 @@ class PersianCalendarPopup(QFrame):
             self.days_layout.setColumnStretch(col, 1)
 
         layout.addLayout(self.days_layout, 1)
-
-        # =================================================
-        # STYLE
-        # =================================================
 
         self.setStyleSheet("""
 
@@ -373,10 +356,8 @@ class PersianCalendarPopup(QFrame):
     def refresh_grid(self):
 
         while self.days_layout.count():
-
             item = self.days_layout.takeAt(0)
             w = item.widget()
-
             if w:
                 w.deleteLater()
 
@@ -428,15 +409,8 @@ class PersianCalendarPopup(QFrame):
                 and day == self.selected_jd
             )
 
-            btn.setProperty(
-                "today",
-                "true" if is_today else "false"
-            )
-
-            btn.setProperty(
-                "selected",
-                "true" if is_selected else "false"
-            )
+            btn.setProperty("today", "true" if is_today else "false")
+            btn.setProperty("selected", "true" if is_selected else "false")
 
             btn.clicked.connect(
                 lambda checked=False, d=day: self.pick_day(d)
@@ -489,7 +463,7 @@ class PersianCalendarPopup(QFrame):
         self.close()
 
 # =========================================================
-# PERSIAN DATE BUTTON — قاب واحد
+# PERSIAN DATE BUTTON
 # =========================================================
 
 class PersianDateButton(QFrame):
@@ -511,13 +485,11 @@ class PersianDateButton(QFrame):
         layout.setContentsMargins(6, 0, 14, 0)
         layout.setSpacing(8)
 
-        # آیکون تقویم — داخل قاب
         self.icon_label = QLabel("📅")
         self.icon_label.setObjectName("dateIconLabel")
         self.icon_label.setFixedSize(30, 30)
         self.icon_label.setAlignment(Qt.AlignCenter)
 
-        # دکمه تاریخ — بدون border
         self.date_btn = QPushButton()
         self.date_btn.setObjectName("persianDateButton")
         self.date_btn.setCursor(Qt.PointingHandCursor)
@@ -527,7 +499,6 @@ class PersianDateButton(QFrame):
 
         self._refresh_text()
 
-        # کلیک روی هر جای قاب → تقویم باز بشه
         self.mousePressEvent = self._frame_clicked
         self.date_btn.clicked.connect(self._open_dialog)
 
@@ -543,9 +514,7 @@ class PersianDateButton(QFrame):
             self._qdate.day()
         )
 
-        self.date_btn.setText(
-            f"{jy:04d} / {jm:02d} / {jd:02d}"
-        )
+        self.date_btn.setText(f"{jy:04d} / {jm:02d} / {jd:02d}")
 
     def date(self):
         return self._qdate
@@ -556,18 +525,11 @@ class PersianDateButton(QFrame):
 
     def _open_dialog(self):
 
-        self._popup = PersianCalendarPopup(
-            self,
-            self._qdate
-        )
+        self._popup = PersianCalendarPopup(self, self._qdate)
 
-        self._popup.dateSelected.connect(
-            self._on_date_selected
-        )
+        self._popup.dateSelected.connect(self._on_date_selected)
 
-        global_pos = self.mapToGlobal(
-            QPoint(0, self.height() + 4)
-        )
+        global_pos = self.mapToGlobal(QPoint(0, self.height() + 4))
 
         self._popup.move(global_pos)
         self._popup.show()
@@ -763,10 +725,28 @@ class AttendanceWindow(QWidget):
         self.load_user_data()
         self.setup_ui()
 
+        signals.employee_added.connect(self.on_employee_changed)
+        signals.employee_removed.connect(self.on_employee_changed)
+        signals.employee_updated.connect(self.on_employee_changed)
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_clock)
         self.timer.start(1000)
         self.update_clock()
+
+    # =====================================================
+    # SIGNAL HANDLER
+    # =====================================================
+
+    def on_employee_changed(self, complex_id):
+        if complex_id != self.complex_id:
+            return
+
+        if self.is_owner:
+            try:
+                self.refresh_employees_attendance()
+            except Exception as e:
+                print("REFRESH EMP ATTENDANCE ERROR:", e)
 
     # =====================================================
     # LOAD USER DATA
@@ -775,7 +755,6 @@ class AttendanceWindow(QWidget):
     def load_user_data(self):
 
         try:
-
             user = self.db.fetch_one(
                 """
                 SELECT userId
@@ -981,10 +960,6 @@ class AttendanceWindow(QWidget):
 
         main_layout.addLayout(header)
 
-        # =================================================
-        # TABS
-        # =================================================
-
         self.is_owner = self.role in ("owner", "both")
 
         if self.is_owner:
@@ -1024,10 +999,6 @@ class AttendanceWindow(QWidget):
             self.stack.addWidget(self.build_my_attendance_tab())
 
             main_layout.addWidget(self.stack, 1)
-
-        # =================================================
-        # STYLE
-        # =================================================
 
         self.setStyleSheet("""
 
@@ -1193,10 +1164,6 @@ class AttendanceWindow(QWidget):
                 border-radius: 20px;
             }
 
-            /* ==========================================
-               DATE BUTTON — قاب واحد
-               ========================================== */
-
             QFrame#persianDateFrame {
                 background-color: #F7F9FC;
                 border: 1px solid #DCE6F2;
@@ -1309,6 +1276,20 @@ class AttendanceWindow(QWidget):
                 color: #8290A1;
                 font-size: 12px;
                 background: transparent;
+            }
+
+            QFrame#employeesContainer {
+                background-color: #FFFFFF;
+                border: 1px solid #E2EAF4;
+                border-radius: 24px;
+            }
+
+            QLabel#containerTitle {
+                color: #17324D;
+                font-size: 14px;
+                font-weight: 700;
+                background: transparent;
+                padding: 0px 4px;
             }
 
             QScrollArea {
@@ -1518,6 +1499,7 @@ class AttendanceWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
+        # فیلتر بالا
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
 
@@ -1533,7 +1515,6 @@ class AttendanceWindow(QWidget):
             background: transparent;
         """)
 
-        # فیلد تاریخ شمسی — قاب واحد
         self.date_filter = PersianDateButton()
 
         self.date_filter.dateChanged.connect(
@@ -1554,6 +1535,24 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(filter_box)
 
+        # =================================================
+        # CONTAINER — باکس پهن گرد دور کارت‌های کارمندان
+        # =================================================
+
+        employees_container = QFrame()
+        employees_container.setObjectName("employeesContainer")
+        employees_container.setAttribute(Qt.WA_StyledBackground, True)
+
+        container_layout = QVBoxLayout(employees_container)
+        container_layout.setContentsMargins(18, 16, 18, 16)
+        container_layout.setSpacing(10)
+
+        container_title = QLabel("لیست کارمندان")
+        container_title.setObjectName("containerTitle")
+        container_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
+
+        container_layout.addWidget(container_title)
+
         emp_scroll = QScrollArea()
         emp_scroll.setWidgetResizable(True)
         emp_scroll.setFrameShape(QFrame.NoFrame)
@@ -1564,12 +1563,14 @@ class AttendanceWindow(QWidget):
         emp_content.setObjectName("empContent")
 
         self.emp_list_layout = QVBoxLayout(emp_content)
-        self.emp_list_layout.setContentsMargins(4, 4, 16, 4)
+        self.emp_list_layout.setContentsMargins(4, 4, 12, 4)
         self.emp_list_layout.setSpacing(8)
 
         emp_scroll.setWidget(emp_content)
 
-        layout.addWidget(emp_scroll, 1)
+        container_layout.addWidget(emp_scroll)
+
+        layout.addWidget(employees_container, 1)
 
         return widget
 
@@ -1792,9 +1793,7 @@ class AttendanceWindow(QWidget):
             h = wm // 60
             m = wm % 60
 
-            self.work_box.findChild(QLabel, "time_value").setText(
-                f"{h}س {m}د"
-            )
+            self.work_box.findChild(QLabel, "time_value").setText(f"{h}س {m}د")
 
             self.today_status_label.setText("امروزت کامل ثبت شده ✅")
 
@@ -1802,15 +1801,9 @@ class AttendanceWindow(QWidget):
             self.overtime_box.findChild(QLabel, "small_value").setText("—")
             self.remaining_box.findChild(QLabel, "small_value").setText("تکمیل")
 
-        # ==========================================
-        # HISTORY
-        # ==========================================
-
         while self.my_history_layout.count():
-
             item = self.my_history_layout.takeAt(0)
             widget = item.widget()
-
             if widget:
                 widget.deleteLater()
 
@@ -1872,11 +1865,7 @@ class AttendanceWindow(QWidget):
         work_date = row["workDate"]
 
         if isinstance(work_date, date):
-            qdate = QDate(
-                work_date.year,
-                work_date.month,
-                work_date.day
-            )
+            qdate = QDate(work_date.year, work_date.month, work_date.day)
             date_str = jalali_string(qdate)
         else:
             date_str = str(work_date)
@@ -2114,10 +2103,8 @@ class AttendanceWindow(QWidget):
             return
 
         while self.emp_list_layout.count():
-
             item = self.emp_list_layout.takeAt(0)
             widget = item.widget()
-
             if widget:
                 widget.deleteLater()
 
@@ -2129,7 +2116,6 @@ class AttendanceWindow(QWidget):
             SELECT
                 cm.memberId,
                 u.name,
-                u.profession,
                 u.phoneNumber,
                 a.attendanceId,
                 a.workDate,

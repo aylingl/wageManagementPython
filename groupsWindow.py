@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextOption
 
 from database import Database
+from signals import signals
 
 # =========================================================
 # NICE MESSAGE BOX
@@ -201,6 +202,18 @@ class GroupsWindow(QWidget):
         self.setup_ui()
         self.load_data()
 
+        signals.employee_added.connect(self.on_employee_changed)
+        signals.employee_removed.connect(self.on_employee_changed)
+        signals.employee_updated.connect(self.on_employee_changed)
+
+    # =====================================================
+    # SIGNAL HANDLER
+    # =====================================================
+
+    def on_employee_changed(self, complex_id):
+        self.load_groups()
+        self.refresh_groups()
+
     # =====================================================
     # LOAD DATA
     # =====================================================
@@ -208,7 +221,6 @@ class GroupsWindow(QWidget):
     def load_data(self):
 
         try:
-
             user = self.db.fetch_one(
                 """
                 SELECT userId, name
@@ -220,11 +232,7 @@ class GroupsWindow(QWidget):
             )
 
             if not user:
-
-                NiceMessageBox.warning(
-                    self, "خطا",
-                    "اطلاعات کاربر پیدا نشد."
-                )
+                NiceMessageBox.warning(self, "خطا", "اطلاعات کاربر پیدا نشد.")
                 return
 
             self.user_id = user["userId"]
@@ -233,9 +241,7 @@ class GroupsWindow(QWidget):
             self.refresh_groups()
 
         except Exception as error:
-
             print("GroupsWindow load error:", error)
-
             NiceMessageBox.error(
                 self, "خطا",
                 "در دریافت اطلاعات مجموعه‌ها مشکلی به وجود آمد."
@@ -250,7 +256,6 @@ class GroupsWindow(QWidget):
         self.groups = []
 
         try:
-
             rows = self.db.fetch_all(
                 """
                 SELECT
@@ -267,8 +272,8 @@ class GroupsWindow(QWidget):
                 INNER JOIN complex_members cm
                     ON cm.complexId = c.complexId
                     AND cm.userId = %s
-                    AND cm.isActive = 1
-                WHERE c.isActive = 1
+                    AND cm.isActive = '1'
+                WHERE c.isActive = '1'
                 ORDER BY c.complexId ASC
                 """,
                 (self.user_id,)
@@ -281,7 +286,7 @@ class GroupsWindow(QWidget):
                     SELECT COUNT(*) AS total
                     FROM complex_members
                     WHERE complexId = %s
-                      AND isActive = 1
+                      AND isActive = '1'
                       AND role IN ('employee', 'both')
                     """,
                     (row["complexId"],)
@@ -301,21 +306,18 @@ class GroupsWindow(QWidget):
                 else:
                     role_text = "کاربر"
 
-                self.groups.append(
-                    {
-                        "complexId": row["complexId"],
-                        "name": row["name"],
-                        "address": row["address"] or "بدون آدرس",
-                        "activity": row["activity"] or "بدون فعالیت",
-                        "description": row["description"] or "بدون توضیحات",
-                        "role": role_text,
-                        "roleValue": role,
-                        "employeeCount": count
-                    }
-                )
+                self.groups.append({
+                    "complexId": row["complexId"],
+                    "name": row["name"],
+                    "address": row["address"] or "بدون آدرس",
+                    "activity": row["activity"] or "بدون فعالیت",
+                    "description": row["description"] or "بدون توضیحات",
+                    "role": role_text,
+                    "roleValue": role,
+                    "employeeCount": count
+                })
 
         except Exception as error:
-
             print("LOAD GROUPS ERROR:", error)
 
     # =====================================================
@@ -327,10 +329,6 @@ class GroupsWindow(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(28, 22, 28, 22)
         main_layout.setSpacing(16)
-
-        # =================================================
-        # HEADER
-        # =================================================
 
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
@@ -368,10 +366,26 @@ class GroupsWindow(QWidget):
         main_layout.addLayout(header_layout)
 
         # =================================================
-        # SCROLL
+        # CONTAINER — باکس پهن گرد دور کارت‌های مجموعه
         # =================================================
 
+        groups_container_frame = QFrame()
+        groups_container_frame.setObjectName("groupsContainer")
+        groups_container_frame.setAttribute(Qt.WA_StyledBackground, True)
+
+        container_layout = QVBoxLayout(groups_container_frame)
+        container_layout.setContentsMargins(20, 18, 20, 18)
+        container_layout.setSpacing(12)
+
+        container_title = QLabel("مجموعه‌های من")
+        container_title.setObjectName("containerTitle")
+        container_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
+
+        container_layout.addWidget(container_title)
+
+        # SCROLL داخل باکس
         scroll = QScrollArea()
+        scroll.setObjectName("groupsScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -379,38 +393,23 @@ class GroupsWindow(QWidget):
 
         content = QWidget()
         content.setObjectName("scrollContent")
+        content.setAttribute(Qt.WA_TranslucentBackground, True)
 
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(8, 12, 20, 12)
-        content_layout.setSpacing(18)
-
-        scroll.setWidget(content)
-
-        # =================================================
-        # GROUPS TITLE
-        # =================================================
-
-        groups_title = QLabel("مجموعه‌های من")
-        groups_title.setObjectName("sectionTitle")
-
-        content_layout.addWidget(groups_title)
-
-        # =================================================
-        # GROUPS CONTAINER
-        # =================================================
+        content_layout.setContentsMargins(4, 4, 12, 4)
+        content_layout.setSpacing(10)
 
         self.groups_container = QVBoxLayout()
         self.groups_container.setSpacing(10)
 
         content_layout.addLayout(self.groups_container)
-
         content_layout.addStretch()
 
-        main_layout.addWidget(scroll)
+        scroll.setWidget(content)
 
-        # =================================================
-        # STYLE
-        # =================================================
+        container_layout.addWidget(scroll)
+
+        main_layout.addWidget(groups_container_frame)
 
         self.setStyleSheet("""
 
@@ -462,14 +461,31 @@ class GroupsWindow(QWidget):
                 background-color: #4589E8;
             }
 
-            QScrollArea {
-                background: transparent;
-                border: none;
+            QFrame#groupsContainer {
+                background-color: #FFFFFF;
+                border: 1px solid #E2EAF4;
+                border-radius: 24px;
             }
 
-            QScrollArea::viewport {
+            QLabel#containerTitle {
                 background: transparent;
                 border: none;
+                color: #25364A;
+                font-size: 14px;
+                font-weight: 700;
+                padding: 0px 4px;
+            }
+
+            QScrollArea#groupsScroll {
+                background: transparent;
+                border: none;
+                border-radius: 16px;
+            }
+
+            QScrollArea#groupsScroll::viewport {
+                background: transparent;
+                border: none;
+                border-radius: 16px;
             }
 
             QWidget#scrollContent {
@@ -506,15 +522,6 @@ class GroupsWindow(QWidget):
             QScrollBar::sub-page:vertical {
                 background: transparent;
                 border: none;
-            }
-
-            QLabel#sectionTitle {
-                background: transparent;
-                border: none;
-                color: #25364A;
-                font-size: 16px;
-                font-weight: 700;
-                padding-top: 5px;
             }
 
             QLabel#description {
@@ -715,7 +722,6 @@ class GroupsWindow(QWidget):
         self.close()
 
         if self.parent_window:
-
             self.parent_window.show()
             self.parent_window.raise_()
             self.parent_window.activateWindow()
@@ -730,24 +736,19 @@ class GroupsWindow(QWidget):
     def refresh_groups(self):
 
         while self.groups_container.count():
-
             item = self.groups_container.takeAt(0)
             widget = item.widget()
-
             if widget:
                 widget.deleteLater()
 
         if not self.groups:
-
             empty_label = QLabel("هنوز مجموعه‌ای نداری.")
             empty_label.setObjectName("description")
             empty_label.setContentsMargins(0, 0, 12, 0)
-
             self.groups_container.addWidget(empty_label)
             return
 
         for group in self.groups:
-
             card = self.create_group_card(group)
             self.groups_container.addWidget(card)
 
@@ -800,7 +801,6 @@ class GroupsWindow(QWidget):
         layout.addStretch()
         layout.addWidget(count)
 
-        # نقش (مالک / کارمند)
         role_label = QLabel(group["role"])
         role_label.setAlignment(Qt.AlignCenter)
         role_label.setFixedHeight(22)
@@ -818,9 +818,7 @@ class GroupsWindow(QWidget):
 
         layout.addWidget(role_label)
 
-        # دکمه‌های مدیریت و حذف (فقط برای مالک)
         if group["role"] == "مالک" or group["role"] == "مالک و کارمند":
-
             manage_button = QPushButton("مدیریت")
             manage_button.setObjectName("manageButton")
             manage_button.setCursor(Qt.PointingHandCursor)
@@ -847,7 +845,6 @@ class GroupsWindow(QWidget):
     def manage_group(self, group):
 
         try:
-
             employees = self.get_group_employee_names(group["complexId"])
 
             if employees:
@@ -867,9 +864,7 @@ class GroupsWindow(QWidget):
             )
 
         except Exception as error:
-
             print("MANAGE GROUP ERROR:", error)
-
             NiceMessageBox.error(
                 self, "خطا",
                 "در دریافت اطلاعات مجموعه مشکلی به وجود آمد."
@@ -878,14 +873,13 @@ class GroupsWindow(QWidget):
     def get_group_employee_names(self, complex_id):
 
         try:
-
             rows = self.db.fetch_all(
                 """
                 SELECT u.userId, u.name
                 FROM complex_members cm
                 INNER JOIN users u ON u.userId = cm.userId
                 WHERE cm.complexId = %s
-                  AND cm.isActive = 1
+                  AND cm.isActive = '1'
                   AND cm.role IN ('employee', 'both')
                 ORDER BY u.name ASC
                 """,
@@ -895,7 +889,6 @@ class GroupsWindow(QWidget):
             return [row["name"] or "بدون نام" for row in rows]
 
         except Exception as error:
-
             print("GET GROUP EMPLOYEES ERROR:", error)
             return []
 
@@ -963,10 +956,11 @@ class GroupsWindow(QWidget):
     def delete_group(self, group):
 
         try:
-
             complex_id = group["complexId"]
 
+            print("========================================")
             print("DELETING GROUP:", complex_id, group["name"])
+            print("========================================")
 
             exists = self.db.fetch_one(
                 """
@@ -978,12 +972,129 @@ class GroupsWindow(QWidget):
             )
 
             if not exists:
-
                 NiceMessageBox.error(
                     self, "خطا",
                     "این مجموعه در دیتابیس پیدا نشد."
                 )
                 return
+
+            self.db.execute("SET FOREIGN_KEY_CHECKS = 0")
+
+            self.db.execute(
+                """
+                DELETE FROM loan_installments
+                WHERE loanId IN (
+                    SELECT loanId FROM loans
+                    WHERE memberId IN (
+                        SELECT memberId FROM complex_members
+                        WHERE complexId = %s
+                    )
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM loans
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM job_approvals
+                WHERE employeeJobId IN (
+                    SELECT employeeJobId FROM employee_jobs
+                    WHERE memberId IN (
+                        SELECT memberId FROM complex_members
+                        WHERE complexId = %s
+                    )
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM employee_jobs
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM bonuses
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM deductions
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM payments
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM salaries
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM attendance
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
+
+            self.db.execute(
+                """
+                DELETE FROM leaves
+                WHERE memberId IN (
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                )
+                """,
+                (complex_id,)
+            )
 
             self.db.execute(
                 """
@@ -1001,6 +1112,8 @@ class GroupsWindow(QWidget):
                 (complex_id,)
             )
 
+            self.db.execute("SET FOREIGN_KEY_CHECKS = 1")
+
             still_exists = self.db.fetch_one(
                 """
                 SELECT complexId
@@ -1011,7 +1124,6 @@ class GroupsWindow(QWidget):
             )
 
             if still_exists:
-
                 NiceMessageBox.error(
                     self, "خطا",
                     "حذف انجام نشد. لطفاً دوباره تلاش کنید."
@@ -1022,11 +1134,7 @@ class GroupsWindow(QWidget):
             self.refresh_groups()
 
             if self.parent_window:
-
-                if hasattr(
-                    self.parent_window,
-                    "refresh_groups_from_database"
-                ):
+                if hasattr(self.parent_window, "refresh_groups_from_database"):
                     self.parent_window.refresh_groups_from_database()
 
             NiceMessageBox.success(
@@ -1036,8 +1144,16 @@ class GroupsWindow(QWidget):
             )
 
         except Exception as error:
+            print("========================================")
+            print("DELETE GROUP ERROR")
+            print("TYPE:", type(error).__name__)
+            print("ERROR:", error)
+            print("========================================")
 
-            print("DELETE GROUP ERROR:", error)
+            try:
+                self.db.execute("SET FOREIGN_KEY_CHECKS = 1")
+            except Exception:
+                pass
 
             NiceMessageBox.error(
                 self, "خطا",
@@ -1068,7 +1184,6 @@ class GroupsWindow(QWidget):
         description.setObjectName("dialogDescription")
         description.setWordWrap(True)
 
-        # NAME
         name_input = QLineEdit()
         name_input.setPlaceholderText("نام مجموعه")
         name_input.setObjectName("dialogInput")
@@ -1080,7 +1195,6 @@ class GroupsWindow(QWidget):
         name_error.setWordWrap(True)
         name_error.hide()
 
-        # ADDRESS
         address_input = QLineEdit()
         address_input.setPlaceholderText("آدرس مجموعه")
         address_input.setObjectName("dialogInput")
@@ -1092,7 +1206,6 @@ class GroupsWindow(QWidget):
         address_error.setWordWrap(True)
         address_error.hide()
 
-        # ACTIVITY
         activity_input = QLineEdit()
         activity_input.setPlaceholderText("در مجموعه چه کار انجام می‌دهید؟")
         activity_input.setObjectName("dialogInput")
@@ -1104,7 +1217,6 @@ class GroupsWindow(QWidget):
         activity_error.setWordWrap(True)
         activity_error.hide()
 
-        # DESCRIPTION
         details_input = QTextEdit()
         details_input.setPlaceholderText("توضیحات بیشتر درباره مجموعه")
         details_input.setObjectName("dialogInput")
@@ -1114,7 +1226,6 @@ class GroupsWindow(QWidget):
             QTextOption(Qt.AlignRight | Qt.AlignAbsolute)
         )
 
-        # BUTTONS
         buttons = QHBoxLayout()
 
         cancel = QPushButton("انصراف")
@@ -1181,57 +1292,48 @@ class GroupsWindow(QWidget):
 
             has_error = False
 
-            # NAME
             if not name:
                 name_error.setText("لطفاً نام مجموعه را وارد کنید.")
                 name_error.show()
                 name_input.setStyleSheet(error_style)
                 has_error = True
-
             elif contains_digit(name):
                 name_error.setText("نام مجموعه نباید شامل عدد باشد.")
                 name_error.show()
                 name_input.setStyleSheet(error_style)
                 has_error = True
-
             elif count_letters(name) < 4:
                 name_error.setText("نام مجموعه باید حداقل ۴ حرف داشته باشد.")
                 name_error.show()
                 name_input.setStyleSheet(error_style)
                 has_error = True
 
-            # ADDRESS
             if not address:
                 address_error.setText("لطفاً آدرس مجموعه را وارد کنید.")
                 address_error.show()
                 address_input.setStyleSheet(error_style)
                 has_error = True
-
             elif contains_digit(address):
                 address_error.setText("آدرس نباید شامل عدد باشد.")
                 address_error.show()
                 address_input.setStyleSheet(error_style)
                 has_error = True
-
             elif count_letters(address) < 5:
                 address_error.setText("آدرس باید حداقل ۵ حرف داشته باشد.")
                 address_error.show()
                 address_input.setStyleSheet(error_style)
                 has_error = True
 
-            # ACTIVITY
             if not activity:
                 activity_error.setText("لطفاً نوع فعالیت مجموعه را وارد کنید.")
                 activity_error.show()
                 activity_input.setStyleSheet(error_style)
                 has_error = True
-
             elif contains_digit(activity):
                 activity_error.setText("فعالیت نباید شامل عدد باشد.")
                 activity_error.show()
                 activity_input.setStyleSheet(error_style)
                 has_error = True
-
             elif count_letters(activity) < 4:
                 activity_error.setText("فعالیت باید حداقل ۴ حرف داشته باشد.")
                 activity_error.show()
@@ -1242,7 +1344,6 @@ class GroupsWindow(QWidget):
                 return
 
             try:
-
                 complex_id = self.db.execute(
                     """
                     INSERT INTO complexes
@@ -1257,7 +1358,7 @@ class GroupsWindow(QWidget):
                     )
                     VALUES
                     (
-                        %s, %s, %s, %s, %s, NOW(), 1
+                        %s, %s, %s, %s, %s, NOW(), '1'
                     )
                     """,
                     (
@@ -1270,7 +1371,6 @@ class GroupsWindow(QWidget):
                 )
 
                 if not complex_id:
-
                     NiceMessageBox.error(
                         dialog, "خطا",
                         "ثبت مجموعه انجام نشد."
@@ -1289,14 +1389,13 @@ class GroupsWindow(QWidget):
                     )
                     VALUES
                     (
-                        %s, %s, 'owner', NOW(), 1
+                        %s, %s, 'owner', NOW(), '1'
                     )
                     """,
                     (complex_id, self.user_id)
                 )
 
                 if not member_id:
-
                     self.db.execute(
                         "DELETE FROM complexes WHERE complexId = %s",
                         (complex_id,)
@@ -1312,10 +1411,7 @@ class GroupsWindow(QWidget):
                 self.refresh_groups()
 
                 if self.parent_window:
-                    if hasattr(
-                        self.parent_window,
-                        "refresh_groups_from_database"
-                    ):
+                    if hasattr(self.parent_window, "refresh_groups_from_database"):
                         self.parent_window.refresh_groups_from_database()
 
                 dialog.close()
@@ -1326,9 +1422,7 @@ class GroupsWindow(QWidget):
                 )
 
             except Exception as error:
-
                 print("ADD GROUP ERROR:", error)
-
                 NiceMessageBox.error(
                     dialog, "خطا",
                     "در ثبت مجموعه مشکلی به وجود آمد."

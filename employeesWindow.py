@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QColor
 
 from database import Database
+from signals import signals
 
 from addEmployees import AddEmployees
 
@@ -73,9 +74,7 @@ class RoundScrollBar(QScrollBar):
 
         total_range = maximum - minimum + page_step
 
-        handle_height = int(
-            groove_height * page_step / total_range
-        )
+        handle_height = int(groove_height * page_step / total_range)
 
         handle_height = max(42, handle_height)
         handle_height = min(handle_height, groove_height)
@@ -85,13 +84,8 @@ class RoundScrollBar(QScrollBar):
         if maximum == minimum:
             handle_y = groove_top
         else:
-            value_ratio = (
-                self.value() - minimum
-            ) / (maximum - minimum)
-
-            handle_y = (
-                groove_top + available_space * value_ratio
-            )
+            value_ratio = (self.value() - minimum) / (maximum - minimum)
+            handle_y = groove_top + available_space * value_ratio
 
         handle_width = 8
         handle_x = (self.width() - handle_width) / 2
@@ -134,20 +128,14 @@ class RoundedAvatar(QLabel):
             Qt.SmoothTransformation
         )
 
-        result = QPixmap(
-            self.avatar_size,
-            self.avatar_size
-        )
-
+        result = QPixmap(self.avatar_size, self.avatar_size)
         result.fill(Qt.transparent)
 
         painter = QPainter(result)
-
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
         path = QPainterPath()
-
         path.addRoundedRect(
             0,
             0,
@@ -158,13 +146,7 @@ class RoundedAvatar(QLabel):
         )
 
         painter.setClipPath(path)
-
-        painter.drawPixmap(
-            0,
-            0,
-            pixmap
-        )
-
+        painter.drawPixmap(0, 0, pixmap)
         painter.end()
 
         self.setPixmap(result)
@@ -175,38 +157,78 @@ class RoundedAvatar(QLabel):
 
 class EmployeesWindow(QWidget):
 
-    def __init__(
-        self,
-        phone_number,
-        complex_id
-    ):
+    def __init__(self, phone_number, complex_id=None):
 
         super().__init__()
 
         self.phone_number = phone_number
-
         self.complex_id = complex_id
 
         self.db = Database()
 
+        if self.complex_id is None:
+            self.find_first_complex()
+
         self.setWindowTitle("کارمندان")
-
         self.resize(1000, 700)
-
-        self.setMinimumSize(
-            600,
-            450
-        )
-
-        self.setLayoutDirection(
-            Qt.RightToLeft
-        )
+        self.setMinimumSize(600, 450)
+        self.setLayoutDirection(Qt.RightToLeft)
 
         self.full_time_hours_per_day = 8
         self.part_time_hours_per_day = 4
         self.default_work_days_per_month = 26
 
         self.setup_ui()
+
+        signals.employee_added.connect(self.on_employee_changed)
+        signals.employee_removed.connect(self.on_employee_changed)
+        signals.employee_updated.connect(self.on_employee_changed)
+
+    # =====================================================
+    # SIGNAL HANDLER
+    # =====================================================
+
+    def on_employee_changed(self, complex_id):
+        if complex_id == self.complex_id:
+            self.load_employees_from_database()
+
+    # =====================================================
+    # FIND FIRST COMPLEX
+    # =====================================================
+
+    def find_first_complex(self):
+
+        try:
+            user = self.db.fetch_one(
+                """
+                SELECT userId
+                FROM users
+                WHERE phoneNumber = %s
+                LIMIT 1
+                """,
+                (self.phone_number,)
+            )
+
+            if not user:
+                return
+
+            first = self.db.fetch_one(
+                """
+                SELECT complexId
+                FROM complex_members
+                WHERE userId = %s
+                  AND isActive = '1'
+                ORDER BY complexId ASC
+                LIMIT 1
+                """,
+                (user["userId"],)
+            )
+
+            if first:
+                self.complex_id = first["complexId"]
+
+        except Exception as e:
+            print("FIND FIRST COMPLEX ERROR:", e)
 
     # =====================================================
     # UI
@@ -215,14 +237,7 @@ class EmployeesWindow(QWidget):
     def setup_ui(self):
 
         main_layout = QVBoxLayout(self)
-
-        main_layout.setContentsMargins(
-            28,
-            22,
-            28,
-            22
-        )
-
+        main_layout.setContentsMargins(28, 22, 28, 22)
         main_layout.setSpacing(16)
 
         # =================================================
@@ -230,122 +245,51 @@ class EmployeesWindow(QWidget):
         # =================================================
 
         header_layout = QHBoxLayout()
-
         header_layout.setSpacing(12)
 
-        back_button = QPushButton(
-            "›"
-        )
+        back_button = QPushButton("›")
+        back_button.setObjectName("backButton")
+        back_button.setCursor(Qt.PointingHandCursor)
+        back_button.setFixedSize(42, 42)
+        back_button.clicked.connect(self.close)
 
-        back_button.setObjectName(
-            "backButton"
-        )
-
-        back_button.setCursor(
-            Qt.PointingHandCursor
-        )
-
-        back_button.setFixedSize(
-            42,
-            42
-        )
-
-        back_button.clicked.connect(
-            self.close
-        )
-
-        header_layout.addWidget(
-            back_button
-        )
+        header_layout.addWidget(back_button)
 
         title_layout = QVBoxLayout()
-
-        title_layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0
-        )
-
+        title_layout.setContentsMargins(0, 0, 0, 0)
         title_layout.setSpacing(3)
 
         title = QLabel("کارمندان")
+        title.setObjectName("pageTitle")
 
-        title.setObjectName(
-            "pageTitle"
-        )
-
-        subtitle = QLabel(
-            "مدیریت و مشاهده کارمندان مجموعه"
-        )
-
-        subtitle.setObjectName(
-            "pageSubtitle"
-        )
+        subtitle = QLabel("مدیریت و مشاهده کارمندان مجموعه")
+        subtitle.setObjectName("pageSubtitle")
 
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
 
-        add_button = QPushButton(
-            "+  افزودن کارمند"
-        )
+        add_button = QPushButton("+  افزودن کارمند")
+        add_button.setObjectName("addEmployeeButton")
+        add_button.setCursor(Qt.PointingHandCursor)
+        add_button.setFixedHeight(46)
+        add_button.clicked.connect(self.add_employee)
 
-        add_button.setObjectName(
-            "addEmployeeButton"
-        )
-
-        add_button.setCursor(
-            Qt.PointingHandCursor
-        )
-
-        add_button.setFixedHeight(
-            46
-        )
-
-        add_button.clicked.connect(
-            self.add_employee
-        )
-
-        header_layout.addLayout(
-            title_layout
-        )
-
+        header_layout.addLayout(title_layout)
         header_layout.addStretch()
+        header_layout.addWidget(add_button)
 
-        header_layout.addWidget(
-            add_button
-        )
-
-        main_layout.addLayout(
-            header_layout
-        )
+        main_layout.addLayout(header_layout)
 
         # =================================================
         # EMPLOYEES BOX
         # =================================================
 
         employees_box = QFrame()
+        employees_box.setObjectName("employeesBox")
+        employees_box.setAttribute(Qt.WA_StyledBackground, True)
 
-        employees_box.setObjectName(
-            "employeesBox"
-        )
-
-        employees_box.setAttribute(
-            Qt.WA_StyledBackground,
-            True
-        )
-
-        employees_layout = QVBoxLayout(
-            employees_box
-        )
-
-        employees_layout.setContentsMargins(
-            18,
-            18,
-            18,
-            18
-        )
-
+        employees_layout = QVBoxLayout(employees_box)
+        employees_layout.setContentsMargins(18, 18, 18, 18)
         employees_layout.setSpacing(8)
 
         # =================================================
@@ -353,68 +297,28 @@ class EmployeesWindow(QWidget):
         # =================================================
 
         self.scroll = QScrollArea()
-
-        self.scroll.setObjectName(
-            "employeesScroll"
-        )
-
-        self.scroll.setWidgetResizable(
-            True
-        )
-
-        self.scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff
-        )
-
-        self.scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAsNeeded
-        )
-
-        self.scroll.setFrameShape(
-            QFrame.NoFrame
-        )
+        self.scroll.setObjectName("employeesScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll.setFrameShape(QFrame.NoFrame)
 
         scroll_bar = RoundScrollBar(Qt.Vertical)
-
         self.scroll.setVerticalScrollBar(scroll_bar)
 
         scroll_content = QWidget()
+        scroll_content.setObjectName("scrollContent")
+        scroll_content.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        scroll_content.setObjectName(
-            "scrollContent"
-        )
+        self.employees_layout = QVBoxLayout(scroll_content)
+        self.employees_layout.setContentsMargins(4, 4, 16, 4)
+        self.employees_layout.setSpacing(10)
 
-        scroll_content.setAttribute(
-            Qt.WA_TranslucentBackground,
-            True
-        )
+        self.scroll.setWidget(scroll_content)
 
-        self.employees_layout = QVBoxLayout(
-            scroll_content
-        )
+        employees_layout.addWidget(self.scroll)
 
-        self.employees_layout.setContentsMargins(
-            4,
-            4,
-            16,
-            4
-        )
-
-        self.employees_layout.setSpacing(
-            10
-        )
-
-        self.scroll.setWidget(
-            scroll_content
-        )
-
-        employees_layout.addWidget(
-            self.scroll
-        )
-
-        main_layout.addWidget(
-            employees_box
-        )
+        main_layout.addWidget(employees_box)
 
         # =================================================
         # EMPLOYEES
@@ -502,6 +406,7 @@ class EmployeesWindow(QWidget):
             font-size: 14px;
             font-weight: 700;
             background: transparent;
+            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeProfession {
@@ -509,12 +414,14 @@ class EmployeesWindow(QWidget):
             font-size: 11px;
             font-weight: 600;
             background: transparent;
+            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeJob {
             color: #617287;
             font-size: 11px;
             background: transparent;
+            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeJobValue {
@@ -522,12 +429,14 @@ class EmployeesWindow(QWidget):
             font-size: 11px;
             font-weight: 600;
             background: transparent;
+            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeInfo {
             color: #617287;
             font-size: 10px;
             background: transparent;
+            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeSalary {
@@ -593,10 +502,6 @@ class EmployeesWindow(QWidget):
 
         """)
 
-        # =================================================
-        # LOAD EMPLOYEES
-        # =================================================
-
         self.load_employees_from_database()
 
     # =====================================================
@@ -608,17 +513,11 @@ class EmployeesWindow(QWidget):
         self.employees = []
 
         if not self.complex_id:
-
-            print(
-                "LOAD EMPLOYEES ERROR: COMPLEX ID IS NONE"
-            )
-
+            print("LOAD EMPLOYEES ERROR: COMPLEX ID IS NONE")
             self.refresh_employees()
-
             return
 
         try:
-
             employees = self.db.fetch_all(
                 """
                 SELECT
@@ -626,13 +525,9 @@ class EmployeesWindow(QWidget):
                     cm.userId,
                     cm.role,
                     cm.isActive,
-
                     u.name,
-                    u.profession,
                     u.phoneNumber,
-                    u.nationalId,
                     u.imageBase64,
-
                     ep.jobTitle,
                     ep.nationalCode,
                     ep.employmentType,
@@ -643,18 +538,14 @@ class EmployeesWindow(QWidget):
                     ep.workStartTime,
                     ep.workEndTime,
                     ep.description
-
                 FROM complex_members cm
-
                 INNER JOIN users u
                     ON u.userId = cm.userId
-
                 LEFT JOIN employee_profiles ep
                     ON ep.memberId = cm.memberId
-
                 WHERE cm.complexId = %s
                   AND cm.role IN ('employee', 'both')
-
+                  AND cm.isActive = '1'
                 ORDER BY cm.memberId DESC
                 """,
                 (self.complex_id,)
@@ -666,10 +557,8 @@ class EmployeesWindow(QWidget):
 
                 if employment_type == "fullTime":
                     work_type = "تمام‌وقت"
-
                 elif employment_type == "partTime":
                     work_type = "پاره‌وقت"
-
                 else:
                     work_type = employment_type or "-"
 
@@ -677,13 +566,10 @@ class EmployeesWindow(QWidget):
 
                 if salary_type == "monthly":
                     salary_type_text = "ماهانه"
-
                 elif salary_type == "daily":
                     salary_type_text = "روزانه"
-
                 elif salary_type == "hourly":
                     salary_type_text = "ساعتی"
-
                 else:
                     salary_type_text = "-"
 
@@ -691,29 +577,12 @@ class EmployeesWindow(QWidget):
 
                 if str(is_active) == "1":
                     status = "فعال"
-
                 else:
                     status = "غیرفعال"
-
-                # ==========================================
-                # حرفه از users
-                # ==========================================
-
-                profession = row.get("profession") or "unknown"
-
-                if profession == "unknown" or not profession:
-                    profession_display = "نامشخص"
-                else:
-                    profession_display = profession
-
-                # ==========================================
-                # ساعت کاری
-                # ==========================================
 
                 start_time = str(row.get("workStartTime") or "")
                 end_time = str(row.get("workEndTime") or "")
 
-                # فقط HH:mm (حذف ثانیه)
                 if start_time and ":" in start_time:
                     start_time = ":".join(start_time.split(":")[:2])
 
@@ -729,7 +598,6 @@ class EmployeesWindow(QWidget):
                     "memberId": row.get("memberId"),
                     "userId": row.get("userId"),
                     "name": row.get("name") or "بدون نام",
-                    "profession": profession_display,
                     "position": row.get("jobTitle") or "بدون شغل",
                     "phone": row.get("phoneNumber") or "-",
                     "work_type": work_type,
@@ -749,7 +617,6 @@ class EmployeesWindow(QWidget):
                 self.employees.append(employee)
 
         except Exception as error:
-
             print("LOAD EMPLOYEES ERROR:")
             print(type(error).__name__)
             print(error)
@@ -763,16 +630,12 @@ class EmployeesWindow(QWidget):
     def refresh_employees(self):
 
         while self.employees_layout.count():
-
             item = self.employees_layout.takeAt(0)
-
             widget = item.widget()
-
             if widget:
                 widget.deleteLater()
 
         for employee in self.employees:
-
             self.add_employee_card(employee)
 
         self.employees_layout.addStretch()
@@ -858,7 +721,6 @@ class EmployeesWindow(QWidget):
 
         try:
             return f"{amount:,.0f} تومان"
-
         except:
             return "0 تومان"
 
@@ -892,14 +754,10 @@ class EmployeesWindow(QWidget):
         avatar_pixmap = QPixmap(avatar_path)
         avatar.set_avatar(avatar_pixmap)
 
-        card_layout.addWidget(
-            avatar,
-            0,
-            Qt.AlignTop
-        )
+        card_layout.addWidget(avatar, 0, Qt.AlignTop)
 
         # =================================================
-        # MAIN INFO
+        # MAIN INFO — همه راست‌چین
         # =================================================
 
         info_widget = QWidget()
@@ -908,63 +766,59 @@ class EmployeesWindow(QWidget):
         info_layout = QVBoxLayout(info_widget)
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(4)
+        info_layout.setAlignment(Qt.AlignRight)
 
-        # نام
         name_label = QLabel(employee.get("name", "بدون نام"))
         name_label.setObjectName("employeeName")
+        name_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
-        # حرفه + شماره تلفن
-        profession = employee.get("profession", "نامشخص")
         phone = employee.get("phone", "-")
 
-        profession_row = QLabel(
-            f"{profession}   •   {phone}"
-        )
-        profession_row.setObjectName("employeeProfession")
+        phone_row = QLabel(f"{phone}")
+        phone_row.setObjectName("employeeProfession")
+        phone_row.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
-        # جداکننده
         divider = QFrame()
         divider.setObjectName("divider")
         divider.setFixedHeight(1)
 
-        # شغل در مجموعه
         job_row = QHBoxLayout()
         job_row.setSpacing(6)
 
         job_title_label = QLabel("شغل در مجموعه:")
         job_title_label.setObjectName("employeeJob")
+        job_title_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
-        job_value_label = QLabel(
-            employee.get("position", "بدون شغل")
-        )
+        job_value_label = QLabel(employee.get("position", "بدون شغل"))
         job_value_label.setObjectName("employeeJobValue")
+        job_value_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         job_row.addWidget(job_title_label)
         job_row.addWidget(job_value_label)
         job_row.addStretch()
 
-        # نوع همکاری
         work_type_row = QLabel(
             f"نوع همکاری: {employee.get('work_type', '-')}"
         )
         work_type_row.setObjectName("employeeInfo")
+        work_type_row.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
-        # ساعت کاری
         work_time_row = QLabel(
             f"ساعت کاری: {employee.get('work_time', '-')}"
         )
         work_time_row.setObjectName("employeeInfo")
+        work_time_row.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
-        # روز/ساعت
         days_hours_row = QLabel(
             f"روز کاری: {employee.get('work_days', 0):g} روز"
             f"   •   "
             f"ساعت روزانه: {employee.get('work_hours', 0):g} ساعت"
         )
         days_hours_row.setObjectName("employeeInfo")
+        days_hours_row.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         info_layout.addWidget(name_label)
-        info_layout.addWidget(profession_row)
+        info_layout.addWidget(phone_row)
         info_layout.addSpacing(4)
         info_layout.addWidget(divider)
         info_layout.addSpacing(4)
@@ -1062,11 +916,7 @@ class EmployeesWindow(QWidget):
         status_layout.addWidget(status_button, 0, Qt.AlignHCenter)
         status_layout.addStretch()
 
-        card_layout.addWidget(
-            status_widget,
-            0,
-            Qt.AlignVCenter
-        )
+        card_layout.addWidget(status_widget, 0, Qt.AlignVCenter)
 
         self.employees_layout.addWidget(card)
 
@@ -1091,7 +941,6 @@ class EmployeesWindow(QWidget):
             new_status_text = "فعال"
 
         try:
-
             result = self.db.execute(
                 """
                 UPDATE complex_members
@@ -1114,7 +963,6 @@ class EmployeesWindow(QWidget):
             self.refresh_employees()
 
         except Exception as error:
-
             print("TOGGLE EMPLOYEE STATUS ERROR:")
             print(type(error).__name__)
             print(error)
@@ -1126,11 +974,7 @@ class EmployeesWindow(QWidget):
     def add_employee(self):
 
         if not self.complex_id:
-
-            print(
-                "ADD EMPLOYEE ERROR: COMPLEX ID IS NONE"
-            )
-
+            print("ADD EMPLOYEE ERROR: COMPLEX ID IS NONE")
             return
 
         self.add_employee_window = AddEmployees(
