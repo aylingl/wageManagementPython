@@ -1,4 +1,6 @@
 import os
+import re
+import hashlib
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -27,6 +29,14 @@ from homeWindow import HomeWindow
 from database import Database
 
 # ======================================================
+# EMAIL VALIDATION
+# ======================================================
+
+def is_valid_email(email):
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+# ======================================================
 # ROUND SCROLL BAR
 # ======================================================
 
@@ -51,12 +61,9 @@ class RoundScrollBar(QScrollBar):
         painter.setRenderHint(QPainter.Antialiasing)
 
         track_width = 6
-
         track_x = (self.width() - track_width) / 2
-
         track_top = 6
         track_bottom = self.height() - 6
-
         track_height = track_bottom - track_top
 
         painter.setPen(Qt.NoPen)
@@ -84,10 +91,7 @@ class RoundScrollBar(QScrollBar):
 
         total_range = maximum - minimum + page_step
 
-        handle_height = int(
-            groove_height * page_step / total_range
-        )
-
+        handle_height = int(groove_height * page_step / total_range)
         handle_height = max(42, handle_height)
         handle_height = min(handle_height, groove_height)
 
@@ -96,13 +100,8 @@ class RoundScrollBar(QScrollBar):
         if maximum == minimum:
             handle_y = groove_top
         else:
-            value_ratio = (
-                self.value() - minimum
-            ) / (maximum - minimum)
-
-            handle_y = (
-                groove_top + available_space * value_ratio
-            )
+            value_ratio = (self.value() - minimum) / (maximum - minimum)
+            handle_y = groove_top + available_space * value_ratio
 
         handle_width = 8
         handle_x = (self.width() - handle_width) / 2
@@ -125,7 +124,6 @@ class RoundScrollBar(QScrollBar):
 class HoverButton(QPushButton):
 
     def enterEvent(self, event):
-
         self.setStyleSheet("""
             QPushButton {
                 background-color: #E8F1FB;
@@ -137,11 +135,9 @@ class HoverButton(QPushButton):
                 font-weight: 700;
             }
         """)
-
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-
         self.setStyleSheet("""
             QPushButton {
                 background-color: #FFFFFF;
@@ -153,7 +149,6 @@ class HoverButton(QPushButton):
                 font-weight: 700;
             }
         """)
-
         super().leaveEvent(event)
 
 # ======================================================
@@ -162,10 +157,19 @@ class HoverButton(QPushButton):
 
 class ProfileSetupWindow(QWidget):
 
-    def __init__(self, phone_number):
+    def __init__(
+        self,
+        phone_number=None,
+        email=None,
+        password=None,
+        mode="phone"
+    ):
         super().__init__()
 
+        self.mode = mode
         self.phone_number = phone_number
+        self.email = email
+        self.password_raw = password
         self.selected_avatar = None
 
         self.db = Database()
@@ -189,32 +193,20 @@ class ProfileSetupWindow(QWidget):
         main_layout.setContentsMargins(20, 15, 20, 15)
         main_layout.setSpacing(8)
 
-        # ==========================================
         # عنوان
-        # ==========================================
-
         title = QLabel("پروفایلت رو بساز ✨")
         title.setObjectName("title")
         title.setAlignment(Qt.AlignCenter)
         title.setFixedHeight(45)
-
         main_layout.addWidget(title)
-
-        # ==========================================
-        # توضیحات
-        # ==========================================
 
         description = QLabel("اطلاعات خودت رو کامل کن")
         description.setObjectName("description")
         description.setAlignment(Qt.AlignCenter)
         description.setFixedHeight(28)
-
         main_layout.addWidget(description)
 
-        # ==========================================
         # SCROLL
-        # ==========================================
-
         scroll = QScrollArea()
         scroll.setObjectName("profileScroll")
         scroll.setWidgetResizable(True)
@@ -232,13 +224,9 @@ class ProfileSetupWindow(QWidget):
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(10, 15, 10, 15)
         scroll_layout.setSpacing(0)
-
         scroll_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
-        # ==========================================
         # کارت
-        # ==========================================
-
         card = QFrame()
         card.setObjectName("card")
         card.setFixedWidth(520)
@@ -247,28 +235,54 @@ class ProfileSetupWindow(QWidget):
         shadow.setBlurRadius(35)
         shadow.setOffset(0, 10)
         shadow.setColor(QColor(30, 60, 90, 35))
-
         card.setGraphicsEffect(shadow)
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(38, 28, 38, 28)
         card_layout.setSpacing(6)
 
-        # ==========================================
-        # عنوان کارت
-        # ==========================================
-
         profile_title = QLabel("اطلاعات پروفایل")
         profile_title.setObjectName("profileTitle")
-
         card_layout.addWidget(profile_title)
-
         card_layout.addSpacing(6)
 
-        # ==========================================
-        # نام کاربری
-        # ==========================================
+        # ═══════════════════════════════════════
+        # 📱 شماره تلفن (فقط در حالت ایمیل)
+        # ═══════════════════════════════════════
 
+        self.phone_input = None
+        self.phone_error = None
+
+        if self.mode == "email":
+
+            phone_label = QLabel("شماره تلفن همراه")
+            phone_label.setObjectName("fieldTitle")
+
+            self.phone_input = QLineEdit()
+            self.phone_input.setObjectName("usernameInput")
+            self.phone_input.setPlaceholderText("مثلاً: 09123456789")
+            self.phone_input.setFixedHeight(50)
+            self.phone_input.setLayoutDirection(Qt.LeftToRight)
+            self.phone_input.setMaxLength(11)
+
+            phone_validator = QRegularExpressionValidator(
+                QRegularExpression(r"[0-9]*"),
+                self.phone_input
+            )
+            self.phone_input.setValidator(phone_validator)
+            self.phone_input.textChanged.connect(self.validate_phone_live)
+
+            self.phone_error = QLabel()
+            self.phone_error.setObjectName("fieldError")
+            self.phone_error.setFixedHeight(20)
+            self.phone_error.setWordWrap(True)
+            self.phone_error.hide()
+
+            card_layout.addWidget(phone_label)
+            card_layout.addWidget(self.phone_input)
+            card_layout.addWidget(self.phone_error)
+
+        # ── نام کاربری ──
         username_label = QLabel("نام کاربری")
         username_label.setObjectName("fieldTitle")
 
@@ -289,18 +303,13 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(self.username_input)
         card_layout.addWidget(self.username_error)
 
-        # ==========================================
-        # حرفه / تخصص
-        # ==========================================
-
+        # ── حرفه ──
         profession_label = QLabel("حرفه / تخصص")
         profession_label.setObjectName("fieldTitle")
 
         self.profession_input = QLineEdit()
         self.profession_input.setObjectName("professionInput")
-        self.profession_input.setPlaceholderText(
-            "مثلاً: برنامه‌نویس، حسابدار، معلم"
-        )
+        self.profession_input.setPlaceholderText("مثلاً: برنامه‌نویس، حسابدار، معلم")
         self.profession_input.setFixedHeight(50)
         self.profession_input.textChanged.connect(self.validate_profession)
 
@@ -314,10 +323,7 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(self.profession_input)
         card_layout.addWidget(self.profession_error)
 
-        # ==========================================
-        # کد ملی
-        # ==========================================
-
+        # ── کد ملی ──
         national_id_label = QLabel("کد ملی")
         national_id_label.setObjectName("fieldTitle")
 
@@ -332,11 +338,8 @@ class ProfileSetupWindow(QWidget):
             QRegularExpression(r"[0-9]*"),
             self.national_id_input
         )
-
         self.national_id_input.setValidator(national_id_validator)
-        self.national_id_input.textChanged.connect(
-            self.validate_national_id_live
-        )
+        self.national_id_input.textChanged.connect(self.validate_national_id_live)
 
         self.national_id_error = QLabel()
         self.national_id_error.setObjectName("fieldError")
@@ -348,10 +351,7 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(self.national_id_input)
         card_layout.addWidget(self.national_id_error)
 
-        # ==========================================
-        # تاریخ تولد
-        # ==========================================
-
+        # ── تاریخ تولد ──
         birth_date_label = QLabel("تاریخ تولد")
         birth_date_label.setObjectName("fieldTitle")
 
@@ -366,11 +366,8 @@ class ProfileSetupWindow(QWidget):
             QRegularExpression(r"[0-9/]*"),
             self.birth_date_input
         )
-
         self.birth_date_input.setValidator(birth_date_validator)
-        self.birth_date_input.textChanged.connect(
-            self.validate_birth_date_live
-        )
+        self.birth_date_input.textChanged.connect(self.validate_birth_date_live)
 
         self.birth_date_error = QLabel()
         self.birth_date_error.setObjectName("fieldError")
@@ -382,13 +379,9 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(self.birth_date_input)
         card_layout.addWidget(self.birth_date_error)
 
-        # ==========================================
-        # آواتار
-        # ==========================================
-
+        # ── آواتار ──
         avatar_label = QLabel("آواتار خودت رو انتخاب کن")
         avatar_label.setObjectName("fieldTitle")
-
         card_layout.addWidget(avatar_label)
 
         avatars_widget = QWidget()
@@ -402,7 +395,6 @@ class ProfileSetupWindow(QWidget):
         self.avatar_buttons = []
 
         for filename in ["men.png", "woman.png"]:
-
             button = QPushButton()
             button.setObjectName("avatarButton")
             button.setFixedSize(90, 90)
@@ -411,20 +403,16 @@ class ProfileSetupWindow(QWidget):
             pixmap = QPixmap(path)
 
             if not pixmap.isNull():
-
                 pixmap = pixmap.scaled(
-                    74,
-                    74,
+                    74, 74,
                     Qt.KeepAspectRatio,
                     Qt.SmoothTransformation
                 )
-
                 button.setIcon(QIcon(pixmap))
                 button.setIconSize(QSize(74, 74))
 
             button.clicked.connect(
-                lambda checked=False, f=filename:
-                self.select_avatar(f)
+                lambda checked=False, f=filename: self.select_avatar(f)
             )
 
             avatars_layout.addWidget(button)
@@ -440,15 +428,10 @@ class ProfileSetupWindow(QWidget):
 
         card_layout.addWidget(self.avatar_error)
 
-        # ==========================================
-        # دکمه ادامه
-        # ==========================================
+        # ── دکمه ادامه ──
+        card_layout.addSpacing(12)
 
-        card_layout.addSpacing(6)
-
-        self.continue_button = HoverButton(
-            "ادامه و ورود به سامانه  →"
-        )
+        self.continue_button = HoverButton("ادامه و ورود به سامانه  →")
         self.continue_button.setObjectName("continueButton")
         self.continue_button.setFixedHeight(56)
         self.continue_button.clicked.connect(self.finish_profile)
@@ -456,9 +439,7 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(self.continue_button)
 
         scroll_layout.addWidget(card)
-
         scroll.setWidget(scroll_content)
-
         main_layout.addWidget(scroll, 1)
 
     # ==========================================
@@ -466,32 +447,18 @@ class ProfileSetupWindow(QWidget):
     # ==========================================
 
     def avatar_path(self, filename):
-
-        project_folder = os.path.dirname(
-            os.path.abspath(__file__)
-        )
-
-        return os.path.join(
-            project_folder,
-            "avatars",
-            filename
-        )
+        project_folder = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(project_folder, "avatars", filename)
 
     # ============================================
     # انتخاب آواتار
     # ============================================
 
     def select_avatar(self, filename):
-
         self.selected_avatar = filename
 
         for avatar_filename, button in self.avatar_buttons:
-
-            button.setProperty(
-                "selected",
-                avatar_filename == filename
-            )
-
+            button.setProperty("selected", avatar_filename == filename)
             button.style().unpolish(button)
             button.style().polish(button)
             button.update()
@@ -499,17 +466,14 @@ class ProfileSetupWindow(QWidget):
         self.clear_field_error(self.avatar_error)
 
     # ============================================
-    # اعتبارسنجی کد ملی ایران
+    # اعتبارسنجی کد ملی
     # ============================================
 
     def is_valid_national_id(self, national_id):
-
         if len(national_id) != 10:
             return False
-
         if not national_id.isdigit():
             return False
-
         if len(set(national_id)) == 1:
             return False
 
@@ -518,7 +482,6 @@ class ProfileSetupWindow(QWidget):
         control_digit = digits[9]
 
         total = 0
-
         for index in range(9):
             weight = 10 - index
             total += first_nine[index] * weight
@@ -532,124 +495,105 @@ class ProfileSetupWindow(QWidget):
 
         return control_digit == calculated_digit
 
-    # ============================================
-    # اعتبارسنجی نام کاربری
-    # ============================================
-
     def validate_username(self, text):
-
         if not text:
             self.clear_field_error(self.username_error)
             return
-
         for character in text:
-
             if character.isdigit():
-
                 self.show_field_error(
                     self.username_error,
                     "نام کاربری نباید شامل عدد باشد."
                 )
-
                 return
-
         self.clear_field_error(self.username_error)
 
-    # ============================================
-    # اعتبارسنجی حرفه
-    # ============================================
-
     def validate_profession(self, text):
-
         if not text:
             self.clear_field_error(self.profession_error)
             return
-
-        # فقط حرف و فاصله
         for character in text:
-
             if character.isdigit():
-
                 self.show_field_error(
                     self.profession_error,
                     "حرفه نباید شامل عدد باشد."
                 )
-
                 return
-
         self.clear_field_error(self.profession_error)
 
-    # ============================================
-    # اعتبارسنجی کد ملی (زنده)
-    # ============================================
-
     def validate_national_id_live(self, text):
-
         if not text:
             self.clear_field_error(self.national_id_error)
             return
-
         if not text.isdigit():
-
             self.show_field_error(
                 self.national_id_error,
                 "کد ملی باید فقط شامل عدد باشد."
             )
-
             return
-
         if len(text) < 10:
             self.clear_field_error(self.national_id_error)
             return
-
         if not self.is_valid_national_id(text):
-
             self.show_field_error(
                 self.national_id_error,
                 "کد ملی وارد شده معتبر نیست."
             )
-
             return
-
         self.clear_field_error(self.national_id_error)
 
-    # ============================================
-    # اعتبارسنجی تاریخ تولد (زنده)
-    # ============================================
-
     def validate_birth_date_live(self, text):
-
         if not text:
             self.clear_field_error(self.birth_date_error)
             return
-
         if len(text) < 10:
             self.clear_field_error(self.birth_date_error)
             return
-
         if not self.is_valid_jalali_date(text):
-
             self.show_field_error(
                 self.birth_date_error,
                 "تاریخ تولد معتبر نیست."
             )
-
             return
-
         self.clear_field_error(self.birth_date_error)
 
     # ============================================
-    # اعتبارسنجی تاریخ شمسی
+    # اعتبارسنجی شماره تلفن (فقط حالت ایمیل)
     # ============================================
 
-    def is_valid_jalali_date(self, date_string):
+    def validate_phone_live(self, text):
+        if not self.phone_error:
+            return
 
+        if not text:
+            self.clear_field_error(self.phone_error)
+            return
+
+        if not text.isdigit():
+            self.show_field_error(
+                self.phone_error,
+                "شماره تلفن باید فقط شامل عدد باشد."
+            )
+            return
+
+        if len(text) != 11:
+            self.clear_field_error(self.phone_error)
+            return
+
+        if not text.startswith("09"):
+            self.show_field_error(
+                self.phone_error,
+                "شماره تلفن باید با ۰۹ شروع شود."
+            )
+            return
+
+        self.clear_field_error(self.phone_error)
+
+    def is_valid_jalali_date(self, date_string):
         if len(date_string) != 10:
             return False
-
         if date_string[4] != "/":
             return False
-
         if date_string[7] != "/":
             return False
 
@@ -657,13 +601,7 @@ class ProfileSetupWindow(QWidget):
         month_text = date_string[5:7]
         day_text = date_string[8:10]
 
-        if not year_text.isdigit():
-            return False
-
-        if not month_text.isdigit():
-            return False
-
-        if not day_text.isdigit():
+        if not year_text.isdigit() or not month_text.isdigit() or not day_text.isdigit():
             return False
 
         year = int(year_text)
@@ -672,16 +610,13 @@ class ProfileSetupWindow(QWidget):
 
         if year < 1300 or year > 1500:
             return False
-
         if month < 1 or month > 12:
             return False
 
         if month <= 6:
             max_day = 31
-
         elif month <= 11:
             max_day = 30
-
         else:
             if (year % 33) in [1, 5, 9, 13, 17, 22, 26, 30]:
                 max_day = 30
@@ -693,26 +628,14 @@ class ProfileSetupWindow(QWidget):
 
         return True
 
-    # ============================================
-    # نمایش خطا
-    # ============================================
-
     def show_field_error(self, error_label, message):
-
         error_label.setText(message)
-
         error_label.setAlignment(
             Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
         )
-
         error_label.show()
 
-    # ============================================
-    # حذف خطا
-    # ============================================
-
     def clear_field_error(self, error_label):
-
         error_label.clear()
         error_label.hide()
 
@@ -727,177 +650,203 @@ class ProfileSetupWindow(QWidget):
         national_id = self.national_id_input.text().strip()
         birth_date_string = self.birth_date_input.text().strip()
 
-        # ==========================================
-        # بررسی نام کاربری
-        # ==========================================
-
+        # ── بررسی نام کاربری ──
         if not username:
-
-            self.show_field_error(
-                self.username_error,
-                "لطفاً نام کاربری خودت را وارد کن."
-            )
-
+            self.show_field_error(self.username_error, "لطفاً نام کاربری خودت را وارد کن.")
             self.username_input.setFocus()
             return
 
         for character in username:
-
             if character.isdigit():
-
-                self.show_field_error(
-                    self.username_error,
-                    "نام کاربری نباید شامل عدد باشد."
-                )
-
+                self.show_field_error(self.username_error, "نام کاربری نباید شامل عدد باشد.")
                 self.username_input.setFocus()
                 return
 
         self.clear_field_error(self.username_error)
 
-        # ==========================================
-        # بررسی حرفه (اجباری)
-        # ==========================================
-
+        # ── بررسی حرفه ──
         if not profession:
-
-            self.show_field_error(
-                self.profession_error,
-                "لطفاً حرفه یا تخصص خودت را وارد کن."
-            )
-
+            self.show_field_error(self.profession_error, "لطفاً حرفه یا تخصص خودت را وارد کن.")
             self.profession_input.setFocus()
             return
 
         for character in profession:
-
             if character.isdigit():
-
-                self.show_field_error(
-                    self.profession_error,
-                    "حرفه نباید شامل عدد باشد."
-                )
-
+                self.show_field_error(self.profession_error, "حرفه نباید شامل عدد باشد.")
                 self.profession_input.setFocus()
                 return
 
-        # حداقل ۳ حرف
-        letter_count = sum(
-            1 for c in profession if c.isalpha()
-        )
-
+        letter_count = sum(1 for c in profession if c.isalpha())
         if letter_count < 3:
-
-            self.show_field_error(
-                self.profession_error,
-                "حرفه باید حداقل ۳ حرف داشته باشد."
-            )
-
+            self.show_field_error(self.profession_error, "حرفه باید حداقل ۳ حرف داشته باشد.")
             self.profession_input.setFocus()
             return
 
         self.clear_field_error(self.profession_error)
 
-        # ==========================================
-        # بررسی کد ملی
-        # ==========================================
-
+        # ── بررسی کد ملی ──
         if not national_id:
-
-            self.show_field_error(
-                self.national_id_error,
-                "لطفاً کد ملی خودت را وارد کن."
-            )
-
+            self.show_field_error(self.national_id_error, "لطفاً کد ملی خودت را وارد کن.")
             self.national_id_input.setFocus()
             return
 
-        if not national_id.isdigit():
-
-            self.show_field_error(
-                self.national_id_error,
-                "کد ملی باید فقط شامل عدد باشد."
-            )
-
-            self.national_id_input.setFocus()
-            return
-
-        if len(national_id) != 10:
-
-            self.show_field_error(
-                self.national_id_error,
-                "کد ملی باید ۱۰ رقم باشد."
-            )
-
+        if not national_id.isdigit() or len(national_id) != 10:
+            self.show_field_error(self.national_id_error, "کد ملی باید ۱۰ رقم باشد.")
             self.national_id_input.setFocus()
             return
 
         if not self.is_valid_national_id(national_id):
-
-            self.show_field_error(
-                self.national_id_error,
-                "کد ملی وارد شده معتبر نیست."
-            )
-
+            self.show_field_error(self.national_id_error, "کد ملی وارد شده معتبر نیست.")
             self.national_id_input.setFocus()
             return
 
         self.clear_field_error(self.national_id_error)
 
-        # ==========================================
-        # بررسی تاریخ تولد
-        # ==========================================
-
+        # ── بررسی تاریخ تولد ──
         if not birth_date_string:
-
-            self.show_field_error(
-                self.birth_date_error,
-                "لطفاً تاریخ تولد خودت را وارد کن."
-            )
-
+            self.show_field_error(self.birth_date_error, "لطفاً تاریخ تولد خودت را وارد کن.")
             self.birth_date_input.setFocus()
             return
 
         if not self.is_valid_jalali_date(birth_date_string):
-
-            self.show_field_error(
-                self.birth_date_error,
-                "تاریخ تولد معتبر نیست."
-            )
-
+            self.show_field_error(self.birth_date_error, "تاریخ تولد معتبر نیست.")
             self.birth_date_input.setFocus()
             return
 
         self.clear_field_error(self.birth_date_error)
 
-        # ==========================================
-        # بررسی آواتار
-        # ==========================================
-
+        # ── بررسی آواتار ──
         if self.selected_avatar is None:
-
-            self.show_field_error(
-                self.avatar_error,
-                "لطفاً یکی از آواتارها را انتخاب کن."
-            )
-
+            self.show_field_error(self.avatar_error, "لطفاً یکی از آواتارها را انتخاب کن.")
             return
 
         self.clear_field_error(self.avatar_error)
 
-        # ==========================================
-        # دریافت اطلاعات OTP تأییدشده
-        # ==========================================
+        # ── بررسی تکراری نبودن کد ملی ──
+        existing_national_id = self.db.fetch_one(
+            "SELECT userId FROM users WHERE nationalId = %s LIMIT 1",
+            (national_id,)
+        )
+
+        if existing_national_id:
+            self.show_field_error(self.national_id_error, "این کد ملی قبلاً ثبت شده است.")
+            self.national_id_input.setFocus()
+            return
+
+        # ═══════════════════════════════════════
+        # حالت ایمیل
+        # ═══════════════════════════════════════
+        if self.mode == "email":
+
+            # ── بررسی شماره تلفن ──
+            phone_value = self.phone_input.text().strip()
+
+            if not phone_value:
+                self.show_field_error(
+                    self.phone_error,
+                    "لطفاً شماره تلفن همراه را وارد کن."
+                )
+                self.phone_input.setFocus()
+                return
+
+            if not phone_value.isdigit() or len(phone_value) != 11:
+                self.show_field_error(
+                    self.phone_error,
+                    "شماره تلفن باید ۱۱ رقم باشد."
+                )
+                self.phone_input.setFocus()
+                return
+
+            if not phone_value.startswith("09"):
+                self.show_field_error(
+                    self.phone_error,
+                    "شماره تلفن باید با ۰۹ شروع شود."
+                )
+                self.phone_input.setFocus()
+                return
+
+            self.clear_field_error(self.phone_error)
+
+            # ── بررسی تکراری نبودن شماره تلفن ──
+            existing_phone = self.db.fetch_one(
+                "SELECT userId FROM users WHERE phoneNumber = %s LIMIT 1",
+                (phone_value,)
+            )
+
+            if existing_phone:
+                self.show_field_error(
+                    self.phone_error,
+                    "این شماره تلفن قبلاً ثبت شده است."
+                )
+                self.phone_input.setFocus()
+                return
+
+            # ── هش رمز ──
+            password_hash = hashlib.sha256(
+                self.password_raw.encode("utf-8")
+            ).hexdigest()
+
+            # ── درج در دیتابیس ──
+            user_id = self.db.execute(
+                """
+                INSERT INTO users (
+                    name,
+                    profession,
+                    nationalId,
+                    birthDate,
+                    countryCode,
+                    phoneNumber,
+                    email,
+                    passwordHash,
+                    createdDate,
+                    sentOtp,
+                    otpUsed,
+                    isActive,
+                    imageBase64
+                )
+                VALUES (
+                    %s, %s, %s, %s,
+                    '+98', %s,
+                    %s, %s,
+                    NOW(), 0, '1',
+                    '1', %s
+                )
+                """,
+                (
+                    username,
+                    profession,
+                    national_id,
+                    birth_date_string,
+                    phone_value,
+                    self.email,
+                    password_hash,
+                    self.selected_avatar
+                )
+            )
+
+            if user_id is None:
+                QMessageBox.critical(self, "خطا", "ثبت اطلاعات پروفایل انجام نشد.")
+                return
+
+            # ── رفتن به Home ──
+            self.home_window = HomeWindow(
+                phone_value,
+                username,
+                self.selected_avatar
+            )
+            self.home_window.show()
+            self.close()
+            return
+
+        # ═══════════════════════════════════════
+        # حالت تلفن (روش قبلی)
+        # ═══════════════════════════════════════
 
         otp_data = self.db.fetch_one(
             """
-            SELECT
-                countryCode,
-                otpCode,
-                createdDate
+            SELECT countryCode, otpCode, createdDate
             FROM pending_otps
-            WHERE phoneNumber = %s
-            AND used = '1'
+            WHERE phoneNumber = %s AND used = '1'
             ORDER BY otpId DESC
             LIMIT 1
             """,
@@ -905,72 +854,22 @@ class ProfileSetupWindow(QWidget):
         )
 
         if not otp_data:
-
-            QMessageBox.warning(
-                self,
-                "خطا",
-                "اطلاعات تأیید شماره تلفن پیدا نشد."
-            )
-
+            QMessageBox.warning(self, "خطا", "اطلاعات تأیید شماره تلفن پیدا نشد.")
             return
-
-        # ==========================================
-        # بررسی تکراری نبودن کد ملی
-        # ==========================================
-
-        existing_national_id = self.db.fetch_one(
-            """
-            SELECT userId
-            FROM users
-            WHERE nationalId = %s
-            LIMIT 1
-            """,
-            (national_id,)
-        )
-
-        if existing_national_id:
-
-            self.show_field_error(
-                self.national_id_error,
-                "این کد ملی قبلاً ثبت شده است."
-            )
-
-            self.national_id_input.setFocus()
-            return
-
-        # ==========================================
-        # ثبت کاربر
-        # ==========================================
 
         user_id = self.db.execute(
             """
             INSERT INTO users (
-                name,
-                profession,
-                nationalId,
-                birthDate,
-                countryCode,
-                phoneNumber,
-                createdDate,
-                sentOtp,
-                otpSentDateTime,
-                otpUsed,
-                isActive,
-                imageBase64
+                name, profession, nationalId, birthDate,
+                countryCode, phoneNumber,
+                createdDate, sentOtp, otpSentDateTime,
+                otpUsed, isActive, imageBase64
             )
             VALUES (
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                %s,
-                NOW(),
-                %s,
-                %s,
-                '1',
-                '1',
-                %s
+                %s, %s, %s, %s,
+                %s, %s,
+                NOW(), %s, %s,
+                '1', '1', %s
             )
             """,
             (
@@ -987,27 +886,15 @@ class ProfileSetupWindow(QWidget):
         )
 
         if user_id is None:
-
-            QMessageBox.critical(
-                self,
-                "خطا",
-                "ثبت اطلاعات پروفایل انجام نشد."
-            )
-
+            QMessageBox.critical(self, "خطا", "ثبت اطلاعات پروفایل انجام نشد.")
             return
-
-        # ==========================================
-        # ورود به سامانه
-        # ==========================================
 
         self.home_window = HomeWindow(
             self.phone_number,
             username,
             self.selected_avatar
         )
-
         self.home_window.show()
-
         self.close()
 
 # ======================================================

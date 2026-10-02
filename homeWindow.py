@@ -10,10 +10,13 @@ from PySide6.QtWidgets import (
     QScrollArea
 )
 
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath
 
 from database import Database
+from theme import theme_manager
+from signals import signals
+from i18n import tr, set_language, get_language
 
 # =========================================================
 # ROUNDED AVATAR
@@ -90,53 +93,88 @@ class HomeWindow(QWidget):
 
         self.user_id = None
 
-        self.current_group = "بدون مجموعه"
-        self.current_role = "کاربر"
+        self.current_group = "—"
+        self.current_role_key = "user_role"
 
         self.groups = []
 
         self.group_menu = None
 
+        self.translatable = []
+
         self.load_user_information()
 
-        self.setWindowTitle("خانه")
+        self.setWindowTitle(tr("home_title"))
         self.resize(900, 620)
         self.setMinimumSize(500, 450)
         self.setLayoutDirection(Qt.RightToLeft)
 
         self.setup_ui()
 
+        theme_manager.theme_changed.connect(self.on_theme_changed)
+        signals.language_changed.connect(self.on_language_changed)
+
     # =====================================================
-    # LOAD USER INFORMATION
+    # THEME
+    # =====================================================
+
+    def on_theme_changed(self, theme_name):
+        self.apply_stylesheet()
+
+    # =====================================================
+    # LANGUAGE
+    # =====================================================
+
+    def on_language_changed(self, lang):
+        set_language(lang)
+        self.setWindowTitle(tr("home_title"))
+        self.retranslate_ui()
+
+    def retranslate_ui(self):
+        for widget, key in self.translatable:
+            try:
+                widget.setText(tr(key))
+            except Exception as e:
+                print("RETRANSLATE ERROR:", e)
+
+        # آپدیت دکمه‌های نوار پایین
+        if hasattr(self, "settings_btn"):
+            self.settings_btn.setText(f"⚙   {tr('nav_settings')}")
+            self.group_btn.setText(f"🏢   {tr('nav_group')}")
+            self.home_btn.setText(f"⌂   {tr('nav_home')}")
+            self.message_btn.setText(f"✉   {tr('nav_message')}")
+
+        # آپدیت پیام خوش‌آمد (چون وابسته به username)
+        if hasattr(self, "welcome_label"):
+            self.welcome_label.setText(f"{tr('welcome')} {self.username} 👋")
+
+        # گروه و نقش
+        self.update_group_text()
+
+        # سرویس‌ها
+        self.update_services()
+
+    # =====================================================
+    # LOAD USER
     # =====================================================
 
     def load_user_information(self):
 
         try:
-
             if self.email:
-
                 user = self.db.fetch_one(
                     """
-                    SELECT
-                        userId,
-                        name,
-                        imageBase64
+                    SELECT userId, name, imageBase64
                     FROM users
                     WHERE email = %s
                     LIMIT 1
                     """,
                     (self.email,)
                 )
-
             else:
-
                 user = self.db.fetch_one(
                     """
-                    SELECT
-                        userId,
-                        name,
-                        imageBase64
+                    SELECT userId, name, imageBase64
                     FROM users
                     WHERE phoneNumber = %s
                     LIMIT 1
@@ -149,6 +187,9 @@ class HomeWindow(QWidget):
 
             self.user_id = user["userId"]
 
+            theme_manager.load_for_user(self.user_id)
+            self.load_user_language()
+
             if user.get("name"):
                 self.username = user["name"]
 
@@ -158,45 +199,38 @@ class HomeWindow(QWidget):
             self.groups = self.load_groups_from_database()
 
             if self.groups:
-
                 first_group = self.groups[0]
-
-                self.current_group = first_group["name"] or "بدون نام"
-
+                self.current_group = first_group["name"] or "—"
                 rv = first_group.get("role", "employee")
-
-                if rv == "owner":
-                    self.current_role = "مالک"
-                elif rv == "employee":
-                    self.current_role = "کارمند"
-                elif rv == "both":
-                    self.current_role = "مالک و کارمند"
-                else:
-                    self.current_role = "کاربر"
+                self.current_role_key = self.get_role_key(rv)
 
         except Exception as e:
-
             print("Error loading home information:", e)
 
+    def load_user_language(self):
+        if not self.user_id:
+            return
+        try:
+            row = self.db.fetch_one(
+                "SELECT language FROM user_settings WHERE userId = %s LIMIT 1",
+                (self.user_id,)
+            )
+            if row and row.get("language"):
+                set_language(row["language"])
+        except Exception as e:
+            print("LOAD LANGUAGE ERROR:", e)
+
     # =====================================================
-    # LOAD GROUPS FROM DATABASE
+    # GROUPS
     # =====================================================
 
     def load_groups_from_database(self):
-
         if not self.user_id:
             return []
-
         try:
-
             groups = self.db.fetch_all(
                 """
-                SELECT
-                    c.complexId,
-                    c.name,
-                    c.address,
-                    c.ownerId,
-                    cm.role
+                SELECT c.complexId, c.name, c.address, c.ownerId, cm.role
                 FROM complexes c
                 INNER JOIN complex_members cm
                     ON cm.complexId = c.complexId
@@ -207,90 +241,44 @@ class HomeWindow(QWidget):
                 """,
                 (self.user_id,)
             )
-
-            print("========================================")
-            print("LOAD HOME GROUPS")
-            print("USER ID:", self.user_id)
-            print("GROUPS FROM DATABASE:", groups)
-            print("GROUP COUNT:", len(groups))
-            print("========================================")
-
             return groups or []
-
         except Exception as error:
-
-            print("LOAD HOME GROUPS ERROR:")
-            print(type(error).__name__)
-            print(error)
-
+            print("LOAD HOME GROUPS ERROR:", error)
             return []
 
-    # =====================================================
-    # GET CURRENT COMPLEX ID
-    # =====================================================
-
     def get_current_complex_id(self):
-
         for group in self.groups:
-
-            if (group.get("name") or "بدون نام") == self.current_group:
-
+            if (group.get("name") or "—") == self.current_group:
                 return group.get("complexId")
-
         if self.groups:
             return self.groups[0].get("complexId")
-
         return None
 
-    # =====================================================
-    # CLOSE GROUP MENU
-    # =====================================================
-
     def close_group_menu(self):
-
         if self.group_menu is not None:
-
             try:
                 self.group_menu.close()
                 self.group_menu.deleteLater()
-
             except Exception as error:
                 print("GROUP MENU CLOSE ERROR:", error)
-
             self.group_menu = None
 
-    # =====================================================
-    # ROLE HELPER
-    # =====================================================
-
-    def get_role_text(self, role_value):
-
+    def get_role_key(self, role_value):
         if role_value == "owner":
-            return "مالک"
+            return "owner_role"
         elif role_value == "employee":
-            return "کارمند"
+            return "employee_role"
         elif role_value == "both":
-            return "مالک و کارمند"
+            return "both_role"
         else:
-            return "کاربر"
-
-    # =====================================================
-    # REFRESH GROUPS FROM DATABASE
-    # =====================================================
+            return "user_role"
 
     def refresh_groups_from_database(self):
-
         try:
-
             if not self.user_id:
-                print("HOME REFRESH: USER ID IS NONE")
                 return
 
-            print("========================================")
-            print("START HOME GROUP REFRESH")
-
             popup_was_visible = False
-
             if self.group_menu is not None:
                 popup_was_visible = self.group_menu.isVisible()
                 self.close_group_menu()
@@ -298,42 +286,27 @@ class HomeWindow(QWidget):
             self.groups = self.load_groups_from_database()
 
             if self.groups:
-
                 current_exists = any(
-                    (group["name"] or "بدون نام") == self.current_group
+                    (group["name"] or "—") == self.current_group
                     for group in self.groups
                 )
-
                 if not current_exists:
-
                     first_group = self.groups[0]
-
-                    self.current_group = first_group["name"] or "بدون نام"
-
+                    self.current_group = first_group["name"] or "—"
                     rv = first_group.get("role", "employee")
-
-                    self.current_role = self.get_role_text(rv)
-
+                    self.current_role_key = self.get_role_key(rv)
             else:
-
-                self.current_group = "بدون مجموعه"
-                self.current_role = "کاربر"
+                self.current_group = "—"
+                self.current_role_key = "user_role"
 
             self.update_group_text()
             self.update_services()
-
-            print("NEW GROUPS:", self.groups)
-            print("NEW CURRENT GROUP:", self.current_group)
-            print("========================================")
 
             if popup_was_visible:
                 self.show_group_menu()
 
         except Exception as error:
-
-            print("HOME GROUP REFRESH ERROR")
-            print(type(error).__name__)
-            print(error)
+            print("HOME GROUP REFRESH ERROR:", error)
 
     # =====================================================
     # SETUP UI
@@ -341,37 +314,31 @@ class HomeWindow(QWidget):
 
     def setup_ui(self):
 
+        self.translatable = []
+
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(28, 22, 28, 22)
         main_layout.setSpacing(14)
 
-        # ---------------------------------------------
         # TOP
-        # ---------------------------------------------
-
         top_layout = QHBoxLayout()
         top_layout.setSpacing(14)
 
-        # ---------------------------------------------
         # PROFILE CARD
-        # ---------------------------------------------
+        self.profile_card = QFrame()
+        self.profile_card.setObjectName("profileCard")
+        self.profile_card.setAttribute(Qt.WA_StyledBackground, True)
 
-        profile_card = QFrame()
-        profile_card.setObjectName("profileCard")
-        profile_card.setAttribute(Qt.WA_StyledBackground, True)
-
-        profile_layout = QHBoxLayout(profile_card)
+        profile_layout = QHBoxLayout(self.profile_card)
         profile_layout.setContentsMargins(16, 10, 16, 10)
         profile_layout.setSpacing(12)
 
         avatar = RoundedAvatar(48)
-
         avatar_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "avatars",
             self.avatar
         )
-
         if os.path.exists(avatar_path):
             avatar.set_avatar(QPixmap(avatar_path))
 
@@ -379,8 +346,9 @@ class HomeWindow(QWidget):
         profile_text.setContentsMargins(0, 0, 0, 0)
         profile_text.setSpacing(2)
 
-        profile_title = QLabel("پروفایل من")
+        profile_title = QLabel(tr("my_profile"))
         profile_title.setObjectName("profileTitle")
+        self.translatable.append((profile_title, "my_profile"))
 
         username_label = QLabel(self.username)
         username_label.setObjectName("usernameLabel")
@@ -391,6 +359,8 @@ class HomeWindow(QWidget):
         profile_edit = QPushButton("✎")
         profile_edit.setObjectName("profileEdit")
         profile_edit.setFixedSize(34, 34)
+        profile_edit.setCursor(Qt.PointingHandCursor)
+        profile_edit.setAttribute(Qt.WA_StyledBackground, True)
         profile_edit.clicked.connect(self.open_profile)
 
         profile_layout.addWidget(avatar)
@@ -398,10 +368,7 @@ class HomeWindow(QWidget):
         profile_layout.addStretch()
         profile_layout.addWidget(profile_edit)
 
-        # ---------------------------------------------
         # GROUP CARD
-        # ---------------------------------------------
-
         self.group_card = QFrame()
         self.group_card.setObjectName("groupCard")
         self.group_card.setAttribute(Qt.WA_StyledBackground, True)
@@ -426,12 +393,13 @@ class HomeWindow(QWidget):
         self.group_name_label.setObjectName("groupName")
         self.group_name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
-        group_subtitle = QLabel("مجموعه فعال")
-        group_subtitle.setObjectName("groupSubtitle")
-        group_subtitle.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.group_subtitle = QLabel(tr("active_group"))
+        self.group_subtitle.setObjectName("groupSubtitle")
+        self.group_subtitle.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.translatable.append((self.group_subtitle, "active_group"))
 
         group_text.addWidget(self.group_name_label)
-        group_text.addWidget(group_subtitle)
+        group_text.addWidget(self.group_subtitle)
 
         group_arrow = QLabel("‹")
         group_arrow.setObjectName("groupArrow")
@@ -450,52 +418,47 @@ class HomeWindow(QWidget):
 
         self.group_card.mousePressEvent = group_clicked
 
-        top_layout.addWidget(profile_card, 1)
+        top_layout.addWidget(self.profile_card, 1)
         top_layout.addWidget(self.group_card, 1)
 
         main_layout.addLayout(top_layout)
 
-        # ---------------------------------------------
         # WELCOME
-        # ---------------------------------------------
-
         welcome_layout = QVBoxLayout()
         welcome_layout.setContentsMargins(4, 5, 4, 4)
         welcome_layout.setSpacing(2)
 
-        welcome = QLabel(f"خوش آمدید {self.username} 👋")
-        welcome.setObjectName("welcome")
-        welcome.setFixedHeight(28)
+        self.welcome_label = QLabel(f"{tr('welcome')} {self.username} 👋")
+        self.welcome_label.setObjectName("welcome")
+        self.welcome_label.setFixedHeight(28)
 
-        welcome_sub = QLabel("به سامانه مدیریت کارکنان خوش آمدید")
-        welcome_sub.setObjectName("welcomeSub")
-        welcome_sub.setFixedHeight(20)
+        self.welcome_sub = QLabel(tr("welcome_sub"))
+        self.welcome_sub.setObjectName("welcomeSub")
+        self.welcome_sub.setFixedHeight(20)
+        self.translatable.append((self.welcome_sub, "welcome_sub"))
 
-        welcome_layout.addWidget(welcome)
-        welcome_layout.addWidget(welcome_sub)
+        welcome_layout.addWidget(self.welcome_label)
+        welcome_layout.addWidget(self.welcome_sub)
 
         main_layout.addLayout(welcome_layout)
 
-        # ---------------------------------------------
         # SERVICES BOX
-        # ---------------------------------------------
+        self.services_box = QFrame()
+        self.services_box.setObjectName("servicesBox")
+        self.services_box.setAttribute(Qt.WA_StyledBackground, True)
+        self.services_box.setMinimumHeight(200)
 
-        services_box = QFrame()
-        services_box.setObjectName("servicesBox")
-        services_box.setAttribute(Qt.WA_StyledBackground, True)
-        services_box.setMinimumHeight(200)
-
-        services_layout = QVBoxLayout(services_box)
+        services_layout = QVBoxLayout(self.services_box)
         services_layout.setContentsMargins(18, 14, 18, 14)
         services_layout.setSpacing(6)
 
-        services_title = QLabel("دسترسی سریع")
-        services_title.setObjectName("servicesTitle")
+        self.services_title = QLabel(tr("quick_access"))
+        self.services_title.setObjectName("servicesTitle")
+        self.translatable.append((self.services_title, "quick_access"))
 
-        services_layout.addWidget(services_title)
+        services_layout.addWidget(self.services_title)
         services_layout.addSpacing(4)
 
-        # SCROLL
         self.scroll = QScrollArea()
         self.scroll.setObjectName("servicesScroll")
         self.scroll.setWidgetResizable(True)
@@ -515,12 +478,9 @@ class HomeWindow(QWidget):
 
         services_layout.addWidget(self.scroll)
 
-        main_layout.addWidget(services_box, 1)
+        main_layout.addWidget(self.services_box, 1)
 
-        # ---------------------------------------------
         # BOTTOM NAV
-        # ---------------------------------------------
-
         nav_box = QFrame()
         nav_box.setObjectName("navBox")
         nav_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -530,316 +490,287 @@ class HomeWindow(QWidget):
         nav_layout.setContentsMargins(12, 8, 12, 8)
         nav_layout.setSpacing(8)
 
-        settings_btn = self.create_nav_button("⚙", "تنظیمات", self.open_settings)
-        group_btn = self.create_nav_button("🏢", "مجموعه", self.Open_groups)
-        home_btn = self.create_nav_button("⌂", "خانه", lambda: None)
-        message_btn = self.create_nav_button("✉", "پیام", self.open_messages)
+        self.settings_btn = self.create_nav_button("⚙", tr("nav_settings"), self.open_settings)
+        self.group_btn = self.create_nav_button("🏢", tr("nav_group"), self.Open_groups)
+        self.home_btn = self.create_nav_button("⌂", tr("nav_home"), lambda: None)
+        self.message_btn = self.create_nav_button("✉", tr("nav_message"), self.open_messages)
 
-        nav_layout.addWidget(settings_btn)
-        nav_layout.addWidget(group_btn)
-        nav_layout.addWidget(home_btn)
-        nav_layout.addWidget(message_btn)
+        nav_layout.addWidget(self.settings_btn)
+        nav_layout.addWidget(self.group_btn)
+        nav_layout.addWidget(self.home_btn)
+        nav_layout.addWidget(self.message_btn)
 
         main_layout.addWidget(nav_box)
 
-        # ---------------------------------------------
         # INITIAL
-        # ---------------------------------------------
-
         self.update_group_text()
         self.update_services()
 
-        # ---------------------------------------------
-        # STYLE
-        # ---------------------------------------------
+        self.apply_stylesheet()
 
-        self.setStyleSheet("""
+    # =====================================================
+    # APPLY STYLESHEET
+    # =====================================================
 
-            QWidget {
-                background-color: #F5F8FC;
+    def apply_stylesheet(self):
+
+        c = theme_manager.colors()
+
+        self.setStyleSheet(f"""
+
+            QWidget {{
+                background-color: {c['bg_main']};
                 font-family: "Vazirmatn";
-                color: #25364A;
-            }
+                color: {c['text_main']};
+            }}
 
-            QFrame#profileCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
+            QFrame#profileCard {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
                 border-radius: 28px;
-            }
+            }}
 
-            QLabel#profileTitle {
+            QLabel#profileTitle {{
                 background: transparent;
                 border: none;
-                color: #25364A;
+                color: {c['text_main']};
                 font-size: 13px;
                 font-weight: 600;
-            }
+            }}
 
-            QLabel#usernameLabel {
+            QLabel#usernameLabel {{
                 background: transparent;
                 border: none;
-                color: #718096;
+                color: {c['text_dim']};
                 font-size: 11px;
-            }
+            }}
 
-            QPushButton#profileEdit {
-                background-color: #F1F6FD;
-                color: #1961C7;
+            QPushButton#profileEdit {{
+                background-color: {c['accent_light']};
+                color: {c['accent']};
                 border: none;
                 border-radius: 17px;
                 font-size: 18px;
-            }
+            }}
 
-            QPushButton#profileEdit:hover {
-                background-color: #EAF3FF;
-            }
+            QPushButton#profileEdit:hover {{
+                background-color: {c['bg_hover']};
+            }}
 
-            QFrame#groupCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
+            QFrame#groupCard {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
                 border-radius: 28px;
-            }
+            }}
 
-            QFrame#groupCard:hover {
-                background-color: #EAF3FF;
-                border: 1px solid #4589E8;
+            QFrame#groupCard:hover {{
+                background-color: {c['bg_hover']};
+                border: 1px solid {c['accent']};
                 border-radius: 28px;
-            }
+            }}
 
-            QLabel#groupIcon {
+            QLabel#groupIcon {{
                 background-color: transparent;
                 border: none;
-                color: #1961C7;
+                color: {c['accent']};
                 font-size: 29px;
                 font-weight: 700;
-            }
+            }}
 
-            QLabel#groupName {
+            QLabel#groupName {{
                 background-color: transparent;
                 border: none;
-                color: #25364A;
+                color: {c['text_main']};
                 font-size: 13px;
                 font-weight: 600;
-            }
+            }}
 
-            QLabel#groupSubtitle {
+            QLabel#groupSubtitle {{
                 background-color: transparent;
                 border: none;
-                color: #8997A8;
+                color: {c['text_dim']};
                 font-size: 10px;
-            }
+            }}
 
-            QLabel#groupArrow {
+            QLabel#groupArrow {{
                 background-color: transparent;
                 border: none;
-                color: #4589E8;
+                color: {c['accent']};
                 font-size: 24px;
-            }
+            }}
 
-            QLabel#welcome {
+            QLabel#welcome {{
                 background-color: transparent;
                 border: none;
-                color: #1E2F43;
+                color: {c['text_main']};
                 font-size: 19px;
                 font-weight: 700;
-            }
+            }}
 
-            QLabel#welcomeSub {
+            QLabel#welcomeSub {{
                 background-color: transparent;
                 border: none;
-                color: #8290A1;
+                color: {c['text_dim']};
                 font-size: 11px;
-            }
+            }}
 
-            QFrame#servicesBox {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
+            QFrame#servicesBox {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
                 border-radius: 28px;
-            }
+            }}
 
-            QLabel#servicesTitle {
+            QLabel#servicesTitle {{
                 background-color: transparent;
                 border: none;
-                color: #25364A;
+                color: {c['text_main']};
                 font-size: 14px;
                 font-weight: 700;
-            }
+            }}
 
-            QScrollArea#servicesScroll {
+            QScrollArea#servicesScroll {{
                 background-color: transparent;
                 border: none;
-            }
+            }}
 
-            QScrollArea#servicesScroll > QWidget {
+            QScrollArea#servicesScroll > QWidget {{
                 background-color: transparent;
                 border: none;
-            }
+            }}
 
-            QWidget#scrollContent {
+            QWidget#scrollContent {{
                 background-color: transparent;
                 border: none;
-            }
+            }}
 
-            QScrollBar:vertical {
+            QScrollBar:vertical {{
                 width: 10px;
-                background: #E8EEF6;
+                background: {c['bg_input']};
                 border: none;
                 border-radius: 5px;
                 margin: 5px 0px;
-            }
+            }}
 
-            QScrollBar::handle:vertical {
-                background: #4589E8;
+            QScrollBar::handle:vertical {{
+                background: {c['accent']};
                 border: none;
                 border-radius: 5px;
                 min-height: 45px;
-            }
+            }}
 
-            QScrollBar::handle:vertical:hover {
-                background: #1961C7;
-            }
+            QScrollBar::handle:vertical:hover {{
+                background: {c['accent_hover']};
+            }}
 
             QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
+            QScrollBar::sub-line:vertical {{
                 height: 0px;
                 background: transparent;
                 border: none;
-            }
+            }}
 
             QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
+            QScrollBar::sub-page:vertical {{
                 background: transparent;
                 border: none;
-            }
+            }}
 
-            QFrame#serviceCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
+            QFrame#serviceCard {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
                 border-radius: 20px;
-            }
+            }}
 
-            QFrame#serviceCard:hover {
-                background-color: #EAF3FF;
-                border: 1px solid #4589E8;
+            QFrame#serviceCard:hover {{
+                background-color: {c['bg_hover']};
+                border: 1px solid {c['accent']};
                 border-radius: 20px;
-            }
+            }}
 
-            QLabel#serviceIcon {
-                background-color: #EAF3FF;
+            QLabel#serviceIcon {{
+                background-color: {c['accent_light']};
                 border: none;
                 border-radius: 19px;
-                color: #1961C7;
+                color: {c['accent']};
                 font-size: 18px;
-            }
+            }}
 
-            QLabel#serviceTitle {
+            QLabel#serviceTitle {{
                 background-color: transparent;
                 border: none;
-                color: #25364A;
+                color: {c['text_main']};
                 font-size: 12px;
                 font-weight: 600;
-            }
+            }}
 
-            QLabel#serviceArrow {
+            QLabel#serviceArrow {{
                 background-color: transparent;
                 border: none;
-                color: #8A98A9;
+                color: {c['text_dim']};
                 font-size: 22px;
-            }
+            }}
 
-            QFrame#navBox {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
+            QFrame#navBox {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
                 border-radius: 24px;
-            }
+            }}
 
-            QPushButton#navButton {
+            QPushButton#navButton {{
                 background-color: transparent;
-                color: #718096;
+                color: {c['text_dim']};
                 border: none;
                 border-radius: 16px;
                 padding: 8px;
                 font-size: 16px;
                 font-weight: 500;
                 min-height: 48px;
-            }
+            }}
 
-            QPushButton#navButton:hover {
-                background-color: #EAF3FF;
-                color: #1961C7;
-            }
+            QPushButton#navButton:hover {{
+                background-color: {c['bg_hover']};
+                color: {c['accent']};
+            }}
 
-            QFrame#groupPopup {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
+            QFrame#groupPopup {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
                 border-radius: 22px;
-            }
+            }}
 
-            QFrame#groupOption {
-                background-color: #F8FAFD;
-                border: 1px solid #E7EDF5;
+            QFrame#groupOption {{
+                background-color: {c['bg_input']};
+                border: 1px solid {c['border']};
                 border-radius: 15px;
-            }
+            }}
 
-            QFrame#groupOption:hover {
-                background-color: #EAF3FF;
-                border: 1px solid #4589E8;
+            QFrame#groupOption:hover {{
+                background-color: {c['bg_hover']};
+                border: 1px solid {c['accent']};
                 border-radius: 15px;
-            }
+            }}
 
-            QLabel#groupOptionLabel {
+            QLabel#groupOptionLabel {{
                 background-color: transparent;
                 border: none;
-                color: #25364A;
+                color: {c['text_main']};
                 font-size: 13px;
-            }
+            }}
 
-            QScrollArea#groupPopupScroll {
+            QScrollArea#groupPopupScroll {{
                 background: transparent;
                 border: none;
-            }
+            }}
 
-            QScrollArea#groupPopupScroll > QWidget {
+            QScrollArea#groupPopupScroll > QWidget {{
                 background: transparent;
                 border: none;
-            }
+            }}
 
-            QWidget#groupPopupContent {
+            QWidget#groupPopupContent {{
                 background: transparent;
                 border: none;
-            }
-
-            QScrollArea#groupPopupScroll QScrollBar:vertical {
-                width: 6px;
-                background: #EEF3FA;
-                border: none;
-                border-radius: 3px;
-                margin: 4px 0px;
-            }
-
-            QScrollArea#groupPopupScroll QScrollBar::handle:vertical {
-                background: #4589E8;
-                border: none;
-                border-radius: 3px;
-                min-height: 24px;
-            }
-
-            QScrollArea#groupPopupScroll QScrollBar::handle:vertical:hover {
-                background: #1961C7;
-            }
-
-            QScrollArea#groupPopupScroll QScrollBar::add-line:vertical,
-            QScrollArea#groupPopupScroll QScrollBar::sub-line:vertical {
-                height: 0px;
-                background: transparent;
-                border: none;
-            }
-
-            QScrollArea#groupPopupScroll QScrollBar::add-page:vertical,
-            QScrollArea#groupPopupScroll QScrollBar::sub-page:vertical {
-                background: transparent;
-                border: none;
-            }
+            }}
         """)
 
     # =====================================================
@@ -847,9 +778,8 @@ class HomeWindow(QWidget):
     # =====================================================
 
     def update_group_text(self):
-
         self.group_name_label.setText(
-            f"{self.current_group}   •   {self.current_role}"
+            f"{self.current_group}   •   {tr(self.current_role_key)}"
         )
 
     # =====================================================
@@ -859,16 +789,11 @@ class HomeWindow(QWidget):
     def show_group_menu(self):
 
         try:
-
-            print("OPEN GROUP MENU")
-
             if self.group_menu is not None:
                 self.close_group_menu()
 
             if self.user_id:
                 self.groups = self.load_groups_from_database()
-
-            print("GROUPS USED FOR POPUP:", self.groups)
 
             menu = QFrame(self)
             menu.setObjectName("groupPopup")
@@ -896,9 +821,7 @@ class HomeWindow(QWidget):
             layout.setSpacing(8)
 
             if self.groups:
-
                 for group in self.groups:
-
                     group_button = QFrame()
                     group_button.setObjectName("groupOption")
                     group_button.setAttribute(Qt.WA_StyledBackground, True)
@@ -908,14 +831,12 @@ class HomeWindow(QWidget):
                     group_layout = QHBoxLayout(group_button)
                     group_layout.setContentsMargins(14, 0, 14, 0)
 
-                    group_name = group["name"] or "بدون نام"
-
+                    group_name = group["name"] or "—"
                     role_value = group.get("role", "employee")
-                    role_text = self.get_role_text(role_value)
+                    role_key = self.get_role_key(role_value)
+                    role_text = tr(role_key)
 
-                    group_label = QLabel(
-                        f"{group_name}   •   {role_text}"
-                    )
+                    group_label = QLabel(f"{group_name}   •   {role_text}")
                     group_label.setObjectName("groupOptionLabel")
                     group_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
                     group_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -923,25 +844,17 @@ class HomeWindow(QWidget):
                     group_layout.addWidget(group_label)
 
                     def select_group(event, selected_group=group):
-
-                        self.current_group = selected_group["name"] or "بدون نام"
-
+                        self.current_group = selected_group["name"] or "—"
                         rv = selected_group.get("role", "employee")
-
-                        self.current_role = self.get_role_text(rv)
-
+                        self.current_role_key = self.get_role_key(rv)
                         self.update_group_text()
                         self.update_services()
                         self.close_group_menu()
-
                         event.accept()
 
                     group_button.mousePressEvent = select_group
-
                     layout.addWidget(group_button)
-
             else:
-
                 empty_option = QFrame()
                 empty_option.setObjectName("groupOption")
                 empty_option.setAttribute(Qt.WA_StyledBackground, True)
@@ -950,7 +863,7 @@ class HomeWindow(QWidget):
                 empty_layout = QHBoxLayout(empty_option)
                 empty_layout.setContentsMargins(14, 0, 14, 0)
 
-                empty_label = QLabel("هنوز مجموعه‌ای ثبت نشده")
+                empty_label = QLabel(tr("no_group"))
                 empty_label.setObjectName("groupOptionLabel")
                 empty_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
@@ -964,12 +877,10 @@ class HomeWindow(QWidget):
 
             item_height = 54
             items_count = max(len(self.groups), 1)
-
             content_height = items_count * item_height + 16
             menu_height = min(content_height, 300)
 
             menu.setFixedHeight(menu_height)
-
             menu.adjustSize()
 
             pos = self.group_card.mapToGlobal(
@@ -987,13 +898,8 @@ class HomeWindow(QWidget):
             menu.show()
             menu.raise_()
 
-            print("GROUP POPUP CREATED SUCCESSFULLY")
-
         except Exception as error:
-
-            print("SHOW GROUP MENU ERROR")
-            print(type(error).__name__)
-            print(error)
+            print("SHOW GROUP MENU ERROR:", error)
 
     # =====================================================
     # SERVICES
@@ -1002,37 +908,33 @@ class HomeWindow(QWidget):
     def update_services(self):
 
         while self.scroll_layout.count():
-
             item = self.scroll_layout.takeAt(0)
             widget = item.widget()
-
             if widget:
                 widget.deleteLater()
 
         self.scroll_layout.addWidget(
-            self.create_service_card("🕒", "حضور و غیاب", self.open_attendance)
+            self.create_service_card("🕒", tr("attendance"), self.open_attendance)
         )
 
         self.scroll_layout.addWidget(
-            self.create_service_card("💰", "امور مالی", self.open_finance)
+            self.create_service_card("💰", tr("finance"), self.open_finance)
         )
 
-        if self.current_role in ("مالک", "مالک و کارمند"):
-
+        if self.current_role_key in ("owner_role", "both_role"):
             self.scroll_layout.addWidget(
-                self.create_service_card("👥", "کارمندان", self.open_employees)
+                self.create_service_card("👥", tr("employees"), self.open_employees)
+            )
+            self.scroll_layout.addWidget(
+                self.create_service_card("📥", tr("cartable"), self.open_cartable)
             )
 
-            self.scroll_layout.addWidget(
-                self.create_service_card("📥", "کارتابل", self.open_cartable)
-            )
-
         self.scroll_layout.addWidget(
-            self.create_service_card("📅", "رویدادها و سوابق", self.open_events)
+            self.create_service_card("📅", tr("events"), self.open_events)
         )
 
         self.scroll_layout.addWidget(
-            self.create_service_card("📊", "گزارش‌ها", self.open_reports)
+            self.create_service_card("📊", tr("reports"), self.open_reports)
         )
 
         self.scroll_layout.addStretch()
@@ -1079,7 +981,6 @@ class HomeWindow(QWidget):
             event.accept()
 
         card.mousePressEvent = clicked
-
         return card
 
     # =====================================================
@@ -1087,13 +988,11 @@ class HomeWindow(QWidget):
     # =====================================================
 
     def create_nav_button(self, icon, text, callback):
-
         button = QPushButton()
         button.setObjectName("navButton")
         button.setCursor(Qt.PointingHandCursor)
         button.setText(f"{icon}   {text}")
         button.clicked.connect(callback)
-
         return button
 
     # =====================================================
@@ -1101,79 +1000,60 @@ class HomeWindow(QWidget):
     # =====================================================
 
     def open_profile(self):
-
-        from editProfileWindow import EditProfileWindow
-
-        self.edit_profile_window = EditProfileWindow(
-            self,
-            phone_number=self.phone_number,
-            username=self.username,
-            national_code="",
-            avatar=self.avatar
-        )
-
-        self.edit_profile_window.resize(self.size())
-        self.edit_profile_window.move(self.pos())
-        self.edit_profile_window.show()
-        self.edit_profile_window.raise_()
+        try:
+            from editProfileWindow import EditProfileWindow
+            self.edit_profile_window = EditProfileWindow(
+                self,
+                phone_number=self.phone_number,
+                username=self.username,
+                national_code="",
+                avatar=self.avatar
+            )
+            self.edit_profile_window.resize(self.size())
+            self.edit_profile_window.move(self.pos())
+            self.edit_profile_window.show()
+            self.edit_profile_window.raise_()
+        except Exception as e:
+            print("OPEN PROFILE ERROR:", e)
 
     def open_attendance(self):
-
         from attendanceWindow import AttendanceWindow
-
         complex_id = self.get_current_complex_id()
-
-        self.attendance_window = AttendanceWindow(
-            self.phone_number,
-            complex_id
-        )
-
+        self.attendance_window = AttendanceWindow(self.phone_number, complex_id)
         self.attendance_window.resize(self.size())
         self.attendance_window.move(self.pos())
         self.attendance_window.show()
 
     def open_finance(self):
-
         from financeWindow import FinanceWindow
-
         complex_id = self.get_current_complex_id()
-
-        self.finance_window = FinanceWindow(
-            self.phone_number,
-            complex_id
-        )
-
+        self.finance_window = FinanceWindow(self.phone_number, complex_id)
         self.finance_window.resize(self.size())
         self.finance_window.move(self.pos())
         self.finance_window.show()
 
     def open_employees(self):
-
         from employeesWindow import EmployeesWindow
-
         complex_id = self.get_current_complex_id()
-
-        self.employees_window = EmployeesWindow(
-            self.phone_number,
-            complex_id
-        )
-
+        self.employees_window = EmployeesWindow(self.phone_number, complex_id)
         self.employees_window.resize(self.size())
         self.employees_window.move(self.pos())
         self.employees_window.show()
 
     def open_events(self):
-
         from eventsWindow import EventsWindow
-        self.events_window = EventsWindow(self)
+        complex_id = self.get_current_complex_id()
+        self.events_window = EventsWindow(self,phone_number = self.phone_number,
+        complex_id = complex_id)
         self.events_window.resize(self.size())
         self.events_window.move(self.pos())
         self.events_window.show()
         self.events_window.raise_()
 
     def open_reports(self):
-
         from reportsWindow import ReportsWindow
+        complex_id = self.get_current_complex_id()
+        self.reports_window = ReportsWindow(self, phone_number = self.phone_number, complex_id = complex_id)
         self.reports_window = ReportsWindow(self, self.phone_number)
         self.reports_window.resize(self.size())
         self.reports_window.move(self.pos())
@@ -1181,7 +1061,6 @@ class HomeWindow(QWidget):
         self.reports_window.raise_()
 
     def open_settings(self):
-
         from settingsWindow import SettingsWindow
         self.settings_window = SettingsWindow(self)
         self.settings_window.resize(self.size())
@@ -1190,7 +1069,6 @@ class HomeWindow(QWidget):
         self.settings_window.raise_()
 
     def open_messages(self):
-
         from messagesWindow import MessagesWindow
         self.messages_window = MessagesWindow(self)
         self.messages_window.resize(self.size())
@@ -1199,8 +1077,9 @@ class HomeWindow(QWidget):
         self.messages_window.raise_()
 
     def open_cartable(self):
-
         from cartableWindow import CartableWindow
+        complex_id = self.get_current_complex_id()
+        self.cartable_window = CartableWindow(self, phone_number = self.phone_number, complex_id = complex_id)
         self.cartable_window = CartableWindow(self)
         self.cartable_window.resize(self.size())
         self.cartable_window.move(self.pos())
@@ -1208,9 +1087,7 @@ class HomeWindow(QWidget):
         self.cartable_window.raise_()
 
     def Open_groups(self):
-
         from groupsWindow import GroupsWindow
-
         self.groups_window = GroupsWindow(self, self.phone_number)
         self.groups_window.resize(self.size())
         self.groups_window.move(self.pos())

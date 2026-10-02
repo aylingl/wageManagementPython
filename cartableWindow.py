@@ -1,1506 +1,877 @@
+import os
+from datetime import datetime, date
+
 from PySide6.QtWidgets import (
-    QWidget,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QHBoxLayout,
-    QFrame,
-    QScrollArea,
-    QDialog,
-    QLineEdit
+    QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
+    QFrame, QScrollArea, QScrollBar, QDialog
 )
 
-from PySide6.QtCore import Qt, QTime
+from PySide6.QtCore import Qt, QTimer, QDate
+from PySide6.QtGui import QPainter, QColor
+
+from database import Database
+from signals import signals
+from theme import theme_manager
+from i18n import tr, set_language, get_language
+
+# =========================================================
+# ROUND SCROLL BAR
+# =========================================================
+
+class RoundScrollBar(QScrollBar):
+    def __init__(self, orientation=Qt.Vertical, parent=None):
+        super().__init__(orientation, parent)
+        self.setFixedWidth(12)
+        self.setStyleSheet("QScrollBar {background: transparent;border: none;margin: 0px;}")
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = theme_manager.colors()
+
+        track_width = 6
+        track_x = (self.width() - track_width) / 2
+        track_top = 6
+        track_bottom = self.height() - 6
+        track_height = track_bottom - track_top
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(c["bg_input"]))
+        painter.drawRoundedRect(int(track_x), int(track_top), track_width, int(track_height), track_width/2, track_width/2)
+
+        minimum = self.minimum()
+        maximum = self.maximum()
+        page_step = self.pageStep()
+
+        if maximum <= minimum:
+            return
+
+        groove_top = 6
+        groove_bottom = self.height() - 6
+        groove_height = groove_bottom - groove_top
+        total_range = maximum - minimum + page_step
+
+        handle_height = int(groove_height * page_step / total_range)
+        handle_height = max(42, handle_height)
+        handle_height = min(handle_height, groove_height)
+        available_space = groove_height - handle_height
+
+        if maximum == minimum:
+            handle_y = groove_top
+        else:
+            value_ratio = (self.value() - minimum) / (maximum - minimum)
+            handle_y = groove_top + available_space * value_ratio
+
+        handle_width = 8
+        handle_x = (self.width() - handle_width) / 2
+        painter.setBrush(QColor(c["accent"]))
+        painter.drawRoundedRect(int(handle_x), int(handle_y), handle_width, int(handle_height), handle_width/2, handle_width/2)
+
+# =========================================================
+# JALALI HELPERS
+# =========================================================
+
+def gregorian_to_jalali(gy, gm, gd):
+    g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
+    gy2 = gy + 1 if gm > 2 else gy
+    days = 355666 + (365*gy) + ((gy2+3)//4) - ((gy2+99)//100) + ((gy2+399)//400) + gd + g_d_m[gm-1]
+    jy = -1595 + (33 * (days // 12053))
+    days %= 12053
+    jy += 4 * (days // 1461)
+    days %= 1461
+    if days > 365:
+        jy += (days - 1) // 365
+        days = (days - 1) % 365
+    if days < 186:
+        jm = 1 + (days // 31)
+        jd = 1 + (days % 31)
+    else:
+        jm = 7 + ((days - 186) // 30)
+        jd = 1 + ((days - 186) % 30)
+    return jy, jm, jd
+
+def jalali_str(d):
+    if isinstance(d, datetime):
+        jy, jm, jd = gregorian_to_jalali(d.year, d.month, d.day)
+        return f"{jy:04d}/{jm:02d}/{jd:02d}"
+    if isinstance(d, date):
+        jy, jm, jd = gregorian_to_jalali(d.year, d.month, d.day)
+        return f"{jy:04d}/{jm:02d}/{jd:02d}"
+    return str(d) if d else "-"
+
+def format_money(amount):
+    try:
+        return f"{amount:,.0f}"
+    except Exception:
+        return "0"
+
+# =========================================================
+# NICE MESSAGE BOX
+# =========================================================
+
+class NiceMessageDialog(QDialog):
+    def __init__(self, parent, title, text, kind="info"):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setFixedSize(340, 230)
+
+        c = theme_manager.colors()
+
+        if kind == "success":
+            icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
+        elif kind == "error":
+            icon_char, color, bg = "✕", "#D93025", "#FEE2E2"
+        elif kind == "warning":
+            icon_char, color, bg = "!", "#F59E0B", "#FEF3C7"
+        else:
+            icon_char, color, bg = "i", "#1961C7", "#DBEAFE"
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setStyleSheet(f"background-color: {c['bg_card']};border-radius: 20px;border: 1px solid {c['border']};")
+        outer.addWidget(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(10)
+
+        icon_label = QLabel(icon_char)
+        icon_label.setFixedSize(48, 48)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet(f"background-color: {bg};color: {color};border-radius: 24px;font-size: 22px;font-weight: 700;")
+
+        icon_row = QHBoxLayout()
+        icon_row.addStretch()
+        icon_row.addWidget(icon_label)
+        icon_row.addStretch()
+        layout.addLayout(icon_row)
+
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet(f"color: {c['text_main']};font-size: 14px;font-weight: 700;background: transparent;border: none;")
+        layout.addWidget(title_label)
+
+        text_label = QLabel(text)
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setWordWrap(True)
+        text_label.setStyleSheet(f"color: {c['text_dim']};font-size: 11px;background: transparent;border: none;")
+        layout.addWidget(text_label)
+        layout.addStretch()
+
+        btn = QPushButton(tr("ok"))
+        btn.setFixedHeight(38)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setMinimumWidth(100)
+        btn.setStyleSheet(f"background-color: {color};color: white;border: none;border-radius: 19px;font-size: 12px;font-weight: 600;padding: 0px 20px;")
+        btn.clicked.connect(self.accept)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+class NiceMessageBox:
+    @staticmethod
+    def info(parent, title, text):
+        NiceMessageDialog(parent, title, text, "info").exec()
+
+    @staticmethod
+    def success(parent, title, text):
+        NiceMessageDialog(parent, title, text, "success").exec()
+
+    @staticmethod
+    def error(parent, title, text):
+        NiceMessageDialog(parent, title, text, "error").exec()
+
+    @staticmethod
+    def warning(parent, title, text):
+        NiceMessageDialog(parent, title, text, "warning").exec()
+
+# =========================================================
+# CARTABLE WINDOW
+# =========================================================
 
 class CartableWindow(QWidget):
 
-    def __init__(self, parent_window=None):
-
+    def __init__(self, parent_window=None, phone_number=None, complex_id=None):
         super().__init__()
 
         self.parent_window = parent_window
+        self.phone_number = phone_number
+        self.complex_id = complex_id
 
-        self.setWindowTitle("کارتابل")
+        if self.phone_number is None and parent_window is not None:
+            self.phone_number = getattr(parent_window, "phone_number", None)
 
-        self.setMinimumSize(
-            900,
-            620
-        )
+        if self.complex_id is None and parent_window is not None:
+            self.complex_id = getattr(parent_window, "complex_id", None)
+            if not self.complex_id:
+                getter = getattr(parent_window, "get_current_complex_id", None)
+                if callable(getter):
+                    self.complex_id = getter()
 
-        self.setLayoutDirection(
-            Qt.RightToLeft
-        )
+        self.db = Database()
 
+        self.user_id = None
+        self.all_items = []
+        self.current_filter = "all"
+
+        self.setWindowTitle(tr("cartable_title"))
+        self.setMinimumSize(500, 400)
+        self.resize(900, 620)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("cartableWindow")
+
+        self.load_user_id()
         self.setup_ui()
+        self.load_items()
+
+        theme_manager.theme_changed.connect(self.on_theme_changed)
+        signals.language_changed.connect(self.on_language_changed)
+        signals.employee_added.connect(self.on_employee_changed)
+        signals.employee_updated.connect(self.on_employee_changed)
+        signals.data_changed.connect(self.on_data_changed)
 
     # =====================================================
-    # SETUP UI
+    # THEME / LANGUAGE
+    # =====================================================
+
+    def on_theme_changed(self, theme_name):
+        self.apply_stylesheet()
+
+    def on_language_changed(self, lang):
+        set_language(lang)
+        self.setWindowTitle(tr("cartable_title"))
+        QTimer.singleShot(0, self._rebuild)
+
+    def _rebuild(self):
+        old = self.layout()
+        if old is not None:
+            while old.count():
+                item = old.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.deleteLater()
+        self.setup_ui()
+        self.load_items()
+
+    def on_employee_changed(self, complex_id):
+        if complex_id == self.complex_id:
+            self.load_items()
+
+    def on_data_changed(self, kind):
+        # وقتی حضور یا مالی عوض شد، کارتابل رو رفرش کن
+        if kind in ("all", "jobs", "attendance", "finance"):
+            self.load_items()
+
+    # =====================================================
+    # LOAD USER
+    # =====================================================
+
+    def load_user_id(self):
+        if not self.phone_number:
+            return
+        try:
+            user = self.db.fetch_one(
+                "SELECT userId FROM users WHERE phoneNumber = %s LIMIT 1",
+                (self.phone_number,)
+            )
+            if user:
+                self.user_id = user["userId"]
+        except Exception as e:
+            print("CARTABLE LOAD USER ID ERROR:", e)
+
+    # =====================================================
+    # UI
     # =====================================================
 
     def setup_ui(self):
 
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(24, 20, 24, 20)
+        main_layout.setSpacing(14)
 
-        main_layout.setContentsMargins(
-            28,
-            22,
-            28,
-            22
-        )
-
-        main_layout.setSpacing(
-            16
-        )
-
-        # =================================================
         # HEADER
-        # =================================================
-
         header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
 
-        header_layout.setContentsMargins(
-            4,
-            0,
-            4,
-            0
-        )
+        back_button = QPushButton("›")
+        back_button.setObjectName("backButton")
+        back_button.setFixedSize(38, 38)
+        back_button.setCursor(Qt.PointingHandCursor)
+        back_button.setAttribute(Qt.WA_StyledBackground, True)
+        back_button.clicked.connect(self.close)
 
-        header_layout.setSpacing(
-            12
-        )
+        header_layout.addWidget(back_button)
 
-        # -----------------------------------------------
-        # BACK
-        # -----------------------------------------------
+        title_layout = QVBoxLayout()
+        title_layout.setSpacing(2)
 
-        back_button = QPushButton(
-            "›"
-        )
+        title = QLabel(tr("cartable_title"))
+        title.setObjectName("cartableTitle")
 
-        back_button.setObjectName(
-            "backButton"
-        )
+        subtitle = QLabel(tr("cartable_subtitle"))
+        subtitle.setObjectName("cartableSubtitle")
 
-        back_button.setFixedSize(
-            42,
-            42
-        )
+        title_layout.addWidget(title)
+        title_layout.addWidget(subtitle)
 
-        back_button.setCursor(
-            Qt.PointingHandCursor
-        )
-
-        back_button.clicked.connect(
-            self.close
-        )
-
-        header_layout.addWidget(
-            back_button
-        )
-
-        # -----------------------------------------------
-        # TITLE
-        # -----------------------------------------------
-
-        header_text = QVBoxLayout()
-
-        header_text.setSpacing(
-            4
-        )
-
-        title = QLabel(
-            "کارتابل"
-        )
-
-        title.setObjectName(
-            "pageTitle"
-        )
-
-        subtitle = QLabel(
-            "درخواست‌ها و مواردی که نیاز به بررسی شما دارند"
-        )
-
-        subtitle.setObjectName(
-            "pageSubtitle"
-        )
-
-        header_text.addWidget(
-            title
-        )
-
-        header_text.addWidget(
-            subtitle
-        )
-
-        header_layout.addLayout(
-            header_text
-        )
-
+        header_layout.addLayout(title_layout)
         header_layout.addStretch()
 
-        main_layout.addLayout(
-            header_layout
-        )
+        main_layout.addLayout(header_layout)
 
-        # =================================================
-        # CATEGORY BAR
-        # =================================================
+        # FILTER BOX
+        filter_box = QFrame()
+        filter_box.setObjectName("filterBox")
+        filter_box.setAttribute(Qt.WA_StyledBackground, True)
 
-        category_box = QFrame()
+        filter_layout = QHBoxLayout(filter_box)
+        filter_layout.setContentsMargins(10, 8, 10, 8)
+        filter_layout.setSpacing(6)
 
-        category_box.setObjectName(
-            "categoryBox"
-        )
+        self.filter_buttons = []
 
-        category_layout = QHBoxLayout(
-            category_box
-        )
+        filter_defs = [
+            ("all", tr("cartable_all")),
+            ("pending", tr("cartable_pending")),
+            ("inProgress", tr("cartable_in_progress")),
+            ("completed", tr("cartable_completed")),
+            ("rejected", tr("cartable_rejected")),
+            ("cancelled", tr("cartable_cancelled")),
+        ]
 
-        category_layout.setContentsMargins(
-            8,
-            8,
-            8,
-            8
-        )
+        for key, label in filter_defs:
+            btn = QPushButton(label)
+            btn.setObjectName("filterButton")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setAttribute(Qt.WA_StyledBackground, True)
+            btn.clicked.connect(lambda checked=False, k=key: self.change_filter(k))
+            filter_layout.addWidget(btn)
+            self.filter_buttons.append((key, btn))
 
-        category_layout.setSpacing(
-            8
-        )
+        filter_layout.addStretch()
+        main_layout.addWidget(filter_box)
 
-        attendance_btn = self.create_category_button(
-            "🕒",
-            "حضور و غیاب"
-        )
+        # RECORDS BOX
+        records_box = QFrame()
+        records_box.setObjectName("recordsBox")
+        records_box.setAttribute(Qt.WA_StyledBackground, True)
 
-        leave_btn = self.create_category_button(
-            "📅",
-            "مرخصی"
-        )
-
-        overtime_btn = self.create_category_button(
-            "⏱",
-            "اضافه‌کاری"
-        )
-
-        loan_btn = self.create_category_button(
-            "💳",
-            "درخواست وام"
-        )
-
-        category_layout.addWidget(
-            attendance_btn
-        )
-
-        category_layout.addWidget(
-            leave_btn
-        )
-
-        category_layout.addWidget(
-            overtime_btn
-        )
-
-        category_layout.addWidget(
-            loan_btn
-        )
-
-        main_layout.addWidget(
-            category_box
-        )
-
-        # =================================================
-        # SCROLL
-        # =================================================
+        records_layout = QVBoxLayout(records_box)
+        records_layout.setContentsMargins(14, 14, 14, 14)
+        records_layout.setSpacing(8)
 
         self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-        self.scroll.setWidgetResizable(
-            True
-        )
+        round_bar = RoundScrollBar(Qt.Vertical, self.scroll)
+        self.scroll.setVerticalScrollBar(round_bar)
 
-        self.scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarAlwaysOff
-        )
+        scroll_content = QWidget()
+        scroll_content.setObjectName("scrollContent")
+        scroll_content.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        self.scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAsNeeded
-        )
+        self.scroll_layout = QVBoxLayout(scroll_content)
+        self.scroll_layout.setSpacing(8)
+        self.scroll_layout.setContentsMargins(4, 4, 8, 4)
 
-        self.scroll.setFrameShape(
-            QFrame.NoFrame
-        )
+        self.scroll.setWidget(scroll_content)
+        records_layout.addWidget(self.scroll)
 
-        content = QWidget()
+        main_layout.addWidget(records_box, 1)
 
-        content_layout = QVBoxLayout(
-            content
-        )
+        self.apply_stylesheet()
+        self.update_filter_buttons()
 
-        content_layout.setContentsMargins(
-            4,
-            4,
-            4,
-            10
-        )
+    # =====================================================
+    # APPLY STYLESHEET
+    # =====================================================
 
-        content_layout.setSpacing(
-            12
-        )
+    def apply_stylesheet(self):
+        c = theme_manager.colors()
 
-        # =================================================
-        # ATTENDANCE
-        # =================================================
+        self.setStyleSheet(f"""
 
-        content_layout.addWidget(
-            self.create_section_title(
-                "🕒",
-                "حضور و غیاب"
-            )
-        )
+        QWidget#cartableWindow {{
+            background-color: {c['bg_main']};
+            font-family: Vazirmatn;
+            color: {c['text_main']};
+        }}
 
-        content_layout.addWidget(
-            self.create_attendance_card(
-                "علی رضایی",
-                "امروز",
-                "08:12",
-                "17:03"
-            )
-        )
+        QLabel#cartableTitle {{
+            color: {c['text_main']};
+            font-size: 20px;
+            font-weight: 700;
+            background: transparent;
+        }}
 
-        content_layout.addWidget(
-            self.create_attendance_card(
-                "سارا محمدی",
-                "امروز",
-                "08:35",
-                "16:20"
-            )
-        )
+        QLabel#cartableSubtitle {{
+            color: {c['text_dim']};
+            font-size: 11px;
+            background: transparent;
+        }}
 
-        # =================================================
-        # LEAVE
-        # =================================================
+        QPushButton#backButton {{
+            background-color: {c['bg_card']};
+            color: {c['accent']};
+            border: 1px solid {c['border']};
+            border-radius: 19px;
+            font-size: 20px;
+            font-weight: 600;
+            padding: 0px;
+        }}
 
-        content_layout.addWidget(
-            self.create_section_title(
-                "📅",
-                "درخواست مرخصی"
-            )
-        )
+        QPushButton#backButton:hover {{
+            background-color: {c['bg_hover']};
+            border-color: {c['border_hover']};
+        }}
 
-        content_layout.addWidget(
-            self.create_leave_card(
-                "سارا محمدی",
-                "۲ روز",
-                "۱۴۰۵/۰۷/۰۵ تا ۱۴۰۵/۰۷/۰۶",
-                "مرخصی شخصی"
-            )
-        )
+        QFrame#filterBox {{
+            background-color: {c['bg_card']};
+            border: 1px solid {c['border']};
+            border-radius: 18px;
+        }}
 
-        # =================================================
-        # OVERTIME
-        # =================================================
+        QPushButton#filterButton {{
+            background-color: {c['bg_input']};
+            color: {c['text_dim']};
+            border: 1px solid {c['border']};
+            border-radius: 16px;
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: 600;
+            min-width: 55px;
+            min-height: 22px;
+        }}
 
-        content_layout.addWidget(
-            self.create_section_title(
-                "⏱",
-                "درخواست اضافه‌کاری"
-            )
-        )
+        QPushButton#filterButton:hover {{
+            background-color: {c['bg_hover']};
+            color: {c['accent']};
+            border-color: {c['border_hover']};
+        }}
 
-        content_layout.addWidget(
-            self.create_overtime_card(
-                "محمد احمدی",
-                "۲ ساعت",
-                "امروز",
-                "تکمیل کارهای پایان ماه"
-            )
-        )
+        QPushButton#filterButton[active="true"] {{
+            background-color: {c['accent']};
+            color: white;
+            border-color: {c['accent']};
+        }}
 
-        # =================================================
-        # LOAN
-        # =================================================
+        QFrame#recordsBox {{
+            background-color: {c['bg_card']};
+            border: 1px solid {c['border']};
+            border-radius: 18px;
+        }}
 
-        content_layout.addWidget(
-            self.create_section_title(
-                "💳",
-                "درخواست وام"
-            )
-        )
+        QWidget#scrollContent {{
+            background: transparent;
+        }}
 
-        content_layout.addWidget(
-            self.create_loan_card(
-                "علی رضایی",
-                "۵۰,۰۰۰,۰۰۰ تومان",
-                "۱۲ ماه",
-                "خرید لوازم ضروری",
-                "۱۴۰۵/۰۷/۰۱"
-            )
-        )
+        QScrollArea {{
+            background: transparent;
+            border: none;
+        }}
 
-        content_layout.addStretch()
+        QScrollArea::viewport {{
+            background: transparent;
+        }}
 
-        self.scroll.setWidget(
-            content
-        )
+        QFrame#itemCard {{
+            background-color: {c['bg_card']};
+            border: 1px solid {c['border']};
+            border-radius: 16px;
+        }}
 
-        main_layout.addWidget(
-            self.scroll
-        )
+        QFrame#itemCard:hover {{
+            background-color: {c['bg_hover']};
+            border-color: {c['accent']};
+        }}
 
-        # =================================================
-        # STYLE
-        # =================================================
+        QLabel#itemTitle {{
+            color: {c['text_main']};
+            font-size: 13px;
+            font-weight: 700;
+            background: transparent;
+        }}
 
-        self.setStyleSheet("""
-            QWidget {
-                background: #F5F8FC;
-                font-family: "Vazirmatn";
-            }
+        QLabel#itemName {{
+            color: {c['accent']};
+            font-size: 11px;
+            font-weight: 600;
+            background: transparent;
+        }}
 
-            QLabel#pageTitle {
-                color: #1E2F43;
-                font-size: 24px;
-                font-weight: 700;
-            }
+        QLabel#itemInfo {{
+            color: {c['text_dim']};
+            font-size: 10px;
+            background: transparent;
+        }}
 
-            QLabel#pageSubtitle {
-                color: #8290A1;
-                font-size: 13px;
-            }
+        QLabel#itemDesc {{
+            color: {c['text_dim']};
+            font-size: 11px;
+            background: transparent;
+        }}
 
-            QPushButton#backButton {
-                background: white;
-                color: #1961C7;
-                border: 1px solid #E2EAF4;
-                border-radius: 12px;
-                font-size: 28px;
-                font-weight: 500;
-            }
+        QLabel#statusPending {{
+            color: {c['warning']};
+            background-color: {c['warning_bg']};
+            border: none;
+            border-radius: 10px;
+            padding: 3px 10px;
+            font-size: 10px;
+            font-weight: 700;
+        }}
 
-            QPushButton#backButton:hover {
-                background: #EAF3FF;
-            }
+        QLabel#statusInProgress {{
+            color: {c['accent']};
+            background-color: {c['accent_light']};
+            border: none;
+            border-radius: 10px;
+            padding: 3px 10px;
+            font-size: 10px;
+            font-weight: 700;
+        }}
 
-            QFrame#categoryBox {
-                background: white;
-                border: 1px solid #E2EAF4;
-                border-radius: 16px;
-            }
+        QLabel#statusCompleted {{
+            color: #16A34A;
+            background-color: {c['success_bg']};
+            border: none;
+            border-radius: 10px;
+            padding: 3px 10px;
+            font-size: 10px;
+            font-weight: 700;
+        }}
 
-            QPushButton#categoryButton {
-                background: #F5F8FC;
-                color: #536477;
-                border: none;
-                border-radius: 12px;
-                padding: 10px 16px;
-                font-size: 13px;
-            }
+        QLabel#statusRejected {{
+            color: {c['danger']};
+            background-color: {c['danger_bg']};
+            border: none;
+            border-radius: 10px;
+            padding: 3px 10px;
+            font-size: 10px;
+            font-weight: 700;
+        }}
 
-            QPushButton#categoryButton:hover {
-                background: #EAF3FF;
-                color: #1961C7;
-            }
+        QLabel#statusCancelled {{
+            color: {c['text_dim']};
+            background-color: {c['bg_input']};
+            border: none;
+            border-radius: 10px;
+            padding: 3px 10px;
+            font-size: 10px;
+            font-weight: 700;
+        }}
 
-            QFrame#requestCard {
-                background: white;
-                border: 1px solid #E2EAF4;
-                border-radius: 18px;
-            }
+        QPushButton#approveBtn {{
+            background-color: {c['success_bg']};
+            color: #16A34A;
+            border: none;
+            border-radius: 14px;
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: 700;
+            min-height: 28px;
+        }}
 
-            QFrame#requestCard:hover {
-                border: 1px solid #C8DDF5;
-                background: #FBFDFF;
-            }
+        QPushButton#approveBtn:hover {{
+            background-color: {c['bg_hover']};
+        }}
 
-            QLabel#employeeName {
-                color: #1E2F43;
-                font-size: 15px;
-                font-weight: 700;
-            }
+        QPushButton#rejectBtn {{
+            background-color: {c['danger_bg']};
+            color: {c['danger']};
+            border: none;
+            border-radius: 14px;
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: 700;
+            min-height: 28px;
+        }}
 
-            QLabel#requestDate {
-                color: #8290A1;
-                font-size: 12px;
-            }
+        QPushButton#rejectBtn:hover {{
+            background-color: {c['bg_hover']};
+        }}
 
-            QLabel#infoLabel {
-                color: #65758A;
-                font-size: 12px;
-            }
+        QLabel#emptyLabel {{
+            color: {c['text_dim']};
+            font-size: 13px;
+            padding: 40px;
+            background: transparent;
+        }}
 
-            QLabel#infoValue {
-                color: #1E2F43;
-                font-size: 13px;
-                font-weight: 600;
-            }
-
-            QLabel#sectionTitle {
-                color: #1E2F43;
-                font-size: 15px;
-                font-weight: 700;
-            }
-
-            QPushButton#approveButton {
-                background: #1961C7;
-                color: white;
-                border: none;
-                border-radius: 9px;
-                padding: 8px 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            QPushButton#approveButton:hover {
-                background: #4589E8;
-            }
-
-            QPushButton#editButton {
-                background: #EAF3FF;
-                color: #1961C7;
-                border: none;
-                border-radius: 9px;
-                padding: 8px 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            QPushButton#editButton:hover {
-                background: #DCEBFF;
-            }
-
-            QPushButton#rejectButton {
-                background: #F4F6F9;
-                color: #697789;
-                border: none;
-                border-radius: 9px;
-                padding: 8px 16px;
-                font-size: 12px;
-            }
-
-            QPushButton#rejectButton:hover {
-                background: #E9EDF2;
-                color: #4E5C6C;
-            }
-
-            QScrollBar:vertical {
-                width: 6px;
-                background: transparent;
-                margin: 4px 0 4px 0;
-            }
-
-            QScrollBar::handle:vertical {
-                background: #4589E8;
-                border-radius: 3px;
-                min-height: 30px;
-            }
-
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: transparent;
-            }
         """)
 
     # =====================================================
-    # CATEGORY BUTTON
+    # FILTER
     # =====================================================
 
-    def create_category_button(
-        self,
-        icon,
-        text
-    ):
+    def change_filter(self, key):
+        self.current_filter = key
+        self.refresh_records()
+        self.update_filter_buttons()
 
-        button = QPushButton(
-            f"{icon}  {text}"
-        )
-
-        button.setObjectName(
-            "categoryButton"
-        )
-
-        button.setCursor(
-            Qt.PointingHandCursor
-        )
-
-        return button
+    def update_filter_buttons(self):
+        for key, btn in self.filter_buttons:
+            btn.setProperty("active", key == self.current_filter)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.update()
 
     # =====================================================
-    # SECTION TITLE
+    # LOAD ITEMS FROM DB
     # =====================================================
 
-    def create_section_title(
-        self,
-        icon,
-        text
-    ):
-
-        label = QLabel(
-            f"{icon}  {text}"
-        )
-
-        label.setObjectName(
-            "sectionTitle"
-        )
-
-        label.setContentsMargins(
-            4,
-            8,
-            4,
-            2
-        )
-
-        return label
-
-    # =====================================================
-    # ATTENDANCE CARD
-    # =====================================================
-
-    def create_attendance_card(
-        self,
-        name,
-        date,
-        start_time,
-        end_time
-    ):
-
-        card = QFrame()
-
-        card.setObjectName(
-            "requestCard"
-        )
-
-        layout = QVBoxLayout(
-            card
-        )
-
-        layout.setContentsMargins(
-            18,
-            14,
-            18,
-            14
-        )
-
-        layout.setSpacing(
-            10
-        )
-
-        # -----------------------------------------------
-        # HEADER
-        # -----------------------------------------------
-
-        header = QHBoxLayout()
-
-        employee = QLabel(
-            name
-        )
-
-        employee.setObjectName(
-            "employeeName"
-        )
-
-        date_label = QLabel(
-            date
-        )
-
-        date_label.setObjectName(
-            "requestDate"
-        )
-
-        header.addWidget(
-            employee
-        )
-
-        header.addStretch()
-
-        header.addWidget(
-            date_label
-        )
-
-        layout.addLayout(
-            header
-        )
-
-        # -----------------------------------------------
-        # INFO
-        # -----------------------------------------------
-
-        info_layout = QHBoxLayout()
-
-        info_layout.setSpacing(
-            28
-        )
-
-        info_layout.addLayout(
-            self.create_info_item(
-                "ورود",
-                start_time
-            )
-        )
-
-        info_layout.addLayout(
-            self.create_info_item(
-                "خروج",
-                end_time
-            )
-        )
-
-        duration = self.calculate_duration(
-            start_time,
-            end_time
-        )
-
-        duration_label = QLabel(
-            duration
-        )
-
-        duration_label.setObjectName(
-            "durationValue"
-        )
-
-        duration_layout = QVBoxLayout()
-
-        duration_title = QLabel(
-            "مدت کار"
-        )
-
-        duration_title.setObjectName(
-            "infoLabel"
-        )
-
-        duration_layout.addWidget(
-            duration_title
-        )
-
-        duration_layout.addWidget(
-            duration_label
-        )
-
-        info_layout.addLayout(
-            duration_layout
-        )
-
-        info_layout.addStretch()
-
-        layout.addLayout(
-            info_layout
-        )
-
-        # -----------------------------------------------
-        # BUTTONS
-        # -----------------------------------------------
-
-        buttons = QHBoxLayout()
-
-        buttons.setSpacing(
-            8
-        )
-
-        approve = QPushButton(
-            "✓ تأیید"
-        )
-
-        approve.setObjectName(
-            "approveButton"
-        )
-
-        approve.clicked.connect(
-            lambda: self.remove_card(card)
-        )
-
-        edit = QPushButton(
-            "✎ ویرایش"
-        )
-
-        edit.setObjectName(
-            "editButton"
-        )
-
-        edit.clicked.connect(
-            lambda: self.edit_attendance(
-                card,
-                name,
-                date,
-                start_time,
-                end_time
-            )
-        )
-
-        reject = QPushButton(
-            "رد کردن"
-        )
-
-        reject.setObjectName(
-            "rejectButton"
-        )
-
-        reject.clicked.connect(
-            lambda: self.remove_card(card)
-        )
-
-        buttons.addWidget(
-            approve
-        )
-
-        buttons.addWidget(
-            edit
-        )
-
-        buttons.addWidget(
-            reject
-        )
-
-        buttons.addStretch()
-
-        layout.addLayout(
-            buttons
-        )
-
-        return card
-
-    # =====================================================
-    # LEAVE CARD
-    # =====================================================
-
-    def create_leave_card(
-        self,
-        name,
-        duration,
-        dates,
-        description
-    ):
-
-        card = QFrame()
-
-        card.setObjectName(
-            "requestCard"
-        )
-
-        layout = QVBoxLayout(
-            card
-        )
-
-        layout.setContentsMargins(
-            18,
-            14,
-            18,
-            14
-        )
-
-        layout.setSpacing(
-            10
-        )
-
-        header = QHBoxLayout()
-
-        employee = QLabel(
-            name
-        )
-
-        employee.setObjectName(
-            "employeeName"
-        )
-
-        header.addWidget(
-            employee
-        )
-
-        header.addStretch()
-
-        date_label = QLabel(
-            duration
-        )
-
-        date_label.setObjectName(
-            "requestDate"
-        )
-
-        header.addWidget(
-            date_label
-        )
-
-        layout.addLayout(
-            header
-        )
-
-        info = QHBoxLayout()
-
-        info.addLayout(
-            self.create_info_item(
-                "بازه مرخصی",
-                dates
-            )
-        )
-
-        info.addLayout(
-            self.create_info_item(
-                "نوع",
-                description
-            )
-        )
-
-        info.addStretch()
-
-        layout.addLayout(
-            info
-        )
-
-        buttons = self.create_action_buttons(
-            card
-        )
-
-        layout.addLayout(
-            buttons
-        )
-
-        return card
-
-    # =====================================================
-    # OVERTIME CARD
-    # =====================================================
-
-    def create_overtime_card(
-        self,
-        name,
-        hours,
-        date,
-        description
-    ):
-
-        card = QFrame()
-
-        card.setObjectName(
-            "requestCard"
-        )
-
-        layout = QVBoxLayout(
-            card
-        )
-
-        layout.setContentsMargins(
-            18,
-            14,
-            18,
-            14
-        )
-
-        layout.setSpacing(
-            10
-        )
-
-        header = QHBoxLayout()
-
-        employee = QLabel(
-            name
-        )
-
-        employee.setObjectName(
-            "employeeName"
-        )
-
-        header.addWidget(
-            employee
-        )
-
-        header.addStretch()
-
-        date_label = QLabel(
-            date
-        )
-
-        date_label.setObjectName(
-            "requestDate"
-        )
-
-        header.addWidget(
-            date_label
-        )
-
-        layout.addLayout(
-            header
-        )
-
-        info = QHBoxLayout()
-
-        info.addLayout(
-            self.create_info_item(
-                "مدت اضافه‌کاری",
-                hours
-            )
-        )
-
-        info.addLayout(
-            self.create_info_item(
-                "توضیح",
-                description
-            )
-        )
-
-        info.addStretch()
-
-        layout.addLayout(
-            info
-        )
-
-        buttons = self.create_action_buttons(
-            card
-        )
-
-        layout.addLayout(
-            buttons
-        )
-
-        return card
-
-    # =====================================================
-    # LOAN CARD
-    # =====================================================
-
-    def create_loan_card(
-        self,
-        name,
-        amount,
-        installments,
-        description,
-        date
-    ):
-
-        card = QFrame()
-
-        card.setObjectName(
-            "requestCard"
-        )
-
-        layout = QVBoxLayout(
-            card
-        )
-
-        layout.setContentsMargins(
-            18,
-            14,
-            18,
-            14
-        )
-
-        layout.setSpacing(
-            10
-        )
-
-        header = QHBoxLayout()
-
-        employee = QLabel(
-            name
-        )
-
-        employee.setObjectName(
-            "employeeName"
-        )
-
-        header.addWidget(
-            employee
-        )
-
-        header.addStretch()
-
-        date_label = QLabel(
-            date
-        )
-
-        date_label.setObjectName(
-            "requestDate"
-        )
-
-        header.addWidget(
-            date_label
-        )
-
-        layout.addLayout(
-            header
-        )
-
-        info = QHBoxLayout()
-
-        info.addLayout(
-            self.create_info_item(
-                "مبلغ وام",
-                amount
-            )
-        )
-
-        info.addLayout(
-            self.create_info_item(
-                "تعداد اقساط",
-                installments
-            )
-        )
-
-        info.addLayout(
-            self.create_info_item(
-                "دلیل درخواست",
-                description
-            )
-        )
-
-        info.addStretch()
-
-        layout.addLayout(
-            info
-        )
-
-        buttons = self.create_action_buttons(
-            card
-        )
-
-        layout.addLayout(
-            buttons
-        )
-
-        return card
-
-    # =====================================================
-    # INFO ITEM
-    # =====================================================
-
-    def create_info_item(
-        self,
-        title,
-        value
-    ):
-
-        layout = QVBoxLayout()
-
-        layout.setSpacing(
-            2
-        )
-
-        label = QLabel(
-            title
-        )
-
-        label.setObjectName(
-            "infoLabel"
-        )
-
-        value_label = QLabel(
-            value
-        )
-
-        value_label.setObjectName(
-            "infoValue"
-        )
-
-        layout.addWidget(
-            label
-        )
-
-        layout.addWidget(
-            value_label
-        )
-
-        return layout
-
-    # =====================================================
-    # ACTION BUTTONS
-    # =====================================================
-
-    def create_action_buttons(
-        self,
-        card
-    ):
-
-        buttons = QHBoxLayout()
-
-        buttons.setSpacing(
-            8
-        )
-
-        approve = QPushButton(
-            "✓ تأیید"
-        )
-
-        approve.setObjectName(
-            "approveButton"
-        )
-
-        approve.clicked.connect(
-            lambda: self.remove_card(card)
-        )
-
-        reject = QPushButton(
-            "رد کردن"
-        )
-
-        reject.setObjectName(
-            "rejectButton"
-        )
-
-        reject.clicked.connect(
-            lambda: self.remove_card(card)
-        )
-
-        buttons.addWidget(
-            approve
-        )
-
-        buttons.addWidget(
-            reject
-        )
-
-        buttons.addStretch()
-
-        return buttons
-
-    # =====================================================
-    # CALCULATE DURATION
-    # =====================================================
-
-    def calculate_duration(
-        self,
-        start_time,
-        end_time
-    ):
-
-        start = QTime.fromString(
-            start_time,
-            "HH:mm"
-        )
-
-        end = QTime.fromString(
-            end_time,
-            "HH:mm"
-        )
-
-        if not start.isValid() or not end.isValid():
-            return "نامشخص"
-
-        seconds = start.secsTo(
-            end
-        )
-
-        if seconds < 0:
-            seconds += 24 * 60 * 60
-
-        hours = seconds // 3600
-
-        minutes = (
-            seconds % 3600
-        ) // 60
-
-        return f"{hours} ساعت و {minutes} دقیقه"
-
-    # =====================================================
-    # REMOVE CARD
-    # =====================================================
-
-    def remove_card(
-        self,
-        card
-    ):
-
-        card.deleteLater()
-
-    # =====================================================
-    # EDIT ATTENDANCE
-    # =====================================================
-
-    def edit_attendance(
-        self,
-        card,
-        name,
-        date,
-        start_time,
-        end_time
-    ):
-
-        dialog = QDialog(
-            self
-        )
-
-        dialog.setWindowTitle(
-            "ویرایش حضور و غیاب"
-        )
-
-        dialog.setFixedSize(
-            430,
-            340
-        )
-
-        dialog.setLayoutDirection(
-            Qt.RightToLeft
-        )
-
-        layout = QVBoxLayout(
-            dialog
-        )
-
-        layout.setContentsMargins(
-            24,
-            24,
-            24,
-            24
-        )
-
-        layout.setSpacing(
-            12
-        )
-
-        title = QLabel(
-            f"ویرایش حضور و غیاب {name}"
-        )
-
-        title.setObjectName(
-            "editTitle"
-        )
-
-        layout.addWidget(
-            title
-        )
-
-        date_label = QLabel(
-            date
-        )
-
-        date_label.setObjectName(
-            "requestDate"
-        )
-
-        layout.addWidget(
-            date_label
-        )
-
-        # -----------------------------------------------
-        # START
-        # -----------------------------------------------
-
-        start_label = QLabel(
-            "ساعت ورود"
-        )
-
-        start_input = QLineEdit(
-            start_time
-        )
-
-        start_input.setPlaceholderText(
-            "مثلاً 08:00"
-        )
-
-        layout.addWidget(
-            start_label
-        )
-
-        layout.addWidget(
-            start_input
-        )
-
-        # -----------------------------------------------
-        # END
-        # -----------------------------------------------
-
-        end_label = QLabel(
-            "ساعت خروج"
-        )
-
-        end_input = QLineEdit(
-            end_time
-        )
-
-        end_input.setPlaceholderText(
-            "مثلاً 17:00"
-        )
-
-        layout.addWidget(
-            end_label
-        )
-
-        layout.addWidget(
-            end_input
-        )
-
-        layout.addStretch()
-
-        # -----------------------------------------------
-        # BUTTONS
-        # -----------------------------------------------
-
-        buttons = QHBoxLayout()
-
-        save_button = QPushButton(
-            "ذخیره"
-        )
-
-        save_button.setObjectName(
-            "approveButton"
-        )
-
-        cancel_button = QPushButton(
-            "انصراف"
-        )
-
-        cancel_button.setObjectName(
-            "rejectButton"
-        )
-
-        buttons.addWidget(
-            save_button
-        )
-
-        buttons.addWidget(
-            cancel_button
-        )
-
-        layout.addLayout(
-            buttons
-        )
-
-        cancel_button.clicked.connect(
-            dialog.reject
-        )
-
-        save_button.clicked.connect(
-            lambda: self.save_attendance_edit(
-                dialog,
-                card,
-                name,
-                date,
-                start_input,
-                end_input
-            )
-        )
-
-        dialog.setStyleSheet("""
-            QDialog {
-                background: #F5F8FC;
-            }
-
-            QLabel#editTitle {
-                color: #1E2F43;
-                font-size: 17px;
-                font-weight: 700;
-            }
-
-            QLabel {
-                color: #65758A;
-                font-size: 12px;
-            }
-
-            QLineEdit {
-                background: white;
-                border: 1px solid #E2EAF4;
-                border-radius: 10px;
-                padding: 10px 12px;
-                color: #1E2F43;
-                font-size: 13px;
-            }
-
-            QLineEdit:focus {
-                border: 1px solid #4589E8;
-            }
-
-            QPushButton#approveButton {
-                background: #1961C7;
-                color: white;
-                border: none;
-                border-radius: 9px;
-                padding: 9px 18px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-
-            QPushButton#approveButton:hover {
-                background: #4589E8;
-            }
-
-            QPushButton#rejectButton {
-                background: #EAF3FF;
-                color: #1961C7;
-                border: none;
-                border-radius: 9px;
-                padding: 9px 18px;
-                font-size: 12px;
-            }
-
-            QPushButton#rejectButton:hover {
-                background: #DCEBFF;
-            }
-        """)
-
-        dialog.exec()
-
-    # =====================================================
-    # SAVE ATTENDANCE EDIT
-    # =====================================================
-
-    def save_attendance_edit(
-        self,
-        dialog,
-        card,
-        name,
-        date,
-        start_input,
-        end_input
-    ):
-
-        start_time = start_input.text().strip()
-
-        end_time = end_input.text().strip()
-
-        start = QTime.fromString(
-            start_time,
-            "HH:mm"
-        )
-
-        end = QTime.fromString(
-            end_time,
-            "HH:mm"
-        )
-
-        if not start.isValid() or not end.isValid():
+    def load_items(self):
+        self.all_items = []
+
+        if not self.complex_id:
+            self.refresh_records()
             return
 
-        duration = self.calculate_duration(
-            start_time,
-            end_time
-        )
-
-        card.deleteLater()
-
-        new_card = self.create_attendance_card(
-            name,
-            date,
-            start_time,
-            end_time
-        )
-
-        parent = self.scroll.widget()
-
-        content_layout = parent.layout()
-
-        # پیدا کردن محل مناسب برای کارت جدید
-        for i in range(
-            content_layout.count()
-        ):
-
-            item = content_layout.itemAt(
-                i
+        try:
+            rows = self.db.fetch_all(
+                """
+                SELECT ej.employeeJobId, ej.jobId, ej.memberId, ej.assignedBy,
+                       ej.assignedDate, ej.startDate, ej.deadline, ej.quantity,
+                       ej.price, ej.status, ej.description, ej.completedDate,
+                       u.name AS employee_name,
+                       au.name AS assigner_name,
+                       j.jobTitle
+                FROM employee_jobs ej
+                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                LEFT JOIN users au ON au.userId = ej.assignedBy
+                LEFT JOIN jobs j ON j.jobId = ej.jobId
+                WHERE cm.complexId = %s
+                ORDER BY ej.assignedDate DESC
+                LIMIT 100
+                """,
+                (self.complex_id,)
             )
 
-            widget = item.widget()
+            for r in rows or []:
+                self.all_items.append({
+                    "id": r["employeeJobId"],
+                    "job_id": r.get("jobId"),
+                    "member_id": r.get("memberId"),
+                    "title": r.get("jobTitle") or tr("job_no_desc"),
+                    "employee_name": r.get("employee_name") or "—",
+                    "assigner_name": r.get("assigner_name") or "—",
+                    "start_date": r.get("startDate"),
+                    "deadline": r.get("deadline"),
+                    "quantity": r.get("quantity"),
+                    "price": r.get("price"),
+                    "status": (r.get("status") or "pending"),
+                    "description": r.get("description") or "",
+                    "completed_date": r.get("completedDate"),
+                })
 
-            if widget:
+        except Exception as e:
+            print("CARTABLE LOAD ERROR:", e)
 
-                title = widget.findChild(
-                    QLabel,
-                    "employeeName"
+        self.refresh_records()
+
+    # =====================================================
+    # REFRESH
+    # =====================================================
+
+    def refresh_records(self):
+        while self.scroll_layout.count():
+            item = self.scroll_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        if self.current_filter == "all":
+            filtered = self.all_items
+        else:
+            filtered = [i for i in self.all_items if i["status"] == self.current_filter]
+
+        if not filtered:
+            empty = QLabel(tr("no_cartable_items"))
+            empty.setObjectName("emptyLabel")
+            empty.setAlignment(Qt.AlignCenter)
+            self.scroll_layout.addWidget(empty)
+            self.scroll_layout.addStretch()
+            return
+
+        for it in filtered:
+            self.scroll_layout.addWidget(self.create_item_card(it))
+
+        self.scroll_layout.addStretch()
+
+    # =====================================================
+    # ITEM CARD
+    # =====================================================
+
+    def create_item_card(self, item):
+
+        card = QFrame()
+        card.setObjectName("itemCard")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(14)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(3)
+
+        title = QLabel(item["title"])
+        title.setObjectName("itemTitle")
+        title.setWordWrap(True)
+
+        emp = QLabel(f"{tr('job_assigned_to')}: {item['employee_name']}")
+        emp.setObjectName("itemName")
+
+        info1 = QLabel(
+            f"{tr('job_start_date')}: {jalali_str(item['start_date'])}   •   "
+            f"{tr('job_deadline')}: {jalali_str(item['deadline'])}"
+        )
+        info1.setObjectName("itemInfo")
+
+        qty_text = f"{item['quantity']:g}" if item.get("quantity") else "-"
+        price_text = f"{format_money(item['price'])} {tr('toman')}" if item.get("price") else "-"
+        info2 = QLabel(f"{tr('job_quantity')}: {qty_text}   •   {tr('job_price')}: {price_text}")
+        info2.setObjectName("itemInfo")
+
+        text_col.addWidget(title)
+        text_col.addWidget(emp)
+        text_col.addWidget(info1)
+        text_col.addWidget(info2)
+
+        if item.get("description"):
+            desc = QLabel(item["description"])
+            desc.setObjectName("itemDesc")
+            desc.setWordWrap(True)
+            text_col.addWidget(desc)
+
+        layout.addLayout(text_col, 1)
+
+        right_col = QVBoxLayout()
+        right_col.setSpacing(6)
+        right_col.setAlignment(Qt.AlignTop)
+
+        status = item["status"]
+        if status == "completed":
+            badge = QLabel(tr("cartable_completed"))
+            badge.setObjectName("statusCompleted")
+        elif status == "inProgress":
+            badge = QLabel(tr("cartable_in_progress"))
+            badge.setObjectName("statusInProgress")
+        elif status == "rejected":
+            badge = QLabel(tr("cartable_rejected"))
+            badge.setObjectName("statusRejected")
+        elif status == "cancelled":
+            badge = QLabel(tr("cartable_cancelled"))
+            badge.setObjectName("statusCancelled")
+        else:
+            badge = QLabel(tr("cartable_pending"))
+            badge.setObjectName("statusPending")
+
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setFixedHeight(26)
+        right_col.addWidget(badge)
+
+        if status == "pending":
+            approve_btn = QPushButton(tr("approve_job"))
+            approve_btn.setObjectName("approveBtn")
+            approve_btn.setCursor(Qt.PointingHandCursor)
+            approve_btn.clicked.connect(lambda checked=False, i=item: self.approve_item(i))
+            right_col.addWidget(approve_btn)
+
+            reject_btn = QPushButton(tr("reject_job"))
+            reject_btn.setObjectName("rejectBtn")
+            reject_btn.setCursor(Qt.PointingHandCursor)
+            reject_btn.clicked.connect(lambda checked=False, i=item: self.reject_item(i))
+            right_col.addWidget(reject_btn)
+
+        right_col.addStretch()
+        layout.addLayout(right_col)
+
+        return card
+
+    # =====================================================
+    # APPROVE / REJECT
+    # =====================================================
+
+    def approve_item(self, item):
+        item_id = item["id"]
+
+        try:
+            self.db.execute(
+                """
+                UPDATE employee_jobs
+                SET status = 'completed', completedDate = NOW()
+                WHERE employeeJobId = %s
+                """,
+                (item_id,)
+            )
+
+            if self.user_id:
+                self.db.execute(
+                    """
+                    INSERT INTO job_approvals (employeeJobId, approvedBy, status, approvalDate)
+                    VALUES (%s, %s, 'approved', NOW())
+                    """,
+                    (item_id, self.user_id)
                 )
 
-                if title and title.text() == name:
-                    content_layout.insertWidget(
-                        i,
-                        new_card
-                    )
-                    break
+            self.load_items()
 
-        dialog.accept()
+            # ─── به بقیه پنجره‌ها خبر بده ───
+            signals.data_changed.emit("jobs")
+
+            NiceMessageBox.success(
+                self, tr("job_approved"),
+                tr("job_approved_msg", name=item.get("employee_name", ""))
+            )
+
+        except Exception as e:
+            print("APPROVE ERROR:", e)
+            NiceMessageBox.error(self, tr("error"), tr("job_approve_failed"))
+
+    def reject_item(self, item):
+        item_id = item["id"]
+
+        try:
+            self.db.execute(
+                """
+                UPDATE employee_jobs
+                SET status = 'rejected'
+                WHERE employeeJobId = %s
+                """,
+                (item_id,)
+            )
+
+            if self.user_id:
+                self.db.execute(
+                    """
+                    INSERT INTO job_approvals (employeeJobId, approvedBy, status, approvalDate)
+                    VALUES (%s, %s, 'rejected', NOW())
+                    """,
+                    (item_id, self.user_id)
+                )
+
+            self.load_items()
+            signals.data_changed.emit("jobs")
+
+            NiceMessageBox.warning(
+                self, tr("job_rejected"),
+                tr("job_rejected_msg", name=item.get("employee_name", ""))
+            )
+
+        except Exception as e:
+            print("REJECT ERROR:", e)
+            NiceMessageBox.error(self, tr("error"), tr("job_reject_failed"))

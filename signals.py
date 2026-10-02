@@ -3,17 +3,19 @@ from PySide6.QtCore import QObject, Signal
 
 class AppSignals(QObject):
 
-    # وقتی کارمند اضافه شد → complex_id
-    employee_added = Signal(int)
+    # ─── کارمندان ───
+    employee_added = Signal(int)      # complex_id
+    employee_removed = Signal(int)    # complex_id
+    employee_updated = Signal(int)    # complex_id
 
-    # وقتی کارمند حذف شد → complex_id
-    employee_removed = Signal(int)
+    # ─── مجموعه‌ها ───
+    complex_changed = Signal(int)     # user_id
 
-    # وقتی کارمند ویرایش شد → complex_id
-    employee_updated = Signal(int)
+    # ─── تم / زبان ───
+    theme_changed = Signal(str)       # "light" / "dark"
+    language_changed = Signal(str)    # "fa" / "en" / "ar"
 
-    # وقتی مجموعه اضافه/حذف شد → user_id
-    complex_changed = Signal(int)
+    # ─── دیتای عمومی (حضور، مالی، کارتابل و...) ───
+    data_changed = Signal(str)        # kind: "attendance" / "finance" / "jobs" / "all"
 
-# نمونه‌ی سراسری
 signals = AppSignals()
