@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QLineEdit,
     QScrollArea,
+    QScrollBar,
     QBoxLayout,
     QStackedWidget,
     QComboBox,
@@ -18,11 +19,99 @@ from PySide6.QtWidgets import (
     QDialog
 )
 
-from PySide6.QtCore import Qt, QTimer, QTime, QPoint, QDate, Signal
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtCore import (
+    Qt, QTimer, QTime, QPoint, QDate, Signal, QRectF
+)
+from PySide6.QtGui import (
+    QPainter,
+    QColor,
+    QRegion,
+    QPainterPath
+)
 
 from database import Database
 from signals import signals
+
+# =========================================================
+# ROUND SCROLL BAR
+# =========================================================
+
+class RoundScrollBar(QScrollBar):
+
+    def __init__(self, orientation=Qt.Vertical, parent=None):
+        super().__init__(orientation, parent)
+
+        self.setFixedWidth(12)
+
+        self.setStyleSheet("""
+            QScrollBar {
+                background: transparent;
+                border: none;
+                margin: 0px;
+            }
+        """)
+
+    def paintEvent(self, event):
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        track_width = 6
+        track_x = (self.width() - track_width) / 2
+        track_top = 6
+        track_bottom = self.height() - 6
+        track_height = track_bottom - track_top
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#EEF3FA"))
+
+        painter.drawRoundedRect(
+            int(track_x),
+            int(track_top),
+            track_width,
+            int(track_height),
+            track_width / 2,
+            track_width / 2
+        )
+
+        minimum = self.minimum()
+        maximum = self.maximum()
+        page_step = self.pageStep()
+
+        if maximum <= minimum:
+            return
+
+        groove_top = 6
+        groove_bottom = self.height() - 6
+        groove_height = groove_bottom - groove_top
+
+        total_range = maximum - minimum + page_step
+
+        handle_height = int(groove_height * page_step / total_range)
+        handle_height = max(42, handle_height)
+        handle_height = min(handle_height, groove_height)
+
+        available_space = groove_height - handle_height
+
+        if maximum == minimum:
+            handle_y = groove_top
+        else:
+            value_ratio = (self.value() - minimum) / (maximum - minimum)
+            handle_y = groove_top + available_space * value_ratio
+
+        handle_width = 8
+        handle_x = (self.width() - handle_width) / 2
+
+        painter.setBrush(QColor("#4589E8"))
+
+        painter.drawRoundedRect(
+            int(handle_x),
+            int(handle_y),
+            handle_width,
+            int(handle_height),
+            handle_width / 2,
+            handle_width / 2
+        )
 
 # =========================================================
 # JALALI CONVERSION
@@ -187,7 +276,7 @@ def persian_date_long(qdate):
 # PERSIAN CALENDAR POPUP
 # =========================================================
 
-class PersianCalendarPopup(QFrame):
+class PersianCalendarPopup(QWidget):
 
     dateSelected = Signal(QDate)
 
@@ -214,35 +303,79 @@ class PersianCalendarPopup(QFrame):
         self.selected_jd = jd
 
         self.setWindowFlags(
-            Qt.Popup | Qt.FramelessWindowHint
+            Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
         )
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(290, 330)
+
+        self._radius = 18
+        self._margin = 6
+
+        self.setFixedSize(300, 350)
 
         self.build_ui()
         self.refresh_grid()
 
+    def paintEvent(self, event):
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        r = self._radius
+        m = self._margin
+
+        rect = self.rect().adjusted(m, m, -m, -m)
+
+        for i in range(6, 0, -1):
+
+            shadow_color = QColor(0, 0, 0, 4 + (6 - i) * 2)
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(shadow_color)
+
+            painter.drawRoundedRect(
+                rect.adjusted(-i, -i + 2, i, i + 2),
+                r + i,
+                r + i
+            )
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawRoundedRect(rect, r, r)
+
+        painter.setPen(QColor("#E2EAF4"))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(rect, r, r)
+
+        painter.end()
+
+    def resizeEvent(self, event):
+
+        super().resizeEvent(event)
+
+        path = QPainterPath()
+        path.addRoundedRect(
+            QRectF(self.rect()),
+            self._radius + self._margin,
+            self._radius + self._margin
+        )
+
+        polygon = path.toFillPolygon().toPolygon()
+        region = QRegion(polygon)
+
+        self.setMask(region)
+
     def build_ui(self):
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-
-        card = QFrame()
-        card.setObjectName("persianCalendarCard")
-
-        card.setStyleSheet("""
-            QFrame#persianCalendarCard {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
-                border-radius: 18px;
-            }
-        """)
-
-        outer.addWidget(card)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            self._margin + 14,
+            self._margin + 14,
+            self._margin + 14,
+            self._margin + 14
+        )
         layout.setSpacing(8)
 
         header = QHBoxLayout()
@@ -734,10 +867,6 @@ class AttendanceWindow(QWidget):
         self.timer.start(1000)
         self.update_clock()
 
-    # =====================================================
-    # SIGNAL HANDLER
-    # =====================================================
-
     def on_employee_changed(self, complex_id):
         if complex_id != self.complex_id:
             return
@@ -747,10 +876,6 @@ class AttendanceWindow(QWidget):
                 self.refresh_employees_attendance()
             except Exception as e:
                 print("REFRESH EMP ATTENDANCE ERROR:", e)
-
-    # =====================================================
-    # LOAD USER DATA
-    # =====================================================
 
     def load_user_data(self):
 
@@ -849,9 +974,34 @@ class AttendanceWindow(QWidget):
             except Exception:
                 pass
 
-    # =====================================================
-    # SETUP UI
-    # =====================================================
+    def make_rounded_scroll(self, content_widget):
+
+        scroll = QScrollArea()
+        scroll.setObjectName("attendanceScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        scroll.setStyleSheet("""
+            QScrollArea#attendanceScroll {
+                background: transparent;
+                border: none;
+                border-radius: 20px;
+            }
+            QScrollArea#attendanceScroll::viewport {
+                background: transparent;
+                border: none;
+                border-radius: 20px;
+            }
+        """)
+
+        vbar = RoundScrollBar(Qt.Vertical, scroll)
+        scroll.setVerticalScrollBar(vbar)
+
+        scroll.setWidget(content_widget)
+
+        return scroll
 
     def setup_ui(self):
 
@@ -990,6 +1140,7 @@ class AttendanceWindow(QWidget):
             self.stack.addWidget(self.build_employees_tab())
 
             main_layout.addWidget(self.stack, 1)
+            self.refresh_my_attendance()
 
             self.switch_tab(0)
 
@@ -1091,6 +1242,19 @@ class AttendanceWindow(QWidget):
                 background-color: #B8C9DD;
             }
 
+            QPushButton#addOvertimeButton {
+                background-color: #FFF4DD;
+                color: #B87900;
+                border: 1px solid #FDE68A;
+                border-radius: 14px;
+                padding: 0 24px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton#addOvertimeButton:hover {
+                background-color: #FDE68A;
+            }
+
             QLabel#sectionTitle {
                 color: #17324D;
                 font-size: 15px;
@@ -1123,6 +1287,13 @@ class AttendanceWindow(QWidget):
 
             QLabel#historyHours {
                 color: #1961C7;
+                font-size: 11px;
+                font-weight: 700;
+                background: transparent;
+            }
+
+            QLabel#historyOvertime {
+                color: #B87900;
                 font-size: 11px;
                 font-weight: 700;
                 background: transparent;
@@ -1278,20 +1449,6 @@ class AttendanceWindow(QWidget):
                 background: transparent;
             }
 
-            QFrame#employeesContainer {
-                background-color: #FFFFFF;
-                border: 1px solid #E2EAF4;
-                border-radius: 24px;
-            }
-
-            QLabel#containerTitle {
-                color: #17324D;
-                font-size: 14px;
-                font-weight: 700;
-                background: transparent;
-                padding: 0px 4px;
-            }
-
             QScrollArea {
                 background: transparent;
                 border: none;
@@ -1307,29 +1464,7 @@ class AttendanceWindow(QWidget):
             }
 
             QScrollBar:vertical {
-                width: 10px;
-                background: #E8EEF6;
-                border: none;
-                border-radius: 5px;
-                margin: 4px 2px;
-            }
-            QScrollBar::handle:vertical {
-                background: #4589E8;
-                border: none;
-                border-radius: 5px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #1961C7;
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-                background: transparent;
-                border: none;
-            }
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
+                width: 0px;
                 background: transparent;
                 border: none;
             }
@@ -1340,10 +1475,6 @@ class AttendanceWindow(QWidget):
             }
 
         """)
-
-    # =====================================================
-    # SWITCH TAB
-    # =====================================================
 
     def switch_tab(self, index):
 
@@ -1373,10 +1504,6 @@ class AttendanceWindow(QWidget):
 
         if self.is_owner:
             self.refresh_employees_attendance()
-
-    # =====================================================
-    # TAB 1: MY ATTENDANCE
-    # =====================================================
 
     def build_my_attendance_tab(self):
 
@@ -1462,33 +1589,37 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(today_card)
 
+        add_ot_row = QHBoxLayout()
+        add_ot_row.setSpacing(8)
+
+        self.add_ot_btn = QPushButton("➕  ثبت اضافه‌کار")
+        self.add_ot_btn.setObjectName("addOvertimeButton")
+        self.add_ot_btn.setFixedHeight(44)
+        self.add_ot_btn.setCursor(Qt.PointingHandCursor)
+        self.add_ot_btn.clicked.connect(self.open_add_overtime_dialog)
+
+        add_ot_row.addWidget(self.add_ot_btn)
+        add_ot_row.addStretch()
+
+        layout.addLayout(add_ot_row)
+
         history_title = QLabel("سوابق حضور و غیاب")
         history_title.setObjectName("sectionTitle")
 
         layout.addWidget(history_title)
 
-        history_scroll = QScrollArea()
-        history_scroll.setWidgetResizable(True)
-        history_scroll.setFrameShape(QFrame.NoFrame)
-        history_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        history_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
         history_content = QWidget()
         history_content.setObjectName("historyContent")
 
         self.my_history_layout = QVBoxLayout(history_content)
-        self.my_history_layout.setContentsMargins(4, 4, 16, 4)
+        self.my_history_layout.setContentsMargins(4, 4, 12, 4)
         self.my_history_layout.setSpacing(8)
 
-        history_scroll.setWidget(history_content)
+        scroll = self.make_rounded_scroll(history_content)
 
-        layout.addWidget(history_scroll, 1)
+        layout.addWidget(scroll, 1)
 
         return widget
-
-    # =====================================================
-    # TAB 2: EMPLOYEES ATTENDANCE
-    # =====================================================
 
     def build_employees_tab(self):
 
@@ -1499,7 +1630,6 @@ class AttendanceWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # فیلتر بالا
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
 
@@ -1535,30 +1665,6 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(filter_box)
 
-        # =================================================
-        # CONTAINER — باکس پهن گرد دور کارت‌های کارمندان
-        # =================================================
-
-        employees_container = QFrame()
-        employees_container.setObjectName("employeesContainer")
-        employees_container.setAttribute(Qt.WA_StyledBackground, True)
-
-        container_layout = QVBoxLayout(employees_container)
-        container_layout.setContentsMargins(18, 16, 18, 16)
-        container_layout.setSpacing(10)
-
-        container_title = QLabel("لیست کارمندان")
-        container_title.setObjectName("containerTitle")
-        container_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
-
-        container_layout.addWidget(container_title)
-
-        emp_scroll = QScrollArea()
-        emp_scroll.setWidgetResizable(True)
-        emp_scroll.setFrameShape(QFrame.NoFrame)
-        emp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        emp_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
         emp_content = QWidget()
         emp_content.setObjectName("empContent")
 
@@ -1566,17 +1672,11 @@ class AttendanceWindow(QWidget):
         self.emp_list_layout.setContentsMargins(4, 4, 12, 4)
         self.emp_list_layout.setSpacing(8)
 
-        emp_scroll.setWidget(emp_content)
+        scroll = self.make_rounded_scroll(emp_content)
 
-        container_layout.addWidget(emp_scroll)
-
-        layout.addWidget(employees_container, 1)
+        layout.addWidget(scroll, 1)
 
         return widget
-
-    # =====================================================
-    # TIME BOX / SMALL BOX
-    # =====================================================
 
     def create_time_box(self, title_text):
 
@@ -1684,10 +1784,6 @@ class AttendanceWindow(QWidget):
 
         return box
 
-    # =====================================================
-    # CLOCK
-    # =====================================================
-
     def update_clock(self):
 
         now = QTime.currentTime()
@@ -1700,10 +1796,6 @@ class AttendanceWindow(QWidget):
 
         now = QTime.currentTime()
         return QTime(now.hour(), now.minute(), 0)
-
-    # =====================================================
-    # REFRESH MY ATTENDANCE
-    # =====================================================
 
     def refresh_my_attendance(self):
 
@@ -1814,6 +1906,7 @@ class AttendanceWindow(QWidget):
                 checkIn,
                 checkOut,
                 workedMinutes,
+                overtimeMinutes,
                 approvalStatus
             FROM attendance
             WHERE memberId = %s
@@ -1847,10 +1940,6 @@ class AttendanceWindow(QWidget):
             self.my_history_layout.addWidget(card)
 
         self.my_history_layout.addStretch()
-
-    # =====================================================
-    # CREATE HISTORY CARD
-    # =====================================================
 
     def create_history_card(self, row):
 
@@ -1910,6 +1999,17 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(hours_label, 1)
 
+        ot = row.get("overtimeMinutes") or 0
+
+        if ot > 0:
+            ot_h = ot // 60
+            ot_m = ot % 60
+
+            ot_label = QLabel(f"اضافه‌کار: {ot_h}س {ot_m}د")
+            ot_label.setObjectName("historyOvertime")
+
+            layout.addWidget(ot_label, 1)
+
         approval = row.get("approvalStatus") or "pending"
 
         if approval == "approved":
@@ -1927,10 +2027,6 @@ class AttendanceWindow(QWidget):
         layout.addWidget(badge)
 
         return card
-
-    # =====================================================
-    # REGISTER ENTRY / EXIT
-    # =====================================================
 
     def register_entry(self):
 
@@ -2023,9 +2119,326 @@ class AttendanceWindow(QWidget):
 
         self.refresh_my_attendance()
 
-    # =====================================================
-    # LIVE CALCULATIONS
-    # =====================================================
+    def open_add_overtime_dialog(self):
+
+        if not self.member_id:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("ثبت اضافه‌کار")
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setMinimumWidth(440)
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(10)
+
+        title = QLabel("➕  ثبت اضافه‌کار")
+        title.setStyleSheet("""
+            color: #17324D;
+            font-size: 16px;
+            font-weight: 700;
+            background: transparent;
+        """)
+
+        layout.addWidget(title)
+
+        subtitle = QLabel("تاریخ و مدت اضافه‌کار را وارد کنید")
+        subtitle.setStyleSheet("""
+            color: #8290A1;
+            font-size: 11px;
+            background: transparent;
+        """)
+
+        layout.addWidget(subtitle)
+        layout.addSpacing(4)
+
+        date_lbl = QLabel("تاریخ")
+        date_lbl.setStyleSheet("""
+            color: #526273;
+            font-size: 12px;
+            font-weight: 600;
+            background: transparent;
+        """)
+
+        date_picker = PersianDateButton()
+
+        layout.addWidget(date_lbl)
+        layout.addWidget(date_picker)
+
+        layout.addSpacing(4)
+
+        time_lbl = QLabel("مدت اضافه‌کار")
+        time_lbl.setStyleSheet("""
+            color: #526273;
+            font-size: 12px;
+            font-weight: 600;
+            background: transparent;
+        """)
+
+        layout.addWidget(time_lbl)
+
+        time_row = QHBoxLayout()
+        time_row.setSpacing(8)
+
+        hours_col = QVBoxLayout()
+        hours_col.setSpacing(2)
+
+        hours_lbl = QLabel("ساعت")
+        hours_lbl.setStyleSheet("""
+            color: #8290A1;
+            font-size: 10px;
+            background: transparent;
+        """)
+
+        hours_input = QLineEdit()
+        hours_input.setFixedHeight(42)
+        hours_input.setPlaceholderText("0")
+        hours_input.setLayoutDirection(Qt.LeftToRight)
+        hours_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #F7F9FC;
+                border: 1px solid #DCE6F2;
+                border-radius: 12px;
+                padding: 0 14px;
+                color: #17324D;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLineEdit:focus {
+                background: #FFFFFF;
+                border: 2px solid #4589E8;
+            }
+        """)
+
+        hours_col.addWidget(hours_lbl)
+        hours_col.addWidget(hours_input)
+
+        mins_col = QVBoxLayout()
+        mins_col.setSpacing(2)
+
+        mins_lbl = QLabel("دقیقه")
+        mins_lbl.setStyleSheet("""
+            color: #8290A1;
+            font-size: 10px;
+            background: transparent;
+        """)
+
+        mins_input = QLineEdit()
+        mins_input.setFixedHeight(42)
+        mins_input.setPlaceholderText("0")
+        mins_input.setLayoutDirection(Qt.LeftToRight)
+        mins_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #F7F9FC;
+                border: 1px solid #DCE6F2;
+                border-radius: 12px;
+                padding: 0 14px;
+                color: #17324D;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QLineEdit:focus {
+                background: #FFFFFF;
+                border: 2px solid #4589E8;
+            }
+        """)
+
+        mins_col.addWidget(mins_lbl)
+        mins_col.addWidget(mins_input)
+
+        time_row.addLayout(hours_col, 1)
+        time_row.addLayout(mins_col, 1)
+
+        layout.addLayout(time_row)
+
+        layout.addSpacing(4)
+
+        desc_lbl = QLabel("توضیحات (اختیاری)")
+        desc_lbl.setStyleSheet("""
+            color: #526273;
+            font-size: 12px;
+            font-weight: 600;
+            background: transparent;
+        """)
+
+        desc_input = QLineEdit()
+        desc_input.setFixedHeight(42)
+        desc_input.setPlaceholderText("مثلاً: انجام پروژه‌ی خاص")
+        desc_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #F7F9FC;
+                border: 1px solid #DCE6F2;
+                border-radius: 12px;
+                padding: 0 14px;
+                color: #17324D;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                background: #FFFFFF;
+                border: 2px solid #4589E8;
+            }
+        """)
+
+        layout.addWidget(desc_lbl)
+        layout.addWidget(desc_input)
+
+        layout.addSpacing(8)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(10)
+
+        cancel_btn = QPushButton("انصراف")
+        cancel_btn.setFixedHeight(44)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F5F8FC;
+                color: #526273;
+                border: 1px solid #E2EAF4;
+                border-radius: 14px;
+                padding: 0 24px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #EAF3FF;
+            }
+        """)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        save_btn = QPushButton("ذخیره")
+        save_btn.setFixedHeight(44)
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1961C7;
+                color: white;
+                border: none;
+                border-radius: 14px;
+                padding: 0 28px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: #4589E8;
+            }
+        """)
+
+        def on_save():
+
+            h_text = hours_input.text().strip()
+            m_text = mins_input.text().strip()
+            desc_text = desc_input.text().strip()
+
+            try:
+                hours = int(h_text) if h_text else 0
+            except ValueError:
+                NiceMessageBox.warning(dialog, "خطا", "ساعت باید عدد باشد.")
+                return
+
+            try:
+                mins = int(m_text) if m_text else 0
+            except ValueError:
+                NiceMessageBox.warning(dialog, "خطا", "دقیقه باید عدد باشد.")
+                return
+
+            if hours < 0 or mins < 0:
+                NiceMessageBox.warning(dialog, "خطا", "مقدار منفی مجاز نیست.")
+                return
+
+            if mins >= 60:
+                NiceMessageBox.warning(dialog, "خطا", "دقیقه باید کمتر از ۶۰ باشد.")
+                return
+
+            total_minutes = hours * 60 + mins
+
+            if total_minutes <= 0:
+                NiceMessageBox.warning(dialog, "خطا", "لطفاً مقدار اضافه‌کار را وارد کنید.")
+                return
+
+            selected_qdate = date_picker.date()
+            selected_date_str = selected_qdate.toString("yyyy-MM-dd")
+
+            existing = self.db.fetch_one(
+                """
+                SELECT attendanceId, overtimeMinutes
+                FROM attendance
+                WHERE memberId = %s
+                  AND workDate = %s
+                LIMIT 1
+                """,
+                (self.member_id, selected_date_str)
+            )
+
+            if existing:
+
+                new_ot = int(existing.get("overtimeMinutes") or 0) + total_minutes
+
+                self.db.execute(
+                    """
+                    UPDATE attendance
+                    SET overtimeMinutes = %s,
+                        description = %s
+                    WHERE attendanceId = %s
+                    """,
+                    (
+                        new_ot,
+                        desc_text or existing.get("description"),
+                        existing["attendanceId"]
+                    )
+                )
+
+            else:
+
+                self.db.execute(
+                    """
+                    INSERT INTO attendance (
+                        memberId,
+                        workDate,
+                        overtimeMinutes,
+                        status,
+                        description,
+                        approvalStatus
+                    )
+                    VALUES (
+                        %s, %s, %s,
+                        'present', %s, 'pending'
+                    )
+                    """,
+                    (
+                        self.member_id,
+                        selected_date_str,
+                        total_minutes,
+                        desc_text or None
+                    )
+                )
+
+            dialog.accept()
+
+            NiceMessageBox.success(
+                self, "ثبت شد",
+                f"{hours} ساعت و {mins} دقیقه اضافه‌کار ثبت شد."
+            )
+
+            self.refresh_my_attendance()
+
+        save_btn.clicked.connect(on_save)
+
+        btns.addWidget(cancel_btn)
+        btns.addWidget(save_btn)
+
+        layout.addLayout(btns)
+
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #F5F8FC;
+                font-family: "Vazirmatn";
+            }
+        """)
+
+        dialog.exec()
 
     def update_live_calculations(self):
 
@@ -2093,10 +2506,6 @@ class AttendanceWindow(QWidget):
             return f"{hours} ساعت"
         return f"{hours} ساعت و {minutes} دقیقه"
 
-    # =====================================================
-    # REFRESH EMPLOYEES ATTENDANCE
-    # =====================================================
-
     def refresh_employees_attendance(self):
 
         if not self.is_owner or not self.complex_id:
@@ -2122,6 +2531,7 @@ class AttendanceWindow(QWidget):
                 a.checkIn,
                 a.checkOut,
                 a.workedMinutes,
+                a.overtimeMinutes,
                 a.approvalStatus,
                 a.description
             FROM complex_members cm
@@ -2162,10 +2572,6 @@ class AttendanceWindow(QWidget):
 
         self.emp_list_layout.addStretch()
 
-    # =====================================================
-    # CREATE EMPLOYEE ATTENDANCE CARD
-    # =====================================================
-
     def create_employee_attendance_card(self, row):
 
         card = QFrame()
@@ -2176,7 +2582,7 @@ class AttendanceWindow(QWidget):
         layout.setContentsMargins(18, 12, 18, 12)
         layout.setSpacing(12)
 
-        name_label = QLabel(row.get("name") or "بدون نام")
+        name_label = QLabel(row.get("name") or "کارمند")
         name_label.setObjectName("historyDate")
         name_label.setMinimumWidth(140)
 
@@ -2212,6 +2618,17 @@ class AttendanceWindow(QWidget):
         hours_label.setObjectName("historyHours")
 
         layout.addWidget(hours_label)
+
+        ot = row.get("overtimeMinutes") or 0
+
+        if ot > 0:
+            ot_h = ot // 60
+            ot_m = ot % 60
+
+            ot_label = QLabel(f"OT: {ot_h}س {ot_m}د")
+            ot_label.setObjectName("historyOvertime")
+
+            layout.addWidget(ot_label)
 
         approval = row.get("approvalStatus")
 
@@ -2272,10 +2689,6 @@ class AttendanceWindow(QWidget):
 
         return card
 
-    # =====================================================
-    # SAVE ATTENDANCE ROW
-    # =====================================================
-
     def save_attendance_row(self, row):
 
         attendance_id = row.get("attendanceId")
@@ -2316,10 +2729,6 @@ class AttendanceWindow(QWidget):
         )
 
         self.refresh_employees_attendance()
-
-    # =====================================================
-    # APPROVE / REJECT
-    # =====================================================
 
     def approve_attendance(self, row):
 
@@ -2379,23 +2788,19 @@ class AttendanceWindow(QWidget):
             f"حضور {row.get('name', 'کارمند')} رد شد."
         )
 
-    # =====================================================
-    # EDIT DIALOG
-    # =====================================================
-
     def open_edit_dialog(self, row):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("ویرایش حضور")
         dialog.setLayoutDirection(Qt.RightToLeft)
-        dialog.setMinimumWidth(420)
+        dialog.setMinimumWidth(440)
         dialog.setModal(True)
 
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(12)
 
-        name = row.get("name") or "بدون نام"
+        name = row.get("name") or "کارمند"
 
         title = QLabel(f"ویرایش حضور — {name}")
         title.setStyleSheet("""
@@ -2450,6 +2855,48 @@ class AttendanceWindow(QWidget):
 
         layout.addWidget(out_label)
         layout.addWidget(out_time)
+
+        ot_lbl = QLabel("اضافه‌کار")
+        ot_lbl.setStyleSheet("""
+            color: #526273;
+            font-size: 12px;
+            font-weight: 600;
+            background: transparent;
+        """)
+
+        layout.addWidget(ot_lbl)
+
+        ot_row = QHBoxLayout()
+        ot_row.setSpacing(8)
+
+        ot_h_col = QVBoxLayout()
+        ot_h_col.setSpacing(2)
+        ot_h_lbl = QLabel("ساعت")
+        ot_h_lbl.setStyleSheet("color: #8290A1; font-size: 10px; background: transparent;")
+        ot_h_input = QLineEdit()
+        ot_h_input.setFixedHeight(42)
+        ot_h_input.setLayoutDirection(Qt.LeftToRight)
+        ot_h_col.addWidget(ot_h_lbl)
+        ot_h_col.addWidget(ot_h_input)
+
+        ot_m_col = QVBoxLayout()
+        ot_m_col.setSpacing(2)
+        ot_m_lbl = QLabel("دقیقه")
+        ot_m_lbl.setStyleSheet("color: #8290A1; font-size: 10px; background: transparent;")
+        ot_m_input = QLineEdit()
+        ot_m_input.setFixedHeight(42)
+        ot_m_input.setLayoutDirection(Qt.LeftToRight)
+        ot_m_col.addWidget(ot_m_lbl)
+        ot_m_col.addWidget(ot_m_input)
+
+        current_ot = int(row.get("overtimeMinutes") or 0)
+        ot_h_input.setText(str(current_ot // 60))
+        ot_m_input.setText(str(current_ot % 60))
+
+        ot_row.addLayout(ot_h_col, 1)
+        ot_row.addLayout(ot_m_col, 1)
+
+        layout.addLayout(ot_row)
 
         desc_label = QLabel("توضیحات")
         desc_label.setStyleSheet("""
@@ -2538,6 +2985,25 @@ class AttendanceWindow(QWidget):
             delta = out_dt - in_dt
             worked = max(0, int(delta.total_seconds() // 60))
 
+            try:
+                ot_h = int(ot_h_input.text().strip() or 0)
+            except ValueError:
+                ot_h = 0
+
+            try:
+                ot_m = int(ot_m_input.text().strip() or 0)
+            except ValueError:
+                ot_m = 0
+
+            if ot_h < 0:
+                ot_h = 0
+            if ot_m < 0:
+                ot_m = 0
+            if ot_m >= 60:
+                ot_m = 59
+
+            total_ot = ot_h * 60 + ot_m
+
             if attendance_id:
 
                 self.db.execute(
@@ -2546,6 +3012,7 @@ class AttendanceWindow(QWidget):
                     SET checkIn = %s,
                         checkOut = %s,
                         workedMinutes = %s,
+                        overtimeMinutes = %s,
                         description = %s
                     WHERE attendanceId = %s
                     """,
@@ -2553,6 +3020,7 @@ class AttendanceWindow(QWidget):
                         in_dt,
                         out_dt,
                         worked,
+                        total_ot,
                         desc_input.text().strip() or None,
                         attendance_id
                     )
@@ -2568,12 +3036,13 @@ class AttendanceWindow(QWidget):
                         checkIn,
                         checkOut,
                         workedMinutes,
+                        overtimeMinutes,
                         status,
                         description,
                         approvalStatus
                     )
                     VALUES (
-                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s,
                         'present', %s, 'approved'
                     )
                     """,
@@ -2583,6 +3052,7 @@ class AttendanceWindow(QWidget):
                         in_dt,
                         out_dt,
                         worked,
+                        total_ot,
                         desc_input.text().strip() or None
                     )
                 )

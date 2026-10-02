@@ -8,16 +8,25 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QFrame,
     QScrollArea,
-    QScrollBar
+    QScrollBar,
+    QDialog,
+    QLineEdit,
+    QComboBox,
+    QTimeEdit,
+    QCheckBox
 )
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QColor
+from PySide6.QtCore import Qt, QTime, QPoint
+from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QColor, QRegion
 
 from database import Database
 from signals import signals
 
-from addEmployees import AddEmployees
+from addEmployees import (
+    AddEmployees,
+    NiceMessageBox,
+    RoundedComboBox
+)
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -75,7 +84,6 @@ class RoundScrollBar(QScrollBar):
         total_range = maximum - minimum + page_step
 
         handle_height = int(groove_height * page_step / total_range)
-
         handle_height = max(42, handle_height)
         handle_height = min(handle_height, groove_height)
 
@@ -100,6 +108,54 @@ class RoundScrollBar(QScrollBar):
             handle_width / 2,
             handle_width / 2
         )
+
+# =========================================================
+# CIRCLE MENU BUTTON — QPushButton با mask دایره‌ای
+# =========================================================
+
+class CircleMenuButton(QPushButton):
+    """
+    دکمه‌ی سه نقطه — دایره‌ی کامل با QPushButton و setMask
+    """
+
+    def __init__(self, size=36, parent=None):
+
+        super().__init__("⋮", parent)
+
+        self._size = size
+
+        self.setFixedSize(size, size)
+        self.setCursor(Qt.PointingHandCursor)
+
+        self.setFlat(True)
+        self.setAutoFillBackground(False)
+
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: #EAF3FF;
+                color: #1961C7;
+                border: none;
+                border-radius: 18px;
+                padding: 0px;
+                font-size: 18px;
+                font-weight: 900;
+            }
+            QPushButton:hover {
+                background-color: #D8E9FF;
+            }
+            QPushButton:pressed {
+                background-color: #C8DDF5;
+            }
+        """)
+
+        self._apply_mask()
+
+    def _apply_mask(self):
+        self.setMask(QRegion(self.rect(), QRegion.Ellipse))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_mask()
 
 # =========================================================
 # ROUNDED AVATAR
@@ -174,9 +230,8 @@ class EmployeesWindow(QWidget):
         self.setMinimumSize(600, 450)
         self.setLayoutDirection(Qt.RightToLeft)
 
-        self.full_time_hours_per_day = 8
-        self.part_time_hours_per_day = 4
-        self.default_work_days_per_month = 26
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("employeesWindow")
 
         self.setup_ui()
 
@@ -240,10 +295,7 @@ class EmployeesWindow(QWidget):
         main_layout.setContentsMargins(28, 22, 28, 22)
         main_layout.setSpacing(16)
 
-        # =================================================
         # HEADER
-        # =================================================
-
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
 
@@ -280,10 +332,7 @@ class EmployeesWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # =================================================
         # EMPLOYEES BOX
-        # =================================================
-
         employees_box = QFrame()
         employees_box.setObjectName("employeesBox")
         employees_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -292,10 +341,7 @@ class EmployeesWindow(QWidget):
         employees_layout.setContentsMargins(18, 18, 18, 18)
         employees_layout.setSpacing(8)
 
-        # =================================================
         # SCROLL
-        # =================================================
-
         self.scroll = QScrollArea()
         self.scroll.setObjectName("employeesScroll")
         self.scroll.setWidgetResizable(True)
@@ -320,21 +366,18 @@ class EmployeesWindow(QWidget):
 
         main_layout.addWidget(employees_box)
 
-        # =================================================
-        # EMPLOYEES
-        # =================================================
-
         self.employees = []
 
-        # =================================================
         # STYLE
-        # =================================================
-
         self.setStyleSheet("""
 
-        QWidget {
+        QWidget#employeesWindow {
             background-color: #F5F8FC;
             font-family: "Vazirmatn";
+        }
+
+        QWidget#employeesWindow QLabel {
+            background: transparent;
         }
 
         QLabel#pageTitle {
@@ -406,7 +449,6 @@ class EmployeesWindow(QWidget):
             font-size: 14px;
             font-weight: 700;
             background: transparent;
-            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeProfession {
@@ -414,14 +456,12 @@ class EmployeesWindow(QWidget):
             font-size: 11px;
             font-weight: 600;
             background: transparent;
-            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeJob {
             color: #617287;
             font-size: 11px;
             background: transparent;
-            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeJobValue {
@@ -429,14 +469,12 @@ class EmployeesWindow(QWidget):
             font-size: 11px;
             font-weight: 600;
             background: transparent;
-            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeInfo {
             color: #617287;
             font-size: 10px;
             background: transparent;
-            qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
         }
 
         QLabel#employeeSalary {
@@ -527,7 +565,6 @@ class EmployeesWindow(QWidget):
                     cm.isActive,
                     u.name,
                     u.phoneNumber,
-                    u.imageBase64,
                     ep.jobTitle,
                     ep.nationalCode,
                     ep.employmentType,
@@ -537,7 +574,9 @@ class EmployeesWindow(QWidget):
                     ep.workHours,
                     ep.workStartTime,
                     ep.workEndTime,
-                    ep.description
+                    ep.description,
+                    ep.canSeeEmployees,
+                    ep.allowOvertime
                 FROM complex_members cm
                 INNER JOIN users u
                     ON u.userId = cm.userId
@@ -602,16 +641,22 @@ class EmployeesWindow(QWidget):
                     "phone": row.get("phoneNumber") or "-",
                     "work_type": work_type,
                     "salary_type": salary_type_text,
+                    "salary_type_value": salary_type or "monthly",
+                    "employment_type_value": employment_type or "fullTime",
                     "salary": float(row.get("baseSalary") or 0),
-                    "work_days": float(row.get("workDays") or 0),
-                    "work_hours": float(row.get("workHours") or 0),
+                    "work_days": float(row.get("workDays") or 26),
+                    "work_hours": float(row.get("workHours") or 8),
                     "work_time": work_time_text,
+                    "work_start_time": row.get("workStartTime"),
+                    "work_end_time": row.get("workEndTime"),
                     "status": status,
                     "avatar": "men.png",
                     "national_code": row.get("nationalCode") or "",
                     "start_time": start_time,
                     "end_time": end_time,
-                    "description": row.get("description") or ""
+                    "description": row.get("description") or "",
+                    "can_see_employees": row.get("canSeeEmployees") or "0",
+                    "allow_overtime": row.get("allowOvertime") or "1"
                 }
 
                 self.employees.append(employee)
@@ -739,10 +784,7 @@ class EmployeesWindow(QWidget):
         card_layout.setContentsMargins(16, 14, 16, 14)
         card_layout.setSpacing(16)
 
-        # =================================================
         # AVATAR
-        # =================================================
-
         avatar = RoundedAvatar(60)
 
         avatar_path = os.path.join(
@@ -756,10 +798,7 @@ class EmployeesWindow(QWidget):
 
         card_layout.addWidget(avatar, 0, Qt.AlignTop)
 
-        # =================================================
-        # MAIN INFO — همه راست‌چین
-        # =================================================
-
+        # MAIN INFO
         info_widget = QWidget()
         info_widget.setStyleSheet("background: transparent;")
 
@@ -830,10 +869,7 @@ class EmployeesWindow(QWidget):
 
         card_layout.addWidget(info_widget, 2)
 
-        # =================================================
         # PAYMENT INFO
-        # =================================================
-
         payment = self.calculate_payment(employee)
 
         payment_widget = QWidget()
@@ -877,18 +913,29 @@ class EmployeesWindow(QWidget):
 
         card_layout.addWidget(payment_widget, 2)
 
-        # =================================================
-        # STATUS
-        # =================================================
+        # RIGHT — ⋮ + STATUS
+        right_widget = QWidget()
+        right_widget.setFixedWidth(120)
+        right_widget.setStyleSheet("background-color: transparent;")
 
-        status_widget = QWidget()
-        status_widget.setFixedWidth(120)
-        status_widget.setStyleSheet("background-color: transparent;")
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(8)
+        right_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
-        status_layout = QVBoxLayout(status_widget)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(6)
-        status_layout.setAlignment(Qt.AlignCenter)
+        # ⋮ دکمه‌ی سه نقطه
+        menu_btn = CircleMenuButton(36)
+        menu_btn.clicked.connect(
+            lambda checked=False, e=employee: self.open_edit_dialog(e)
+        )
+
+        menu_row = QHBoxLayout()
+        menu_row.setContentsMargins(0, 0, 0, 0)
+        menu_row.addStretch()
+        menu_row.addWidget(menu_btn)
+
+        right_layout.addLayout(menu_row)
+        right_layout.addStretch()
 
         status = employee.get("status", "فعال")
 
@@ -911,12 +958,11 @@ class EmployeesWindow(QWidget):
             self.toggle_employee_status(e)
         )
 
-        status_layout.addStretch()
-        status_layout.addWidget(status_label, 0, Qt.AlignHCenter)
-        status_layout.addWidget(status_button, 0, Qt.AlignHCenter)
-        status_layout.addStretch()
+        right_layout.addWidget(status_label, 0, Qt.AlignHCenter)
+        right_layout.addWidget(status_button, 0, Qt.AlignHCenter)
+        right_layout.addStretch()
 
-        card_layout.addWidget(status_widget, 0, Qt.AlignVCenter)
+        card_layout.addWidget(right_widget, 0, Qt.AlignTop)
 
         self.employees_layout.addWidget(card)
 
@@ -966,6 +1012,421 @@ class EmployeesWindow(QWidget):
             print("TOGGLE EMPLOYEE STATUS ERROR:")
             print(type(error).__name__)
             print(error)
+
+    # =====================================================
+    # OPEN EDIT DIALOG
+    # =====================================================
+
+    def open_edit_dialog(self, employee):
+
+        member_id = employee.get("memberId")
+
+        if not member_id:
+            return
+
+        row = self.db.fetch_one(
+            """
+            SELECT
+                ep.jobTitle,
+                ep.employmentType,
+                ep.salaryType,
+                ep.baseSalary,
+                ep.workDays,
+                ep.workHours,
+                ep.workStartTime,
+                ep.workEndTime,
+                ep.canSeeEmployees,
+                ep.allowOvertime
+            FROM employee_profiles ep
+            WHERE ep.memberId = %s
+            LIMIT 1
+            """,
+            (member_id,)
+        )
+
+        if not row:
+            NiceMessageBox.error(
+                self, "خطا",
+                "اطلاعات پروفایل این کارمند پیدا نشد."
+            )
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("ویرایش اطلاعات حقوقی")
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setMinimumWidth(480)
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(8)
+
+        name = employee.get("name") or "بدون نام"
+
+        title = QLabel(f"ویرایش حقوق — {name}")
+        title.setStyleSheet("""
+            color: #17324D;
+            font-size: 15px;
+            font-weight: 700;
+            background: transparent;
+        """)
+
+        layout.addWidget(title)
+        layout.addSpacing(4)
+
+        # JOB TITLE
+        job_lbl = QLabel("نقش در مجموعه")
+        job_lbl.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+
+        job_input = QLineEdit()
+        job_input.setText(row.get("jobTitle") or "")
+        job_input.setFixedHeight(42)
+
+        layout.addWidget(job_lbl)
+        layout.addWidget(job_input)
+
+        # EMPLOYMENT TYPE
+        emp_lbl = QLabel("نوع همکاری")
+        emp_lbl.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+
+        emp_combo = RoundedComboBox()
+        emp_combo.setFixedHeight(42)
+        emp_combo.addItem("تمام‌وقت", "fullTime")
+        emp_combo.addItem("پاره‌وقت", "partTime")
+
+        current_emp = row.get("employmentType") or "fullTime"
+
+        for i in range(emp_combo.count()):
+            if emp_combo.itemData(i) == current_emp:
+                emp_combo.setCurrentIndex(i)
+                break
+
+        layout.addWidget(emp_lbl)
+        layout.addWidget(emp_combo)
+
+        # SALARY TYPE
+        st_lbl = QLabel("نوع حقوق")
+        st_lbl.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+
+        st_combo = RoundedComboBox()
+        st_combo.setFixedHeight(42)
+        st_combo.addItem("ماهانه", "monthly")
+        st_combo.addItem("روزانه", "daily")
+        st_combo.addItem("ساعتی", "hourly")
+
+        current_st = row.get("salaryType") or "monthly"
+
+        for i in range(st_combo.count()):
+            if st_combo.itemData(i) == current_st:
+                st_combo.setCurrentIndex(i)
+                break
+
+        layout.addWidget(st_lbl)
+        layout.addWidget(st_combo)
+
+        # BASE SALARY
+        sal_lbl = QLabel("حقوق پایه (تومان)")
+        sal_lbl.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+
+        sal_input = QLineEdit()
+        sal_input.setText(str(int(float(row.get("baseSalary") or 0))))
+        sal_input.setFixedHeight(42)
+        sal_input.setLayoutDirection(Qt.LeftToRight)
+
+        layout.addWidget(sal_lbl)
+        layout.addWidget(sal_input)
+
+        # DAYS + HOURS
+        dh_row = QHBoxLayout()
+        dh_row.setSpacing(10)
+
+        d_col = QVBoxLayout()
+        d_lbl = QLabel("روز کاری در ماه")
+        d_lbl.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+        d_input = QLineEdit()
+        d_input.setText(str(int(float(row.get("workDays") or 26))))
+        d_input.setFixedHeight(42)
+        d_input.setLayoutDirection(Qt.LeftToRight)
+        d_col.addWidget(d_lbl)
+        d_col.addWidget(d_input)
+
+        h_col = QVBoxLayout()
+        h_lbl = QLabel("ساعت روزانه")
+        h_lbl.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+        h_input = QLineEdit()
+        h_input.setText(str(int(float(row.get("workHours") or 8))))
+        h_input.setFixedHeight(42)
+        h_input.setLayoutDirection(Qt.LeftToRight)
+        h_col.addWidget(h_lbl)
+        h_col.addWidget(h_input)
+
+        dh_row.addLayout(d_col, 1)
+        dh_row.addLayout(h_col, 1)
+
+        layout.addLayout(dh_row)
+
+        # TIMES
+        te_row = QHBoxLayout()
+        te_row.setSpacing(10)
+
+        st_col = QVBoxLayout()
+        st_lbl2 = QLabel("ساعت شروع")
+        st_lbl2.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+        start_te = QTimeEdit()
+        start_te.setDisplayFormat("HH:mm")
+        start_te.setFixedHeight(42)
+
+        ws = row.get("workStartTime")
+
+        if ws:
+            try:
+                if hasattr(ws, "seconds"):
+                    start_te.setTime(QTime(
+                        ws.seconds // 3600,
+                        (ws.seconds % 3600) // 60
+                    ))
+                else:
+                    parts = str(ws).split(":")
+                    start_te.setTime(QTime(int(parts[0]), int(parts[1])))
+            except Exception:
+                start_te.setTime(QTime(8, 0))
+        else:
+            start_te.setTime(QTime(8, 0))
+
+        st_col.addWidget(st_lbl2)
+        st_col.addWidget(start_te)
+
+        en_col = QVBoxLayout()
+        en_lbl = QLabel("ساعت پایان")
+        en_lbl.setStyleSheet("color: #526273; font-size: 12px; font-weight: 600; background: transparent;")
+        end_te = QTimeEdit()
+        end_te.setDisplayFormat("HH:mm")
+        end_te.setFixedHeight(42)
+
+        we = row.get("workEndTime")
+
+        if we:
+            try:
+                if hasattr(we, "seconds"):
+                    end_te.setTime(QTime(
+                        we.seconds // 3600,
+                        (we.seconds % 3600) // 60
+                    ))
+                else:
+                    parts = str(we).split(":")
+                    end_te.setTime(QTime(int(parts[0]), int(parts[1])))
+            except Exception:
+                end_te.setTime(QTime(16, 0))
+        else:
+            end_te.setTime(QTime(16, 0))
+
+        en_col.addWidget(en_lbl)
+        en_col.addWidget(end_te)
+
+        te_row.addLayout(st_col, 1)
+        te_row.addLayout(en_col, 1)
+
+        layout.addLayout(te_row)
+
+        # CHECKBOXES
+        ot_check = QCheckBox("اجازه دارد اضافه‌کار بگیرد؟")
+        ot_check.setCursor(Qt.PointingHandCursor)
+        ot_check.setChecked(str(row.get("allowOvertime") or "1") == "1")
+
+        see_check = QCheckBox("اجازه دارد بقیه کارمندان را ببیند")
+        see_check.setCursor(Qt.PointingHandCursor)
+        see_check.setChecked(str(row.get("canSeeEmployees") or "0") == "1")
+
+        layout.addSpacing(4)
+        layout.addWidget(ot_check)
+        layout.addWidget(see_check)
+
+        # BUTTONS
+        layout.addSpacing(8)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(10)
+
+        cancel_btn = QPushButton("انصراف")
+        cancel_btn.setFixedHeight(44)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F5F8FC;
+                color: #526273;
+                border: 1px solid #E2EAF4;
+                border-radius: 14px;
+                padding: 0 24px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #EAF3FF;
+            }
+        """)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        save_btn = QPushButton("ذخیره")
+        save_btn.setFixedHeight(44)
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1961C7;
+                color: white;
+                border: none;
+                border-radius: 14px;
+                padding: 0 28px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: #4589E8;
+            }
+        """)
+
+        def on_save():
+
+            job_text = job_input.text().strip()
+            sal_text = sal_input.text().strip()
+            d_text = d_input.text().strip()
+            h_text = h_input.text().strip()
+            st_val = st_combo.currentData()
+            emp_val = emp_combo.currentData()
+
+            if not job_text:
+                NiceMessageBox.warning(dialog, "خطا", "نقش در مجموعه را وارد کنید.")
+                return
+
+            try:
+                sal_val = float(sal_text.replace(",", "").replace("٬", ""))
+            except ValueError:
+                NiceMessageBox.warning(dialog, "خطا", "حقوق پایه نامعتبر است.")
+                return
+
+            if sal_val <= 0:
+                NiceMessageBox.warning(dialog, "خطا", "حقوق پایه باید بیشتر از صفر باشد.")
+                return
+
+            try:
+                d_val = float(d_text) if d_text else 26
+            except ValueError:
+                d_val = 26
+
+            try:
+                h_val = float(h_text) if h_text else 8
+            except ValueError:
+                h_val = 8
+
+            if d_val <= 0:
+                d_val = 26
+            if h_val <= 0:
+                h_val = 8
+
+            st_time = start_te.time().toString("HH:mm:ss")
+            en_time = end_te.time().toString("HH:mm:ss")
+
+            ot_val = "1" if ot_check.isChecked() else "0"
+            see_val = "1" if see_check.isChecked() else "0"
+
+            self.db.execute(
+                """
+                UPDATE employee_profiles
+                SET jobTitle = %s,
+                    employmentType = %s,
+                    salaryType = %s,
+                    baseSalary = %s,
+                    workDays = %s,
+                    workHours = %s,
+                    workStartTime = %s,
+                    workEndTime = %s,
+                    canSeeEmployees = %s,
+                    allowOvertime = %s
+                WHERE memberId = %s
+                """,
+                (
+                    job_text,
+                    emp_val,
+                    st_val,
+                    sal_val,
+                    d_val,
+                    h_val,
+                    st_time,
+                    en_time,
+                    see_val,
+                    ot_val,
+                    member_id
+                )
+            )
+
+            dialog.accept()
+
+            signals.employee_updated.emit(self.complex_id)
+
+            NiceMessageBox.success(
+                self, "ذخیره شد",
+                f"اطلاعات حقوقی {name} با موفقیت به‌روز شد."
+            )
+
+            self.load_employees_from_database()
+
+        save_btn.clicked.connect(on_save)
+
+        btns.addWidget(cancel_btn)
+        btns.addWidget(save_btn)
+
+        layout.addLayout(btns)
+
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #F5F8FC;
+                font-family: "Vazirmatn";
+            }
+            QLineEdit, QComboBox, QTimeEdit {
+                background-color: white;
+                border: 1px solid #DCE6F2;
+                border-radius: 14px;
+                padding: 0 14px;
+                color: #17324D;
+                font-size: 13px;
+            }
+            QLineEdit:focus, QComboBox:focus, QTimeEdit:focus {
+                border: 2px solid #4589E8;
+            }
+            QTimeEdit::up-button,
+            QTimeEdit::down-button {
+                width: 0px;
+                height: 0px;
+                border: none;
+                background: transparent;
+            }
+            QComboBox::drop-down {
+                width: 26px;
+                border: none;
+            }
+            QCheckBox {
+                background: #F7F9FC;
+                border: 1px solid #DCE6F2;
+                border-radius: 12px;
+                padding: 12px 14px;
+                color: #17324D;
+                font-size: 12px;
+                font-weight: 600;
+                spacing: 12px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+                border-radius: 5px;
+                border: 2px solid #C9D5E2;
+                background: #FFFFFF;
+            }
+            QCheckBox::indicator:checked {
+                background: #1961C7;
+                border: 2px solid #1961C7;
+            }
+        """)
+
+        dialog.exec()
 
     # =====================================================
     # ADD EMPLOYEE
