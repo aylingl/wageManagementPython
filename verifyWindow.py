@@ -570,14 +570,17 @@ class VerifyWindow(QWidget):
         )
 
         # =====================================
-        # اگر کاربر قبلاً ثبت نام کرده
+        # اگر کاربر قبلاً وجود دارد
         # =====================================
 
         if user is not None:
 
             avatar = user["imageBase64"]
 
-            # اگر آواتار قبلاً ذخیره شده باشد
+            # ─────────────────────────────────
+            # کاربر با پروفایل کامل (خودش ثبت‌نام کرده)
+            # مستقیم بره Home
+            # ─────────────────────────────────
             if avatar:
 
                 self.open_home(
@@ -585,22 +588,29 @@ class VerifyWindow(QWidget):
                     avatar
                 )
 
-            # اگر آواتار ذخیره نشده باشد
-            else:
+                return
 
-                self.show_avatar_selection(
-                    user["userId"],
-                    user["name"]
-                )
+            # ─────────────────────────────────
+            # کاربر بدون پروفایل کامل
+            # (احتمالاً مالک اضافه کرده)
+            # بره Setup بدون پرسیدن شماره تلفن
+            # ─────────────────────────────────
+            self.profile_window = ProfileSetupWindow(
+                phone_number=self.phone_number,
+                mode="no_phone"
+            )
+            self.profile_window.show()
+            self.close()
 
             return
 
         # =====================================
-        # اگر کاربر جدید است
+        # کاربر جدید (خودش با OTP ثبت‌نام می‌کنه)
         # =====================================
 
         self.profile_window = ProfileSetupWindow(
-            self.phone_number
+            phone_number=self.phone_number,
+            mode="phone"
         )
 
         self.profile_window.show()

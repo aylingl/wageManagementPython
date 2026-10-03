@@ -722,23 +722,81 @@ class ProfileSetupWindow(QWidget):
 
         self.clear_field_error(self.avatar_error)
 
-        # ── بررسی تکراری نبودن کد ملی ──
-        existing_national_id = self.db.fetch_one(
-            "SELECT userId FROM users WHERE nationalId = %s LIMIT 1",
-            (national_id,)
-        )
+        # ═══════════════════════════════════════
+        # حالت no_phone
+        # کاربر توسط مالک اضافه شده
+        # فقط اطلاعات شخصی رو UPDATE کن
+        # ═══════════════════════════════════════
+        if self.mode == "no_phone":
 
-        if existing_national_id:
-            self.show_field_error(self.national_id_error, "این کد ملی قبلاً ثبت شده است.")
-            self.national_id_input.setFocus()
+            # ═══ چک تکراری نبودن کد ملی (به جز خود کاربر) ═══
+            existing_national_id = self.db.fetch_one(
+                """
+                SELECT userId FROM users
+                WHERE nationalId = %s AND phoneNumber != %s
+                LIMIT 1
+                """,
+                (national_id, self.phone_number)
+            )
+
+            if existing_national_id:
+                self.show_field_error(
+                    self.national_id_error,
+                    "این کد ملی قبلاً ثبت شده است."
+                )
+                self.national_id_input.setFocus()
+                return
+
+            # ═══ بررسی وجود کاربر ═══
+            existing_user = self.db.fetch_one(
+                "SELECT userId FROM users WHERE phoneNumber = %s LIMIT 1",
+                (self.phone_number,)
+            )
+
+            if not existing_user:
+                QMessageBox.warning(self, "خطا", "کاربر یافت نشد.")
+                return
+
+            # ═══ بروزرسانی کاربر موجود ═══
+            result = self.db.execute(
+                """
+                UPDATE users
+                SET name = %s,
+                    profession = %s,
+                    nationalId = %s,
+                    birthDate = %s,
+                    imageBase64 = %s
+                WHERE phoneNumber = %s
+                """,
+                (
+                    username,
+                    profession,
+                    national_id,
+                    birth_date_string,
+                    self.selected_avatar,
+                    self.phone_number
+                )
+            )
+
+            if result is None:
+                QMessageBox.critical(self, "خطا", "بروزرسانی پروفایل انجام نشد.")
+                return
+
+            self.home_window = HomeWindow(
+                self.phone_number,
+                username,
+                self.selected_avatar
+            )
+            self.home_window.show()
+            self.close()
             return
 
         # ═══════════════════════════════════════
         # حالت ایمیل
+        # کاربر جدید با ایمیل → INSERT
         # ═══════════════════════════════════════
         if self.mode == "email":
 
-            # ── بررسی شماره تلفن ──
             phone_value = self.phone_input.text().strip()
 
             if not phone_value:
@@ -767,7 +825,20 @@ class ProfileSetupWindow(QWidget):
 
             self.clear_field_error(self.phone_error)
 
-            # ── بررسی تکراری نبودن شماره تلفن ──
+            # ── بررسی تکراری نبودن کد ملی ──
+            existing_national_id = self.db.fetch_one(
+                "SELECT userId FROM users WHERE nationalId = %s LIMIT 1",
+                (national_id,)
+            )
+
+            if existing_national_id:
+                self.show_field_error(
+                    self.national_id_error,
+                    "این کد ملی قبلاً ثبت شده است."
+                )
+                self.national_id_input.setFocus()
+                return
+
             existing_phone = self.db.fetch_one(
                 "SELECT userId FROM users WHERE phoneNumber = %s LIMIT 1",
                 (phone_value,)
@@ -781,35 +852,21 @@ class ProfileSetupWindow(QWidget):
                 self.phone_input.setFocus()
                 return
 
-            # ── هش رمز ──
             password_hash = hashlib.sha256(
                 self.password_raw.encode("utf-8")
             ).hexdigest()
 
-            # ── درج در دیتابیس ──
             user_id = self.db.execute(
                 """
                 INSERT INTO users (
-                    name,
-                    profession,
-                    nationalId,
-                    birthDate,
-                    countryCode,
-                    phoneNumber,
-                    email,
-                    passwordHash,
-                    createdDate,
-                    sentOtp,
-                    otpUsed,
-                    isActive,
-                    imageBase64
+                    name, profession, nationalId, birthDate,
+                    countryCode, phoneNumber, email, passwordHash,
+                    createdDate, sentOtp, otpUsed, isActive, imageBase64
                 )
                 VALUES (
                     %s, %s, %s, %s,
-                    '+98', %s,
-                    %s, %s,
-                    NOW(), 0, '1',
-                    '1', %s
+                    '+98', %s, %s, %s,
+                    NOW(), 0, '1', '1', %s
                 )
                 """,
                 (
@@ -828,7 +885,6 @@ class ProfileSetupWindow(QWidget):
                 QMessageBox.critical(self, "خطا", "ثبت اطلاعات پروفایل انجام نشد.")
                 return
 
-            # ── رفتن به Home ──
             self.home_window = HomeWindow(
                 phone_value,
                 username,
@@ -839,8 +895,23 @@ class ProfileSetupWindow(QWidget):
             return
 
         # ═══════════════════════════════════════
-        # حالت تلفن (روش قبلی)
+        # حالت phone
+        # کاربر جدید با شماره تلفن → INSERT
         # ═══════════════════════════════════════
+
+        # ── بررسی تکراری نبودن کد ملی ──
+        existing_national_id = self.db.fetch_one(
+            "SELECT userId FROM users WHERE nationalId = %s LIMIT 1",
+            (national_id,)
+        )
+
+        if existing_national_id:
+            self.show_field_error(
+                self.national_id_error,
+                "این کد ملی قبلاً ثبت شده است."
+            )
+            self.national_id_input.setFocus()
+            return
 
         otp_data = self.db.fetch_one(
             """

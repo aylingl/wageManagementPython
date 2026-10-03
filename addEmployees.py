@@ -243,12 +243,13 @@ class NiceMessageDialog(QDialog):
 
         c = theme_manager.colors()
 
+        # ═══ قرمز روشن و زنده (نه تیره مثل امور مالی) ═══
         if kind == "success":
             icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
         elif kind == "error":
-            icon_char, color, bg = "✕", "#D93025", "#FEE2E2"
+            icon_char, color, bg = "✕", "#E63946", "#FFE5E8"
         elif kind == "warning":
-            icon_char, color, bg = "!", "#F59E0B", "#FEF3C7"
+            icon_char, color, bg = "!", "#E63946", "#FFE5E8"
         else:
             icon_char, color, bg = "i", "#1961C7", "#DBEAFE"
 
@@ -450,7 +451,7 @@ class AddEmployees(QWidget):
         form_layout.setContentsMargins(24, 20, 24, 20)
         form_layout.setSpacing(6)
 
-        # NAME
+        # ═══ NAME ═══
         name_label = QLabel(tr("username_label"))
         name_label.setObjectName("fieldLabel")
 
@@ -469,7 +470,7 @@ class AddEmployees(QWidget):
         form_layout.addWidget(self.name_input)
         form_layout.addWidget(self.name_error)
 
-        # PHONE
+        # ═══ PHONE ═══
         phone_label = QLabel(tr("phone_label"))
         phone_label.setObjectName("fieldLabel")
 
@@ -490,7 +491,7 @@ class AddEmployees(QWidget):
         form_layout.addWidget(self.phone_input)
         form_layout.addWidget(self.phone_error)
 
-        # ROLE
+        # ═══ ROLE ═══
         role_label = QLabel(f"{tr('role_in_group')} — {self.complex_name}")
         role_label.setObjectName("fieldLabel")
 
@@ -511,7 +512,7 @@ class AddEmployees(QWidget):
 
         form_layout.addSpacing(4)
 
-        # EMPLOYMENT TYPE
+        # ═══ EMPLOYMENT TYPE ═══
         emp_type_label = QLabel(tr("employment_type"))
         emp_type_label.setObjectName("fieldLabel")
 
@@ -539,7 +540,7 @@ class AddEmployees(QWidget):
         form_layout.addWidget(section_title)
         form_layout.addSpacing(4)
 
-        # SALARY TYPE
+        # ═══ SALARY TYPE ═══
         salary_type_label = QLabel(tr("salary_type"))
         salary_type_label.setObjectName("fieldLabel")
 
@@ -555,7 +556,7 @@ class AddEmployees(QWidget):
         form_layout.addWidget(salary_type_label)
         form_layout.addWidget(self.salary_type_combo)
 
-        # BASE SALARY
+        # ═══ BASE SALARY ═══
         salary_label = QLabel(tr("amount_label"))
         salary_label.setObjectName("fieldLabel")
 
@@ -575,7 +576,7 @@ class AddEmployees(QWidget):
         form_layout.addWidget(self.salary_input)
         form_layout.addWidget(self.salary_error)
 
-        # DAYS + HOURS
+        # ═══ DAYS + HOURS ═══
         days_hours_row = QHBoxLayout()
         days_hours_row.setSpacing(10)
 
@@ -609,7 +610,7 @@ class AddEmployees(QWidget):
         days_hours_row.addLayout(hours_col, 1)
         form_layout.addLayout(days_hours_row)
 
-        # TIMES
+        # ═══ TIMES ═══
         time_row = QHBoxLayout()
         time_row.setSpacing(10)
 
@@ -641,7 +642,7 @@ class AddEmployees(QWidget):
         time_row.addLayout(end_col, 1)
         form_layout.addLayout(time_row)
 
-        # CHECKBOXES
+        # ═══ CHECKBOXES ═══
         self.overtime_checkbox = QCheckBox(tr("allow_overtime_check"))
         self.overtime_checkbox.setObjectName("formCheckbox")
         self.overtime_checkbox.setChecked(True)
@@ -763,7 +764,7 @@ class AddEmployees(QWidget):
 
             QLabel#fieldError {{
                 background: transparent;
-                color: {c['danger']};
+                color: #E63946;
                 font-size: 11px;
                 font-weight: 600;
                 padding: 0px;
@@ -965,58 +966,55 @@ class AddEmployees(QWidget):
         can_see = "1" if self.permission_checkbox.isChecked() else "0"
         allow_ot = "1" if self.overtime_checkbox.isChecked() else "0"
 
-        # NAME
+        # ═══ خطاها به فارسی ═══
         self.clear_error(self.name_error)
         if not name:
-            self.show_error(self.name_error, "Enter name.")
+            self.show_error(self.name_error, "لطفاً نام را وارد کنید.")
             self.name_input.setFocus()
             return
 
         if self.contains_digit(name):
-            self.show_error(self.name_error, "Name shouldn't contain digits.")
+            self.show_error(self.name_error, "نام نباید شامل عدد باشد.")
             self.name_input.setFocus()
             return
 
-        # PHONE
         self.clear_error(self.phone_error)
         if not phone:
-            self.show_error(self.phone_error, "Enter phone.")
+            self.show_error(self.phone_error, "لطفاً شماره موبایل را وارد کنید.")
             self.phone_input.setFocus()
             return
 
         if not phone.isdigit() or len(phone) != 11 or not phone.startswith("09"):
-            self.show_error(self.phone_error, "Phone must be 11 digits starting with 09.")
+            self.show_error(self.phone_error, "شماره باید ۱۱ رقم و با ۰۹ شروع شود.")
             self.phone_input.setFocus()
             return
 
-        # ROLE
         self.clear_error(self.role_error)
         if not role:
-            self.show_error(self.role_error, "Enter role.")
+            self.show_error(self.role_error, "لطفاً سمت را وارد کنید.")
             self.role_input.setFocus()
             return
 
         if self.contains_digit(role):
-            self.show_error(self.role_error, "Role shouldn't contain digits.")
+            self.show_error(self.role_error, "سمت نباید شامل عدد باشد.")
             self.role_input.setFocus()
             return
 
-        # SALARY
         self.clear_error(self.salary_error)
         if not salary_text:
-            self.show_error(self.salary_error, "Enter salary.")
+            self.show_error(self.salary_error, "لطفاً حقوق را وارد کنید.")
             self.salary_input.setFocus()
             return
 
         try:
             salary = float(salary_text.replace(",", "").replace("٬", ""))
         except ValueError:
-            self.show_error(self.salary_error, "Salary must be a number.")
+            self.show_error(self.salary_error, "حقوق باید عدد باشد.")
             self.salary_input.setFocus()
             return
 
         if salary <= 0:
-            self.show_error(self.salary_error, "Salary must be > 0.")
+            self.show_error(self.salary_error, "حقوق باید بزرگ‌تر از صفر باشد.")
             self.salary_input.setFocus()
             return
 
@@ -1039,7 +1037,7 @@ class AddEmployees(QWidget):
         end_time = self.end_time.time().toString("HH:mm:ss")
 
         if not self.complex_id:
-            NiceMessageBox.warning(self, tr("error"), "No complex.")
+            NiceMessageBox.error(self, tr("error"), "مجتمعی انتخاب نشده.")
             return
 
         # FIND OR CREATE USER
@@ -1067,7 +1065,7 @@ class AddEmployees(QWidget):
             )
 
             if not user_id:
-                NiceMessageBox.error(self, tr("error"), "Failed to create user.")
+                NiceMessageBox.error(self, tr("error"), "ساخت کاربر ناموفق بود.")
                 return
 
         # CHECK EXISTING
@@ -1080,7 +1078,7 @@ class AddEmployees(QWidget):
         )
 
         if existing_member:
-            NiceMessageBox.warning(self, tr("warning"), "Already a member.")
+            NiceMessageBox.error(self, tr("error"), "این کاربر قبلاً در این مجتمع عضو است.")
             return
 
         # INSERT MEMBER
@@ -1093,7 +1091,7 @@ class AddEmployees(QWidget):
         )
 
         if not member_id:
-            NiceMessageBox.error(self, tr("error"), "Failed to add member.")
+            NiceMessageBox.error(self, tr("error"), "افزودن عضو ناموفق بود.")
             return
 
         # INSERT PROFILE
@@ -1119,7 +1117,7 @@ class AddEmployees(QWidget):
                 "DELETE FROM complex_members WHERE memberId = %s",
                 (member_id,)
             )
-            NiceMessageBox.error(self, tr("error"), "Failed to save profile.")
+            NiceMessageBox.error(self, tr("error"), "ذخیره پروفایل ناموفق بود.")
             return
 
         # REFRESH PARENT

@@ -274,6 +274,13 @@ class EmployeesWindow(QWidget):
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
 
+        inactive_button = QPushButton("کارمندان غیرفعال")
+        inactive_button.setObjectName("inactiveEmployeesButton")
+        inactive_button.setCursor(Qt.PointingHandCursor)
+        inactive_button.setFixedHeight(46)
+        inactive_button.setAttribute(Qt.WA_StyledBackground, True)
+        inactive_button.clicked.connect(self.open_inactive_employees)
+
         add_button = QPushButton(tr("add_employee"))
         add_button.setObjectName("addEmployeeButton")
         add_button.setCursor(Qt.PointingHandCursor)
@@ -283,11 +290,11 @@ class EmployeesWindow(QWidget):
 
         header_layout.addLayout(title_layout)
         header_layout.addStretch()
+        header_layout.addWidget(inactive_button)
         header_layout.addWidget(add_button)
 
         main_layout.addLayout(header_layout)
 
-        # EMPLOYEES BOX
         employees_box = QFrame()
         employees_box.setObjectName("employeesBox")
         employees_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -385,6 +392,21 @@ class EmployeesWindow(QWidget):
 
         QPushButton#addEmployeeButton:hover {{
             background-color: {c['accent_hover']};
+        }}
+
+        QPushButton#inactiveEmployeesButton {{
+            background-color: {c['bg_card']};
+            color: {c['accent']};
+            border: 1px solid {c['accent']};
+            border-radius: 23px;
+            padding-left: 22px;
+            padding-right: 22px;
+            font-size: 12px;
+            font-weight: 600;
+        }}
+
+        QPushButton#inactiveEmployeesButton:hover {{
+            background-color: {c['accent_light']};
         }}
 
         QFrame#employeesBox {{
@@ -545,7 +567,7 @@ class EmployeesWindow(QWidget):
                   AND cm.isActive = '1'
                 ORDER BY cm.memberId DESC
                 """,
-                (self.complexId if hasattr(self, "complexId") else self.complex_id,)
+                (self.complex_id,)
             )
 
             for row in employees:
@@ -714,7 +736,6 @@ class EmployeesWindow(QWidget):
         card_layout.setContentsMargins(16, 14, 16, 14)
         card_layout.setSpacing(16)
 
-        # AVATAR
         avatar = RoundedAvatar(60)
         avatar_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -726,7 +747,6 @@ class EmployeesWindow(QWidget):
 
         card_layout.addWidget(avatar, 0, Qt.AlignTop)
 
-        # MAIN INFO
         info_widget = QWidget()
         info_widget.setStyleSheet("background: transparent;")
 
@@ -791,7 +811,6 @@ class EmployeesWindow(QWidget):
 
         card_layout.addWidget(info_widget, 2)
 
-        # PAYMENT INFO
         payment = self.calculate_payment(employee)
 
         payment_widget = QWidget()
@@ -835,7 +854,6 @@ class EmployeesWindow(QWidget):
 
         card_layout.addWidget(payment_widget, 2)
 
-        # RIGHT: MENU + STATUS
         right_widget = QWidget()
         right_widget.setFixedWidth(120)
         right_widget.setStyleSheet("background-color: transparent;")
@@ -925,6 +943,186 @@ class EmployeesWindow(QWidget):
             print("TOGGLE EMPLOYEE STATUS ERROR:", error)
 
     # =====================================================
+    # INACTIVE EMPLOYEES DIALOG
+    # =====================================================
+
+    def open_inactive_employees(self):
+        if not self.complex_id:
+            return
+
+        c = theme_manager.colors()
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("کارمندان غیرفعال")
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setMinimumWidth(640)
+        dialog.setMinimumHeight(520)
+        dialog.setModal(True)
+        dialog.setAttribute(Qt.WA_StyledBackground, True)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        title = QLabel("کارمندان غیرفعال")
+        title.setStyleSheet(f"color: {c['text_main']}; font-size: 17px; font-weight: 800; background: transparent;")
+        layout.addWidget(title)
+
+        sub = QLabel("برای فعال کردن مجدد، روی دکمه «فعال کردن» بزنید.")
+        sub.setStyleSheet(f"color: {c['text_dim']}; font-size: 11px; background: transparent;")
+        layout.addWidget(sub)
+
+        layout.addSpacing(4)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollArea::viewport { background: transparent; }")
+        vbar = RoundScrollBar(Qt.Vertical, scroll)
+        scroll.setVerticalScrollBar(vbar)
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(4, 4, 12, 4)
+        content_layout.setSpacing(8)
+
+        try:
+            inactive = self.db.fetch_all(
+                """
+                SELECT cm.memberId, cm.userId, u.name, u.phoneNumber,
+                       ep.jobTitle
+                FROM complex_members cm
+                INNER JOIN users u ON u.userId = cm.userId
+                LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
+                WHERE cm.complexId = %s
+                  AND cm.role IN ('employee', 'both')
+                  AND cm.isActive = '0'
+                ORDER BY cm.memberId DESC
+                """,
+                (self.complex_id,)
+            )
+        except Exception as e:
+            print("LOAD INACTIVE EMPLOYEES ERROR:", e)
+            inactive = []
+
+        if not inactive:
+            empty = QLabel("کارمند غیرفعالی وجود ندارد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(f"color: {c['text_dim']}; font-size: 13px; padding: 40px; background: transparent;")
+            content_layout.addWidget(empty)
+        else:
+            for emp in inactive:
+                card = QFrame()
+                card.setObjectName("inactiveCard")
+                card.setAttribute(Qt.WA_StyledBackground, True)
+                card.setMinimumHeight(72)
+                card.setStyleSheet(f"""
+                    QFrame#inactiveCard {{
+                        background-color: {c['bg_card']};
+                        border: 1px solid {c['border']};
+                        border-radius: 18px;
+                    }}
+                """)
+
+                cl = QHBoxLayout(card)
+                cl.setContentsMargins(16, 12, 16, 12)
+                cl.setSpacing(12)
+
+                name_lbl = QLabel(emp.get("name") or "—")
+                name_lbl.setStyleSheet(f"color: {c['text_main']}; font-size: 13px; font-weight: 700; background: transparent;")
+                name_lbl.setMinimumWidth(140)
+
+                phone_lbl = QLabel(emp.get("phoneNumber") or "—")
+                phone_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 11px; background: transparent;")
+                phone_lbl.setMinimumWidth(120)
+
+                job_lbl = QLabel(emp.get("jobTitle") or "—")
+                job_lbl.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 600; background: transparent;")
+                job_lbl.setMinimumWidth(120)
+
+                activate_btn = QPushButton("فعال کردن")
+                activate_btn.setCursor(Qt.PointingHandCursor)
+                activate_btn.setFixedHeight(34)
+                activate_btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {c['success_bg']};
+                        color: {c['success']};
+                        border: 1px solid {c['success']};
+                        border-radius: 17px;
+                        padding: 0 20px;
+                        font-size: 12px;
+                        font-weight: 700;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {c['bg_hover']};
+                    }}
+                """)
+                activate_btn.clicked.connect(
+                    lambda checked=False, m=emp.get("memberId"): self.activate_member(m, dialog)
+                )
+
+                cl.addWidget(name_lbl, 2)
+                cl.addWidget(phone_lbl, 2)
+                cl.addWidget(job_lbl, 2)
+                cl.addStretch()
+                cl.addWidget(activate_btn)
+
+                content_layout.addWidget(card)
+
+        content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+
+        close_btn = QPushButton(tr("close"))
+        close_btn.setFixedHeight(46)
+        close_btn.setMinimumWidth(140)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+                border-radius: 23px;
+                padding: 0 28px;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{ background-color: {c['accent_hover']}; }}
+        """)
+        close_btn.clicked.connect(dialog.accept)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        dialog.setStyleSheet(f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}")
+        dialog.exec()
+
+    def activate_member(self, member_id, dialog):
+        if not member_id:
+            return
+        try:
+            result = self.db.execute(
+                "UPDATE complex_members SET isActive = '1' WHERE memberId = %s AND complexId = %s",
+                (member_id, self.complex_id)
+            )
+            if result is None:
+                NiceMessageBox.error(self, tr("error"), "فعال‌سازی ناموفق بود.")
+                return
+
+            NiceMessageBox.success(self, tr("saved"), "کارمند با موفقیت فعال شد.")
+            dialog.accept()
+            self.load_employees_from_database()
+            signals.employee_added.emit(self.complex_id)
+            signals.data_changed.emit("jobs")
+        except Exception as e:
+            print("ACTIVATE MEMBER ERROR:", e)
+            NiceMessageBox.error(self, tr("error"), str(e))
+
+    # =====================================================
     # EDIT DIALOG
     # =====================================================
 
@@ -939,8 +1137,11 @@ class EmployeesWindow(QWidget):
             SELECT ep.jobTitle, ep.employmentType, ep.salaryType,
                    ep.baseSalary, ep.workDays, ep.workHours,
                    ep.workStartTime, ep.workEndTime,
-                   ep.canSeeEmployees, ep.allowOvertime
+                   ep.canSeeEmployees, ep.allowOvertime,
+                   u.name, u.phoneNumber
             FROM employee_profiles ep
+            INNER JOIN complex_members cm ON cm.memberId = ep.memberId
+            INNER JOIN users u ON u.userId = cm.userId
             WHERE ep.memberId = %s
             LIMIT 1
             """,
@@ -959,22 +1160,73 @@ class EmployeesWindow(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle(tr("edit_salary_info"))
         dialog.setLayoutDirection(Qt.RightToLeft)
-        dialog.setMinimumWidth(500)
         dialog.setModal(True)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
 
-        layout = QVBoxLayout(dialog)
+        # ═══ قابل تغییر اندازه + باریک‌تر ═══
+        dialog.setMinimumSize(480, 500)
+        dialog.resize(620, 720)
+
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollArea::viewport { background: transparent; }")
+        vbar = RoundScrollBar(Qt.Vertical, scroll)
+        scroll.setVerticalScrollBar(vbar)
+
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {c['bg_main']};")
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(28, 26, 28, 24)
         layout.setSpacing(10)
 
-        name = employee.get("name") or tr("no_name")
+        name_old = employee.get("name") or tr("no_name")
 
-        title = QLabel(f"{tr('edit_salary_info')} — {name}")
+        title = QLabel(f"{tr('edit_salary_info')} — {name_old}")
         title.setStyleSheet(f"color: {c['text_main']}; font-size: 15px; font-weight: 700; background: transparent;")
         layout.addWidget(title)
         layout.addSpacing(4)
 
-        # JOB TITLE
+        name_lbl = QLabel("نام")
+        name_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+
+        name_input = QLineEdit()
+        name_input.setText(row.get("name") or "")
+        name_input.setFixedHeight(44)
+
+        name_err = QLabel()
+        name_err.setStyleSheet("color: #E63946; font-size: 11px; font-weight: 600; background: transparent;")
+        name_err.setFixedHeight(16)
+        name_err.hide()
+
+        layout.addWidget(name_lbl)
+        layout.addWidget(name_input)
+        layout.addWidget(name_err)
+
+        phone_lbl = QLabel("شماره موبایل")
+        phone_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+
+        phone_input = QLineEdit()
+        phone_input.setText(str(row.get("phoneNumber") or ""))
+        phone_input.setFixedHeight(44)
+        phone_input.setLayoutDirection(Qt.LeftToRight)
+        phone_input.setMaxLength(11)
+
+        phone_err = QLabel()
+        phone_err.setStyleSheet("color: #E63946; font-size: 11px; font-weight: 600; background: transparent;")
+        phone_err.setFixedHeight(16)
+        phone_err.hide()
+
+        layout.addWidget(phone_lbl)
+        layout.addWidget(phone_input)
+        layout.addWidget(phone_err)
+
         job_lbl = QLabel(tr("role_in_group"))
         job_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
 
@@ -982,10 +1234,15 @@ class EmployeesWindow(QWidget):
         job_input.setText(row.get("jobTitle") or "")
         job_input.setFixedHeight(44)
 
+        job_err = QLabel()
+        job_err.setStyleSheet("color: #E63946; font-size: 11px; font-weight: 600; background: transparent;")
+        job_err.setFixedHeight(16)
+        job_err.hide()
+
         layout.addWidget(job_lbl)
         layout.addWidget(job_input)
+        layout.addWidget(job_err)
 
-        # EMPLOYMENT TYPE
         emp_lbl = QLabel(tr("employment_type"))
         emp_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
 
@@ -1003,7 +1260,6 @@ class EmployeesWindow(QWidget):
         layout.addWidget(emp_lbl)
         layout.addWidget(emp_combo)
 
-        # SALARY TYPE
         st_lbl = QLabel(tr("salary_type"))
         st_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
 
@@ -1022,7 +1278,6 @@ class EmployeesWindow(QWidget):
         layout.addWidget(st_lbl)
         layout.addWidget(st_combo)
 
-        # BASE SALARY
         sal_lbl = QLabel(tr("amount_label"))
         sal_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
 
@@ -1034,7 +1289,6 @@ class EmployeesWindow(QWidget):
         layout.addWidget(sal_lbl)
         layout.addWidget(sal_input)
 
-        # DAYS + HOURS
         dh_row = QHBoxLayout()
         dh_row.setSpacing(10)
 
@@ -1062,7 +1316,6 @@ class EmployeesWindow(QWidget):
         dh_row.addLayout(h_col, 1)
         layout.addLayout(dh_row)
 
-        # TIMES
         te_row = QHBoxLayout()
         te_row.setSpacing(10)
 
@@ -1116,7 +1369,6 @@ class EmployeesWindow(QWidget):
         te_row.addLayout(en_col, 1)
         layout.addLayout(te_row)
 
-        # CHECKBOXES
         ot_check = QCheckBox(tr("allow_overtime_check"))
         ot_check.setCursor(Qt.PointingHandCursor)
         ot_check.setChecked(str(row.get("allowOvertime") or "1") == "1")
@@ -1129,11 +1381,17 @@ class EmployeesWindow(QWidget):
         layout.addWidget(ot_check)
         layout.addWidget(see_check)
 
-        # BUTTONS
-        layout.addSpacing(8)
+        layout.addStretch()
 
-        btns = QHBoxLayout()
-        btns.setSpacing(10)
+        scroll.setWidget(content)
+        main_layout.addWidget(scroll, 1)
+
+        bottom = QFrame()
+        bottom.setAttribute(Qt.WA_StyledBackground, True)
+        bottom.setStyleSheet(f"background-color: {c['bg_card']}; border-top: 1px solid {c['border']};")
+        bottom_layout = QHBoxLayout(bottom)
+        bottom_layout.setContentsMargins(28, 14, 28, 14)
+        bottom_layout.setSpacing(10)
 
         cancel_btn = QPushButton(tr("cancel"))
         cancel_btn.setFixedHeight(46)
@@ -1168,7 +1426,20 @@ class EmployeesWindow(QWidget):
             QPushButton:hover {{ background-color: {c['accent_hover']}; }}
         """)
 
+        def contains_digit(text):
+            for ch in text:
+                if ch.isdigit():
+                    return True
+            return False
+
+        def show_err(label, msg):
+            label.setText(msg)
+            label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter)
+            label.show()
+
         def on_save():
+            name_text = name_input.text().strip()
+            phone_text = phone_input.text().strip()
             job_text = job_input.text().strip()
             sal_text = sal_input.text().strip()
             d_text = d_input.text().strip()
@@ -1176,18 +1447,48 @@ class EmployeesWindow(QWidget):
             st_val = st_combo.currentData()
             emp_val = emp_combo.currentData()
 
+            name_err.hide()
+            phone_err.hide()
+            job_err.hide()
+
+            if not name_text:
+                show_err(name_err, "لطفاً نام را وارد کنید.")
+                name_input.setFocus()
+                return
+
+            if contains_digit(name_text):
+                show_err(name_err, "نام نباید شامل عدد باشد.")
+                name_input.setFocus()
+                return
+
+            if not phone_text:
+                show_err(phone_err, "لطفاً شماره موبایل را وارد کنید.")
+                phone_input.setFocus()
+                return
+
+            if not phone_text.isdigit() or len(phone_text) != 11 or not phone_text.startswith("09"):
+                show_err(phone_err, "شماره باید ۱۱ رقم و با ۰۹ شروع شود.")
+                phone_input.setFocus()
+                return
+
             if not job_text:
-                NiceMessageBox.warning(dialog, tr("error"), tr("err_job_required"))
+                show_err(job_err, "لطفاً سمت را وارد کنید.")
+                job_input.setFocus()
+                return
+
+            if contains_digit(job_text):
+                show_err(job_err, "سمت نباید شامل عدد باشد.")
+                job_input.setFocus()
                 return
 
             try:
                 sal_val = float(sal_text.replace(",", "").replace("٬", ""))
             except ValueError:
-                NiceMessageBox.warning(dialog, tr("error"), tr("err_salary_invalid"))
+                NiceMessageBox.error(dialog, tr("error"), tr("err_salary_invalid"))
                 return
 
             if sal_val <= 0:
-                NiceMessageBox.warning(dialog, tr("error"), tr("err_salary_zero"))
+                NiceMessageBox.error(dialog, tr("error"), tr("err_salary_zero"))
                 return
 
             try:
@@ -1211,6 +1512,32 @@ class EmployeesWindow(QWidget):
             ot_val = "1" if ot_check.isChecked() else "0"
             see_val = "1" if see_check.isChecked() else "0"
 
+            dup = self.db.fetch_one(
+                """
+                SELECT u.userId
+                FROM users u
+                INNER JOIN complex_members cm ON cm.userId = u.userId
+                WHERE u.phoneNumber = %s
+                  AND cm.memberId != %s
+                LIMIT 1
+                """,
+                (phone_text, member_id)
+            )
+            if dup:
+                show_err(phone_err, "این شماره قبلاً ثبت شده است.")
+                phone_input.setFocus()
+                return
+
+            self.db.execute(
+                """
+                UPDATE users u
+                INNER JOIN complex_members cm ON cm.userId = u.userId
+                SET u.name = %s, u.phoneNumber = %s
+                WHERE cm.memberId = %s
+                """,
+                (name_text, phone_text, member_id)
+            )
+
             self.db.execute(
                 """
                 UPDATE employee_profiles
@@ -1229,17 +1556,18 @@ class EmployeesWindow(QWidget):
             signals.data_changed.emit("jobs")
             NiceMessageBox.success(
                 self, tr("saved"),
-                tr("salary_updated", name=name)
+                tr("salary_updated", name=name_text)
             )
             self.load_employees_from_database()
 
         save_btn.clicked.connect(on_save)
 
-        btns.addWidget(cancel_btn)
-        btns.addWidget(save_btn)
-        layout.addLayout(btns)
+        bottom_layout.addStretch()
+        bottom_layout.addWidget(cancel_btn)
+        bottom_layout.addWidget(save_btn)
 
-        # DIALOG STYLESHEET
+        main_layout.addWidget(bottom)
+
         dialog.setStyleSheet(f"""
             QDialog {{
                 background-color: {c['bg_main']};
