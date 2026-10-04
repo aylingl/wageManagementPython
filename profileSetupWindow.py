@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QGraphicsDropShadowEffect,
     QScrollArea,
-    QScrollBar
+    QScrollBar,
+    QFileDialog
 )
 
 from PySide6.QtCore import Qt, QSize, QRegularExpression
@@ -27,6 +28,7 @@ from PySide6.QtGui import (
 
 from homeWindow import HomeWindow
 from database import Database
+from imageStorage import save_image, calculate_hash
 
 # ======================================================
 # EMAIL VALIDATION
@@ -44,9 +46,7 @@ class RoundScrollBar(QScrollBar):
 
     def __init__(self, orientation=Qt.Vertical, parent=None):
         super().__init__(orientation, parent)
-
         self.setFixedWidth(12)
-
         self.setStyleSheet("""
             QScrollBar {
                 background: transparent;
@@ -56,7 +56,6 @@ class RoundScrollBar(QScrollBar):
         """)
 
     def paintEvent(self, event):
-
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -68,7 +67,6 @@ class RoundScrollBar(QScrollBar):
 
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#EEF3FA"))
-
         painter.drawRoundedRect(
             int(track_x),
             int(track_top),
@@ -88,7 +86,6 @@ class RoundScrollBar(QScrollBar):
         groove_top = 6
         groove_bottom = self.height() - 6
         groove_height = groove_bottom - groove_top
-
         total_range = maximum - minimum + page_step
 
         handle_height = int(groove_height * page_step / total_range)
@@ -107,7 +104,6 @@ class RoundScrollBar(QScrollBar):
         handle_x = (self.width() - handle_width) / 2
 
         painter.setBrush(QColor("#4589E8"))
-
         painter.drawRoundedRect(
             int(handle_x),
             int(handle_y),
@@ -170,7 +166,9 @@ class ProfileSetupWindow(QWidget):
         self.phone_number = phone_number
         self.email = email
         self.password_raw = password
+
         self.selected_avatar = None
+        self._custom_image_source = None
 
         self.db = Database()
 
@@ -193,7 +191,6 @@ class ProfileSetupWindow(QWidget):
         main_layout.setContentsMargins(20, 15, 20, 15)
         main_layout.setSpacing(8)
 
-        # عنوان
         title = QLabel("پروفایلت رو بساز ✨")
         title.setObjectName("title")
         title.setAlignment(Qt.AlignCenter)
@@ -206,7 +203,6 @@ class ProfileSetupWindow(QWidget):
         description.setFixedHeight(28)
         main_layout.addWidget(description)
 
-        # SCROLL
         scroll = QScrollArea()
         scroll.setObjectName("profileScroll")
         scroll.setWidgetResizable(True)
@@ -226,7 +222,6 @@ class ProfileSetupWindow(QWidget):
         scroll_layout.setSpacing(0)
         scroll_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
-        # کارت
         card = QFrame()
         card.setObjectName("card")
         card.setFixedWidth(520)
@@ -246,10 +241,7 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(profile_title)
         card_layout.addSpacing(6)
 
-        # ═══════════════════════════════════════
-        # 📱 شماره تلفن (فقط در حالت ایمیل)
-        # ═══════════════════════════════════════
-
+        # ── شماره تلفن (فقط حالت ایمیل) ──
         self.phone_input = None
         self.phone_error = None
 
@@ -379,7 +371,7 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(self.birth_date_input)
         card_layout.addWidget(self.birth_date_error)
 
-        # ── آواتار ──
+        # ── آواتار پیش‌فرض ──
         avatar_label = QLabel("آواتار خودت رو انتخاب کن")
         avatar_label.setObjectName("fieldTitle")
         card_layout.addWidget(avatar_label)
@@ -420,6 +412,36 @@ class ProfileSetupWindow(QWidget):
 
         card_layout.addWidget(avatars_widget)
 
+        # ═══════════════════════════════════════
+        # 📁 انتخاب عکس از دستگاه
+        # ═══════════════════════════════════════
+        browse_label = QLabel("یا عکس واقعی خودت رو از دستگاه انتخاب کن")
+        browse_label.setObjectName("fieldHint")
+        browse_label.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(browse_label)
+
+        self.browse_button = QPushButton("📁  انتخاب عکس از دستگاه")
+        self.browse_button.setObjectName("browseButton")
+        self.browse_button.setFixedHeight(46)
+        self.browse_button.setCursor(Qt.PointingHandCursor)
+        self.browse_button.clicked.connect(self.browse_avatar)
+        card_layout.addWidget(self.browse_button)
+
+        # پیش‌نمایش عکس سفارشی
+        self.custom_preview = QLabel()
+        self.custom_preview.setObjectName("customAvatarPreview")
+        self.custom_preview.setFixedSize(90, 90)
+        self.custom_preview.setAlignment(Qt.AlignCenter)
+        self.custom_preview.hide()
+        card_layout.addWidget(self.custom_preview, 0, Qt.AlignCenter)
+
+        # نام فایل انتخاب‌شده
+        self.custom_name = QLabel()
+        self.custom_name.setObjectName("customAvatarName")
+        self.custom_name.setAlignment(Qt.AlignCenter)
+        self.custom_name.hide()
+        card_layout.addWidget(self.custom_name)
+
         self.avatar_error = QLabel()
         self.avatar_error.setObjectName("fieldError")
         self.avatar_error.setFixedHeight(20)
@@ -443,7 +465,7 @@ class ProfileSetupWindow(QWidget):
         main_layout.addWidget(scroll, 1)
 
     # ==========================================
-    # مسیر آواتار
+    # مسیر آواتار پیش‌فرض
     # ==========================================
 
     def avatar_path(self, filename):
@@ -451,14 +473,69 @@ class ProfileSetupWindow(QWidget):
         return os.path.join(project_folder, "avatars", filename)
 
     # ============================================
-    # انتخاب آواتار
+    # انتخاب آواتار پیش‌فرض
     # ============================================
 
     def select_avatar(self, filename):
         self.selected_avatar = filename
+        self._custom_image_source = None
 
         for avatar_filename, button in self.avatar_buttons:
             button.setProperty("selected", avatar_filename == filename)
+            button.style().unpolish(button)
+            button.style().polish(button)
+            button.update()
+
+        if hasattr(self, "custom_preview"):
+            self.custom_preview.hide()
+        if hasattr(self, "custom_name"):
+            self.custom_name.hide()
+
+        self.clear_field_error(self.avatar_error)
+
+    # ============================================
+    # 📁 انتخاب عکس از دستگاه
+    # ============================================
+
+    def browse_avatar(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "انتخاب عکس پروفایل",
+            "",
+            "Images (*.png *.jpg *.jpeg *.bmp *.webp *.gif)"
+        )
+
+        if not file_path:
+            return
+
+        pixmap = QPixmap(file_path)
+        if pixmap.isNull():
+            QMessageBox.warning(
+                self,
+                "خطا",
+                "فایل انتخابی یک عکس معتبر نیست."
+            )
+            return
+
+        self._custom_image_source = file_path
+        self.selected_avatar = None
+
+        preview = pixmap.scaled(
+            80, 80,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
+        )
+        self.custom_preview.setPixmap(preview)
+        self.custom_preview.show()
+
+        file_name = os.path.basename(file_path)
+        if len(file_name) > 28:
+            file_name = file_name[:25] + "..."
+        self.custom_name.setText(f"✓ {file_name}")
+        self.custom_name.show()
+
+        for avatar_filename, button in self.avatar_buttons:
+            button.setProperty("selected", False)
             button.style().unpolish(button)
             button.style().polish(button)
             button.update()
@@ -557,10 +634,6 @@ class ProfileSetupWindow(QWidget):
             return
         self.clear_field_error(self.birth_date_error)
 
-    # ============================================
-    # اعتبارسنجی شماره تلفن (فقط حالت ایمیل)
-    # ============================================
-
     def validate_phone_live(self, text):
         if not self.phone_error:
             return
@@ -640,6 +713,59 @@ class ProfileSetupWindow(QWidget):
         error_label.hide()
 
     # ==========================================
+    # ذخیره آواتار نهایی + محاسبه هش
+    # ==========================================
+
+    def _resolve_final_avatar(self):
+        """
+        اگه کاربر عکس سفارشی انتخاب کرده:
+        1. هش عکس رو حساب کن
+        2. اول توی دیتابیس بگرد (users.imageHash)
+        3. اگه پیدا شد → همون مسیر قبلی رو برگردون، آپلود نکن
+        4. اگه نبود → save_image صدا بزن (که خودش JSON cache رو چک می‌کنه)
+        اگه آواتار پیش‌فرض → (نام فایل، None)
+        """
+        if not self._custom_image_source:
+            return self.selected_avatar, None
+
+        file_hash = calculate_hash(self._custom_image_source)
+        print("IMAGE HASH:", file_hash)
+
+        if not file_hash:
+            return "men.png", None
+
+        # ═══ اول توی دیتابیس بگرد (با محافظت در برابر خطا) ═══
+        existing = None
+        try:
+            existing = self.db.fetch_one(
+                """
+                SELECT imageBase64
+                FROM users
+                WHERE imageHash = %s
+                  AND imageBase64 IS NOT NULL
+                  AND imageBase64 != ''
+                LIMIT 1
+                """,
+                (file_hash,)
+            )
+            print("DB LOOKUP RESULT:", existing)
+        except Exception as e:
+            print("DB LOOKUP ERROR (imageHash column?):", e)
+
+        if existing and existing.get("imageBase64"):
+            print("REUSING EXISTING PATH:", existing["imageBase64"])
+            return existing["imageBase64"], file_hash
+
+        # ═══ توی دیتابیس نبود → save_image صدا بزن ═══
+        dest = save_image(self._custom_image_source, file_hash)
+        print("SAVE IMAGE RESULT:", dest)
+
+        if dest:
+            return dest, file_hash
+
+        return "men.png", None
+
+    # ==========================================
     # ادامه
     # ==========================================
 
@@ -650,7 +776,6 @@ class ProfileSetupWindow(QWidget):
         national_id = self.national_id_input.text().strip()
         birth_date_string = self.birth_date_input.text().strip()
 
-        # ── بررسی نام کاربری ──
         if not username:
             self.show_field_error(self.username_error, "لطفاً نام کاربری خودت را وارد کن.")
             self.username_input.setFocus()
@@ -664,7 +789,6 @@ class ProfileSetupWindow(QWidget):
 
         self.clear_field_error(self.username_error)
 
-        # ── بررسی حرفه ──
         if not profession:
             self.show_field_error(self.profession_error, "لطفاً حرفه یا تخصص خودت را وارد کن.")
             self.profession_input.setFocus()
@@ -684,7 +808,6 @@ class ProfileSetupWindow(QWidget):
 
         self.clear_field_error(self.profession_error)
 
-        # ── بررسی کد ملی ──
         if not national_id:
             self.show_field_error(self.national_id_error, "لطفاً کد ملی خودت را وارد کن.")
             self.national_id_input.setFocus()
@@ -702,7 +825,6 @@ class ProfileSetupWindow(QWidget):
 
         self.clear_field_error(self.national_id_error)
 
-        # ── بررسی تاریخ تولد ──
         if not birth_date_string:
             self.show_field_error(self.birth_date_error, "لطفاً تاریخ تولد خودت را وارد کن.")
             self.birth_date_input.setFocus()
@@ -715,21 +837,25 @@ class ProfileSetupWindow(QWidget):
 
         self.clear_field_error(self.birth_date_error)
 
-        # ── بررسی آواتار ──
-        if self.selected_avatar is None:
-            self.show_field_error(self.avatar_error, "لطفاً یکی از آواتارها را انتخاب کن.")
+        if not self.selected_avatar and not self._custom_image_source:
+            self.show_field_error(
+                self.avatar_error,
+                "لطفاً یکی از آواتارها را انتخاب کن یا عکس خودت رو آپلود کن."
+            )
             return
 
         self.clear_field_error(self.avatar_error)
 
+        # ═══ ذخیره نهایی عکس + هش ═══
+        final_avatar, final_avatar_hash = self._resolve_final_avatar()
+        print("FINAL AVATAR:", final_avatar)
+        print("FINAL HASH:", final_avatar_hash)
+
         # ═══════════════════════════════════════
         # حالت no_phone
-        # کاربر توسط مالک اضافه شده
-        # فقط اطلاعات شخصی رو UPDATE کن
         # ═══════════════════════════════════════
         if self.mode == "no_phone":
 
-            # ═══ چک تکراری نبودن کد ملی (به جز خود کاربر) ═══
             existing_national_id = self.db.fetch_one(
                 """
                 SELECT userId FROM users
@@ -747,7 +873,6 @@ class ProfileSetupWindow(QWidget):
                 self.national_id_input.setFocus()
                 return
 
-            # ═══ بررسی وجود کاربر ═══
             existing_user = self.db.fetch_one(
                 "SELECT userId FROM users WHERE phoneNumber = %s LIMIT 1",
                 (self.phone_number,)
@@ -757,7 +882,6 @@ class ProfileSetupWindow(QWidget):
                 QMessageBox.warning(self, "خطا", "کاربر یافت نشد.")
                 return
 
-            # ═══ بروزرسانی کاربر موجود ═══
             result = self.db.execute(
                 """
                 UPDATE users
@@ -765,7 +889,8 @@ class ProfileSetupWindow(QWidget):
                     profession = %s,
                     nationalId = %s,
                     birthDate = %s,
-                    imageBase64 = %s
+                    imageBase64 = %s,
+                    imageHash = %s
                 WHERE phoneNumber = %s
                 """,
                 (
@@ -773,7 +898,8 @@ class ProfileSetupWindow(QWidget):
                     profession,
                     national_id,
                     birth_date_string,
-                    self.selected_avatar,
+                    final_avatar,
+                    final_avatar_hash,
                     self.phone_number
                 )
             )
@@ -785,7 +911,7 @@ class ProfileSetupWindow(QWidget):
             self.home_window = HomeWindow(
                 self.phone_number,
                 username,
-                self.selected_avatar
+                final_avatar
             )
             self.home_window.show()
             self.close()
@@ -793,7 +919,6 @@ class ProfileSetupWindow(QWidget):
 
         # ═══════════════════════════════════════
         # حالت ایمیل
-        # کاربر جدید با ایمیل → INSERT
         # ═══════════════════════════════════════
         if self.mode == "email":
 
@@ -825,7 +950,6 @@ class ProfileSetupWindow(QWidget):
 
             self.clear_field_error(self.phone_error)
 
-            # ── بررسی تکراری نبودن کد ملی ──
             existing_national_id = self.db.fetch_one(
                 "SELECT userId FROM users WHERE nationalId = %s LIMIT 1",
                 (national_id,)
@@ -861,12 +985,14 @@ class ProfileSetupWindow(QWidget):
                 INSERT INTO users (
                     name, profession, nationalId, birthDate,
                     countryCode, phoneNumber, email, passwordHash,
-                    createdDate, sentOtp, otpUsed, isActive, imageBase64
+                    createdDate, sentOtp, otpUsed, isActive,
+                    imageBase64, imageHash
                 )
                 VALUES (
                     %s, %s, %s, %s,
                     '+98', %s, %s, %s,
-                    NOW(), 0, '1', '1', %s
+                    NOW(), 0, '1', '1',
+                    %s, %s
                 )
                 """,
                 (
@@ -877,7 +1003,8 @@ class ProfileSetupWindow(QWidget):
                     phone_value,
                     self.email,
                     password_hash,
-                    self.selected_avatar
+                    final_avatar,
+                    final_avatar_hash
                 )
             )
 
@@ -888,7 +1015,7 @@ class ProfileSetupWindow(QWidget):
             self.home_window = HomeWindow(
                 phone_value,
                 username,
-                self.selected_avatar
+                final_avatar
             )
             self.home_window.show()
             self.close()
@@ -896,10 +1023,8 @@ class ProfileSetupWindow(QWidget):
 
         # ═══════════════════════════════════════
         # حالت phone
-        # کاربر جدید با شماره تلفن → INSERT
         # ═══════════════════════════════════════
 
-        # ── بررسی تکراری نبودن کد ملی ──
         existing_national_id = self.db.fetch_one(
             "SELECT userId FROM users WHERE nationalId = %s LIMIT 1",
             (national_id,)
@@ -934,13 +1059,13 @@ class ProfileSetupWindow(QWidget):
                 name, profession, nationalId, birthDate,
                 countryCode, phoneNumber,
                 createdDate, sentOtp, otpSentDateTime,
-                otpUsed, isActive, imageBase64
+                otpUsed, isActive, imageBase64, imageHash
             )
             VALUES (
                 %s, %s, %s, %s,
                 %s, %s,
                 NOW(), %s, %s,
-                '1', '1', %s
+                '1', '1', %s, %s
             )
             """,
             (
@@ -952,7 +1077,8 @@ class ProfileSetupWindow(QWidget):
                 self.phone_number,
                 otp_data["otpCode"],
                 otp_data["createdDate"],
-                self.selected_avatar
+                final_avatar,
+                final_avatar_hash
             )
         )
 
@@ -963,7 +1089,7 @@ class ProfileSetupWindow(QWidget):
         self.home_window = HomeWindow(
             self.phone_number,
             username,
-            self.selected_avatar
+            final_avatar
         )
         self.home_window.show()
         self.close()
@@ -1030,6 +1156,14 @@ QLabel#fieldTitle {
     font-weight: 600;
 }
 
+QLabel#fieldHint {
+    background-color: transparent;
+    color: #98A2B3;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 0px 0px 0px;
+}
+
 QLabel#fieldError {
     background-color: transparent;
     color: #D9534F;
@@ -1082,6 +1216,38 @@ QPushButton#avatarButton:hover {
 QPushButton#avatarButton[selected="true"] {
     background-color: #E8F1FB;
     border: 3px solid #3978B9;
+}
+
+QPushButton#browseButton {
+    background-color: #FFFFFF;
+    color: #3478C9;
+    border: 2px dashed #8DA8C2;
+    border-radius: 13px;
+    font-family: "Vazirmatn";
+    font-size: 13px;
+    font-weight: 700;
+    padding: 0px 20px;
+}
+
+QPushButton#browseButton:hover {
+    background-color: #E8F1FB;
+    border: 2px dashed #3978B9;
+    color: #1961C7;
+}
+
+QLabel#customAvatarPreview {
+    background-color: #FFFFFF;
+    border: 3px solid #3978B9;
+    border-radius: 45px;
+    padding: 4px;
+}
+
+QLabel#customAvatarName {
+    background-color: transparent;
+    color: #16A34A;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 0px;
 }
 
 QPushButton#continueButton {
