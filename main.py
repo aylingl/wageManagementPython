@@ -1661,13 +1661,3 @@ class LoginWindow(QWidget):
 # MAIN
 # =========================================================
 
-if __name__ == "__main__":
-
-    app = QApplication(sys.argv)
-    from theme import theme_manager 
-    theme_manager.apply("light")
-
-    window = LoginWindow()
-    window.show()
-
-    sys.exit(app.exec())
