@@ -10,12 +10,56 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import (
     Qt, QTimer, QDate, QPoint, QSize
 )
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtGui import QPainter, QColor, QPixmap, QPainterPath
 
 from database import Database
 from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
+
+# =========================================================
+# ROUNDED AVATAR
+# =========================================================
+
+class RoundedAvatar(QLabel):
+
+    def __init__(self, size=36, parent=None):
+        super().__init__(parent)
+        self.avatar_size = size
+        self.setFixedSize(size, size)
+        self.setAlignment(Qt.AlignCenter)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+
+    def set_avatar(self, pixmap):
+        if pixmap is None or pixmap.isNull():
+            return
+
+        pixmap = pixmap.scaled(
+            self.avatar_size,
+            self.avatar_size,
+            Qt.KeepAspectRatioByExpanding,
+            Qt.SmoothTransformation
+        )
+
+        result = QPixmap(self.avatar_size, self.avatar_size)
+        result.fill(Qt.transparent)
+
+        painter = QPainter(result)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        path = QPainterPath()
+        path.addRoundedRect(
+            0, 0,
+            self.avatar_size, self.avatar_size,
+            self.avatar_size / 2, self.avatar_size / 2
+        )
+
+        painter.setClipPath(path)
+        painter.drawPixmap(0, 0, pixmap)
+        painter.end()
+
+        self.setPixmap(result)
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -308,7 +352,7 @@ class MessagesWindow(QWidget):
         self.user_id = None
         self.my_name = "—"
         self.messages = []
-        self.recipients = []   # list of dicts: {name, userId}
+        self.recipients = []
 
         self.setWindowTitle(tr("messages_title"))
         self.setMinimumSize(500, 400)
@@ -393,7 +437,9 @@ class MessagesWindow(QWidget):
                 SELECT m.messageId, m.senderId, m.receiverId, m.title,
                        m.message, m.sentDate, m.isRead,
                        su.name AS sender_name,
-                       ru.name AS receiver_name
+                       su.imageBase64 AS sender_image,
+                       ru.name AS receiver_name,
+                       ru.imageBase64 AS receiver_image
                 FROM messages m
                 LEFT JOIN users su ON su.userId = m.senderId
                 LEFT JOIN users ru ON ru.userId = m.receiverId
@@ -412,7 +458,9 @@ class MessagesWindow(QWidget):
                     "sender_id": r["senderId"],
                     "receiver_id": r["receiverId"],
                     "sender_name": r.get("sender_name") or "—",
+                    "sender_image": r.get("sender_image") or "",
                     "receiver_name": r.get("receiver_name") or "—",
+                    "receiver_image": r.get("receiver_image") or "",
                     "title": r.get("title") or tr("new_message_title"),
                     "message": r.get("message") or "",
                     "sent_date": r.get("sentDate"),
@@ -474,6 +522,30 @@ class MessagesWindow(QWidget):
         self.receiver_combo.blockSignals(False)
 
     # =====================================================
+    # LOAD AVATAR PIXMAP (فقط آواتار پیش‌فرض)
+    # =====================================================
+
+    def load_avatar_pixmap(self, image_value):
+        if not image_value:
+            return None
+        try:
+            # ═══ اگه مسیر مطلق بود (عکس سفارشی) → نشون نده ═══
+            if os.path.isabs(image_value):
+                return None
+
+            # ═══ فقط آواتار پیش‌فرض ═══
+            path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "avatars",
+                image_value
+            )
+            if os.path.exists(path):
+                return QPixmap(path)
+        except Exception as e:
+            print("LOAD AVATAR ERROR:", e)
+        return None
+
+    # =====================================================
     # UI
     # =====================================================
 
@@ -483,7 +555,6 @@ class MessagesWindow(QWidget):
         main_layout.setContentsMargins(24, 20, 24, 20)
         main_layout.setSpacing(14)
 
-        # HEADER
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
 
@@ -511,7 +582,6 @@ class MessagesWindow(QWidget):
         header_layout.addLayout(title_layout)
         header_layout.addStretch()
 
-        # Unread count badge
         self.unread_label = QLabel()
         self.unread_label.setObjectName("unreadLabel")
         self.unread_label.setAlignment(Qt.AlignCenter)
@@ -530,7 +600,6 @@ class MessagesWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # MESSAGES BOX
         messages_box = QFrame()
         messages_box.setObjectName("messagesBox")
         messages_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -539,7 +608,6 @@ class MessagesWindow(QWidget):
         messages_layout.setContentsMargins(14, 14, 14, 14)
         messages_layout.setSpacing(8)
 
-        # SCROLL
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
@@ -562,7 +630,6 @@ class MessagesWindow(QWidget):
 
         main_layout.addWidget(messages_box, 1)
 
-        # SEND BOX
         send_box = QFrame()
         send_box.setObjectName("sendBox")
         send_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -575,7 +642,6 @@ class MessagesWindow(QWidget):
         send_title.setObjectName("sendTitle")
         send_layout.addWidget(send_title)
 
-        # Receiver + message input
         row_layout = QHBoxLayout()
         row_layout.setSpacing(8)
 
@@ -894,19 +960,30 @@ class MessagesWindow(QWidget):
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(12)
 
-        # Icon
+        # ═══ آواتار پیش‌فرض (اگه بود) وگرنه آیکون ═══
         if msg["is_outgoing"]:
-            icon = QLabel("↗")
-            icon.setObjectName("msgIconOut")
+            avatar_image = msg.get("receiver_image") or ""
         else:
-            icon = QLabel("✉")
-            icon.setObjectName("msgIcon")
+            avatar_image = msg.get("sender_image") or ""
 
-        icon.setFixedSize(36, 36)
-        icon.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon)
+        avatar_pixmap = self.load_avatar_pixmap(avatar_image)
 
-        # Text
+        if avatar_pixmap is not None and not avatar_pixmap.isNull():
+            avatar = RoundedAvatar(36)
+            avatar.set_avatar(avatar_pixmap)
+            layout.addWidget(avatar)
+        else:
+            if msg["is_outgoing"]:
+                icon = QLabel("↗")
+                icon.setObjectName("msgIconOut")
+            else:
+                icon = QLabel("✉")
+                icon.setObjectName("msgIcon")
+            icon.setFixedSize(36, 36)
+            icon.setAlignment(Qt.AlignCenter)
+            layout.addWidget(icon)
+
+        # متن
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
 
@@ -930,7 +1007,6 @@ class MessagesWindow(QWidget):
 
         layout.addLayout(text_col, 1)
 
-        # Click to mark as read (only for incoming unread)
         if is_unread:
             def clicked(event, m_id=msg["id"]):
                 self.mark_as_read(m_id)

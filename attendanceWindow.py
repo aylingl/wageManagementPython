@@ -634,9 +634,9 @@ class NiceMessageDialog(QDialog):
         if kind == "success":
             icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
         elif kind == "error":
-            icon_char, color, bg = "✕", "#E63946", "#FFE5E8"
+            icon_char, color, bg = "✕", "#D93025", "#FFE5E8"
         elif kind == "warning":
-            icon_char, color, bg = "!", "#E63946", "#FFE5E8"
+            icon_char, color, bg = "!", "#D93025", "#FFE5E8"
         else:
             icon_char, color, bg = "i", "#1961C7", "#DBEAFE"
 
@@ -1279,7 +1279,7 @@ class AttendanceWindow(QWidget):
 
             QPushButton#rejectButton {{
                 background-color: #FFE5E8;
-                color: #E63946;
+                color: #D93025;
                 border: none;
                 border-radius: 12px;
                 padding: 6px 14px;

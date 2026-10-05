@@ -7,7 +7,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QFrame,
-    QScrollArea
+    QScrollArea,
+    QDialog
 )
 
 from PySide6.QtCore import Qt, QPoint, QTimer
@@ -67,6 +68,165 @@ class RoundedAvatar(QLabel):
         painter.end()
 
         self.setPixmap(result)
+
+# =========================================================
+# LOGOUT CONFIRM DIALOG
+# =========================================================
+
+class LogoutConfirmDialog(QDialog):
+
+    def __init__(self, parent=None, avatar=None):
+        super().__init__(parent)
+
+        self.setModal(True)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setFixedSize(400, 300)
+
+        c = theme_manager.colors()
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setStyleSheet(
+            f"background-color: {c['bg_card']};"
+            f"border-radius: 22px;"
+            f"border: 1px solid {c['border']};"
+        )
+        outer.addWidget(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(28, 26, 28, 24)
+        layout.setSpacing(12)
+
+        # ═══ عکس پروفایل کاربر ═══
+        avatar_pixmap = None
+
+        if avatar:
+            if os.path.isabs(avatar):
+                if os.path.exists(avatar):
+                    avatar_pixmap = QPixmap(avatar)
+            else:
+                path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "avatars",
+                    avatar
+                )
+                if os.path.exists(path):
+                    avatar_pixmap = QPixmap(path)
+
+        if avatar_pixmap is not None and not avatar_pixmap.isNull():
+            # نمایش عکس پروفایل با حاشیه قرمز ملایم
+            avatar_widget = RoundedAvatar(64)
+
+            avatar_container = QLabel()
+            avatar_container.setFixedSize(76, 76)
+            avatar_container.setAlignment(Qt.AlignCenter)
+            avatar_container.setStyleSheet(
+                "background-color: #FFE5E8;"
+                "border: 2px solid #D93025;"
+                "border-radius: 38px;"
+            )
+
+            container_layout = QVBoxLayout(avatar_container)
+            container_layout.setContentsMargins(6, 6, 6, 6)
+            container_layout.setAlignment(Qt.AlignCenter)
+            container_layout.addWidget(avatar_widget)
+
+            avatar_widget.set_avatar(avatar_pixmap)
+
+            icon_row = QHBoxLayout()
+            icon_row.addStretch()
+            icon_row.addWidget(avatar_container)
+            icon_row.addStretch()
+            layout.addLayout(icon_row)
+        else:
+            # ═══ آیکون ⏻ در دایره ═══
+            icon_label = QLabel("⏻")
+            icon_label.setFixedSize(60, 60)
+            icon_label.setAlignment(Qt.AlignCenter)
+            icon_label.setStyleSheet(
+                "background-color: #FFE5E8;"
+                "color: #D93025;"
+                "border-radius: 30px;"
+                "font-size: 28px;"
+                "font-weight: 700;"
+            )
+
+            icon_row = QHBoxLayout()
+            icon_row.addStretch()
+            icon_row.addWidget(icon_label)
+            icon_row.addStretch()
+            layout.addLayout(icon_row)
+
+        title_label = QLabel("خروج از حساب")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet(
+            f"color: {c['text_main']};"
+            f"font-size: 16px;"
+            f"font-weight: 700;"
+            f"background: transparent;"
+            f"border: none;"
+        )
+        layout.addWidget(title_label)
+
+        text_label = QLabel("آیا از خروج از حساب کاربری خود مطمئن هستید؟")
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setWordWrap(True)
+        text_label.setStyleSheet(
+            f"color: {c['text_dim']};"
+            f"font-size: 12px;"
+            f"background: transparent;"
+            f"border: none;"
+        )
+        layout.addWidget(text_label)
+
+        layout.addStretch()
+
+        btns = QHBoxLayout()
+        btns.setSpacing(10)
+
+        cancel_btn = QPushButton("انصراف")
+        cancel_btn.setFixedHeight(44)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['bg_input']};
+                color: {c['text_dim']};
+                border: 1px solid {c['border']};
+                border-radius: 22px;
+                padding: 0 26px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: {c['bg_hover']}; }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+
+        logout_btn = QPushButton("خروج")
+        logout_btn.setFixedHeight(44)
+        logout_btn.setCursor(Qt.PointingHandCursor)
+        logout_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #D93025;
+                color: white;
+                border: none;
+                border-radius: 22px;
+                padding: 0 30px;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{ background-color: #B71C1C; }}
+        """)
+        logout_btn.clicked.connect(self.accept)
+
+        btns.addStretch()
+        btns.addWidget(cancel_btn)
+        btns.addWidget(logout_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
 
 # =========================================================
 # HOME WINDOW
@@ -137,21 +297,16 @@ class HomeWindow(QWidget):
             except Exception as e:
                 print("RETRANSLATE ERROR:", e)
 
-        # آپدیت دکمه‌های نوار پایین
         if hasattr(self, "settings_btn"):
             self.settings_btn.setText(f"⚙   {tr('nav_settings')}")
             self.group_btn.setText(f"🏢   {tr('nav_group')}")
             self.home_btn.setText(f"⌂   {tr('nav_home')}")
             self.message_btn.setText(f"✉   {tr('nav_message')}")
 
-        # آپدیت پیام خوش‌آمد (چون وابسته به username)
         if hasattr(self, "welcome_label"):
             self.welcome_label.setText(f"{tr('welcome')} {self.username} 👋")
 
-        # گروه و نقش
         self.update_group_text()
-
-        # سرویس‌ها
         self.update_services()
 
     # =====================================================
@@ -334,13 +489,19 @@ class HomeWindow(QWidget):
         profile_layout.setSpacing(12)
 
         avatar = RoundedAvatar(48)
-        avatar_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "avatars",
-            self.avatar
-        )
-        if os.path.exists(avatar_path):
-            avatar.set_avatar(QPixmap(avatar_path))
+
+        if self.avatar:
+            if os.path.isabs(self.avatar):
+                if os.path.exists(self.avatar):
+                    avatar.set_avatar(QPixmap(self.avatar))
+            else:
+                avatar_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "avatars",
+                    self.avatar
+                )
+                if os.path.exists(avatar_path):
+                    avatar.set_avatar(QPixmap(avatar_path))
 
         profile_text = QVBoxLayout()
         profile_text.setContentsMargins(0, 0, 0, 0)
@@ -356,6 +517,16 @@ class HomeWindow(QWidget):
         profile_text.addWidget(profile_title)
         profile_text.addWidget(username_label)
 
+        # ═══ دکمه خروج (فلش رو به ادیت) ═══
+        self.logout_button = QPushButton("←")
+        self.logout_button.setObjectName("logoutButton")
+        self.logout_button.setFixedSize(34, 34)
+        self.logout_button.setCursor(Qt.PointingHandCursor)
+        self.logout_button.setAttribute(Qt.WA_StyledBackground, True)
+        self.logout_button.setToolTip(tr("logout"))
+        self.logout_button.clicked.connect(self.logout)
+
+        # ═══ دکمه ویرایش ═══
         profile_edit = QPushButton("✎")
         profile_edit.setObjectName("profileEdit")
         profile_edit.setFixedSize(34, 34)
@@ -366,6 +537,7 @@ class HomeWindow(QWidget):
         profile_layout.addWidget(avatar)
         profile_layout.addLayout(profile_text)
         profile_layout.addStretch()
+        profile_layout.addWidget(self.logout_button)
         profile_layout.addWidget(profile_edit)
 
         # GROUP CARD
@@ -555,6 +727,20 @@ class HomeWindow(QWidget):
 
             QPushButton#profileEdit:hover {{
                 background-color: {c['bg_hover']};
+            }}
+
+            QPushButton#logoutButton {{
+                background-color: #FFE5E8;
+                color: #D93025;
+                border: none;
+                border-radius: 17px;
+                font-size: 18px;
+                font-weight: 900;
+            }}
+
+            QPushButton#logoutButton:hover {{
+                background-color: #FFCCD0;
+                color: #B71C1C;
             }}
 
             QFrame#groupCard {{
@@ -994,6 +1180,23 @@ class HomeWindow(QWidget):
         button.setText(f"{icon}   {text}")
         button.clicked.connect(callback)
         return button
+
+    # =====================================================
+    # LOGOUT
+    # =====================================================
+
+    def logout(self):
+        try:
+            confirm = LogoutConfirmDialog(self, avatar=self.avatar)
+            if confirm.exec() != QDialog.Accepted:
+                return
+
+            from main import LoginWindow
+            self.login_window = LoginWindow()
+            self.login_window.show()
+            self.close()
+        except Exception as e:
+            print("LOGOUT ERROR:", e)
 
     # =====================================================
     # OPEN WINDOWS

@@ -1201,7 +1201,7 @@ class EmployeesWindow(QWidget):
         name_input.setFixedHeight(44)
 
         name_err = QLabel()
-        name_err.setStyleSheet("color: #E63946; font-size: 11px; font-weight: 600; background: transparent;")
+        name_err.setStyleSheet("color: #D93025; font-size: 11px; font-weight: 600; background: transparent;")
         name_err.setFixedHeight(16)
         name_err.hide()
 
@@ -1219,7 +1219,7 @@ class EmployeesWindow(QWidget):
         phone_input.setMaxLength(11)
 
         phone_err = QLabel()
-        phone_err.setStyleSheet("color: #E63946; font-size: 11px; font-weight: 600; background: transparent;")
+        phone_err.setStyleSheet("color: #D93025; font-size: 11px; font-weight: 600; background: transparent;")
         phone_err.setFixedHeight(16)
         phone_err.hide()
 
@@ -1235,7 +1235,7 @@ class EmployeesWindow(QWidget):
         job_input.setFixedHeight(44)
 
         job_err = QLabel()
-        job_err.setStyleSheet("color: #E63946; font-size: 11px; font-weight: 600; background: transparent;")
+        job_err.setStyleSheet("color: #D93025; font-size: 11px; font-weight: 600; background: transparent;")
         job_err.setFixedHeight(16)
         job_err.hide()
 
