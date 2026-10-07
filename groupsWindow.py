@@ -268,6 +268,20 @@ class GroupsWindow(QWidget):
         self.refresh_groups()
 
     # =====================================================
+    # NOTIFY PARENT
+    # =====================================================
+
+    def notify_parent(self):
+        """به HomeWindow خبر بده که دیتا عوض شده"""
+        if not self.parent_window:
+            return
+        if hasattr(self.parent_window, "refresh_groups_from_database"):
+            try:
+                self.parent_window.refresh_groups_from_database()
+            except Exception as e:
+                print("PARENT REFRESH ERROR:", e)
+
+    # =====================================================
     # LOAD DATA
     # =====================================================
 
@@ -402,7 +416,6 @@ class GroupsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # CONTAINER
         groups_container_frame = QFrame()
         groups_container_frame.setObjectName("groupsContainer")
         groups_container_frame.setAttribute(Qt.WA_StyledBackground, True)
@@ -417,7 +430,6 @@ class GroupsWindow(QWidget):
 
         container_layout.addWidget(container_title)
 
-        # SCROLL
         scroll = QScrollArea()
         scroll.setObjectName("groupsScroll")
         scroll.setWidgetResizable(True)
@@ -750,7 +762,10 @@ class GroupsWindow(QWidget):
             self.parent_window.activateWindow()
 
             if hasattr(self.parent_window, "refresh_groups_from_database"):
-                self.parent_window.refresh_groups_from_database()
+                try:
+                    self.parent_window.refresh_groups_from_database()
+                except Exception as e:
+                    print("REFRESH FROM GO_BACK ERROR:", e)
 
     # =====================================================
     # REFRESH GROUPS
@@ -1117,9 +1132,7 @@ class GroupsWindow(QWidget):
             self.load_groups()
             self.refresh_groups()
 
-            if self.parent_window:
-                if hasattr(self.parent_window, "refresh_groups_from_database"):
-                    self.parent_window.refresh_groups_from_database()
+            self.notify_parent()
 
             NiceMessageBox.success(
                 self,
@@ -1356,12 +1369,14 @@ class GroupsWindow(QWidget):
                 self.load_groups()
                 self.refresh_groups()
 
-                if self.parent_window:
-                    if hasattr(self.parent_window, "refresh_groups_from_database"):
-                        self.parent_window.refresh_groups_from_database()
-
+                # ═══ اول دیالوگ رو ببند ═══
                 dialog.close()
+
+                # ═══ پیام موفقیت ═══
                 NiceMessageBox.success(self, tr("added"), tr("added_msg_group"))
+
+                # ═══ به HomeWindow خبر بده ═══
+                self.notify_parent()
 
             except Exception as error:
                 print("ADD GROUP ERROR:", error)

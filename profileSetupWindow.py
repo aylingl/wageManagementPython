@@ -241,6 +241,40 @@ class ProfileSetupWindow(QWidget):
         card_layout.addWidget(profile_title)
         card_layout.addSpacing(6)
 
+        # ═══════════════════════════════════════════════════
+        # Pre-fill برای حالت no_phone (کارمند اضافه‌شده توسط مالک)
+        # ═══════════════════════════════════════════════════
+        prefill_name = ""
+        prefill_job = ""
+        self.prefill_member_id = None
+
+        if self.mode == "no_phone" and self.phone_number:
+            try:
+                existing = self.db.fetch_one(
+                    """
+                    SELECT u.name, u.userId,
+                           cm.memberId,
+                           ep.jobTitle
+                    FROM users u
+                    LEFT JOIN complex_members cm ON cm.userId = u.userId
+                    LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
+                    WHERE u.phoneNumber = %s
+                    ORDER BY cm.memberId DESC
+                    LIMIT 1
+                    """,
+                    (self.phone_number,)
+                )
+                if existing:
+                    if existing.get("name"):
+                        prefill_name = existing["name"]
+                    if existing.get("jobTitle"):
+                        prefill_job = existing["jobTitle"]
+                    if existing.get("memberId"):
+                        self.prefill_member_id = existing["memberId"]
+                    print("PREFILL:", prefill_name, "/", prefill_job, "/ memberId:", self.prefill_member_id)
+            except Exception as e:
+                print("PREFILL ERROR:", e)
+
         # ── شماره تلفن (فقط حالت ایمیل) ──
         self.phone_input = None
         self.phone_error = None
@@ -262,13 +296,15 @@ class ProfileSetupWindow(QWidget):
                 self.phone_input
             )
             self.phone_input.setValidator(phone_validator)
-            self.phone_input.textChanged.connect(self.validate_phone_live)
 
             self.phone_error = QLabel()
             self.phone_error.setObjectName("fieldError")
             self.phone_error.setFixedHeight(20)
             self.phone_error.setWordWrap(True)
             self.phone_error.hide()
+
+            # ═══ بعد از ساخت error، signal رو وصل کن ═══
+            self.phone_input.textChanged.connect(self.validate_phone_live)
 
             card_layout.addWidget(phone_label)
             card_layout.addWidget(self.phone_input)
@@ -283,7 +319,6 @@ class ProfileSetupWindow(QWidget):
         self.username_input.setPlaceholderText("مثلاً: Danesh")
         self.username_input.setFixedHeight(50)
         self.username_input.setLayoutDirection(Qt.LeftToRight)
-        self.username_input.textChanged.connect(self.validate_username)
 
         self.username_error = QLabel()
         self.username_error.setObjectName("fieldError")
@@ -291,25 +326,36 @@ class ProfileSetupWindow(QWidget):
         self.username_error.setWordWrap(True)
         self.username_error.hide()
 
+        # ═══ اول error ساخته شد، حالا signal رو وصل کن ═══
+        self.username_input.textChanged.connect(self.validate_username)
+
+        # ═══ حالا setText (بعد از ساخت error) ═══
+        self.username_input.setText(prefill_name)
+
         card_layout.addWidget(username_label)
         card_layout.addWidget(self.username_input)
         card_layout.addWidget(self.username_error)
 
-        # ── حرفه ──
-        profession_label = QLabel("حرفه / تخصص")
+        # ── شغل / سمت ──
+        profession_label = QLabel("شغل / سمت")
         profession_label.setObjectName("fieldTitle")
 
         self.profession_input = QLineEdit()
         self.profession_input.setObjectName("professionInput")
         self.profession_input.setPlaceholderText("مثلاً: برنامه‌نویس، حسابدار، معلم")
         self.profession_input.setFixedHeight(50)
-        self.profession_input.textChanged.connect(self.validate_profession)
 
         self.profession_error = QLabel()
         self.profession_error.setObjectName("fieldError")
         self.profession_error.setFixedHeight(20)
         self.profession_error.setWordWrap(True)
         self.profession_error.hide()
+
+        # ═══ اول error ساخته شد، حالا signal رو وصل کن ═══
+        self.profession_input.textChanged.connect(self.validate_profession)
+
+        # ═══ حالا setText ═══
+        self.profession_input.setText(prefill_job)
 
         card_layout.addWidget(profession_label)
         card_layout.addWidget(self.profession_input)
@@ -331,13 +377,15 @@ class ProfileSetupWindow(QWidget):
             self.national_id_input
         )
         self.national_id_input.setValidator(national_id_validator)
-        self.national_id_input.textChanged.connect(self.validate_national_id_live)
 
         self.national_id_error = QLabel()
         self.national_id_error.setObjectName("fieldError")
         self.national_id_error.setFixedHeight(20)
         self.national_id_error.setWordWrap(True)
         self.national_id_error.hide()
+
+        # ═══ بعد از error، signal رو وصل کن ═══
+        self.national_id_input.textChanged.connect(self.validate_national_id_live)
 
         card_layout.addWidget(national_id_label)
         card_layout.addWidget(self.national_id_input)
@@ -359,13 +407,15 @@ class ProfileSetupWindow(QWidget):
             self.birth_date_input
         )
         self.birth_date_input.setValidator(birth_date_validator)
-        self.birth_date_input.textChanged.connect(self.validate_birth_date_live)
 
         self.birth_date_error = QLabel()
         self.birth_date_error.setObjectName("fieldError")
         self.birth_date_error.setFixedHeight(20)
         self.birth_date_error.setWordWrap(True)
         self.birth_date_error.hide()
+
+        # ═══ بعد از error، signal رو وصل کن ═══
+        self.birth_date_input.textChanged.connect(self.validate_birth_date_live)
 
         card_layout.addWidget(birth_date_label)
         card_layout.addWidget(self.birth_date_input)
@@ -427,7 +477,6 @@ class ProfileSetupWindow(QWidget):
         self.browse_button.clicked.connect(self.browse_avatar)
         card_layout.addWidget(self.browse_button)
 
-        # پیش‌نمایش عکس سفارشی
         self.custom_preview = QLabel()
         self.custom_preview.setObjectName("customAvatarPreview")
         self.custom_preview.setFixedSize(90, 90)
@@ -435,7 +484,6 @@ class ProfileSetupWindow(QWidget):
         self.custom_preview.hide()
         card_layout.addWidget(self.custom_preview, 0, Qt.AlignCenter)
 
-        # نام فایل انتخاب‌شده
         self.custom_name = QLabel()
         self.custom_name.setObjectName("customAvatarName")
         self.custom_name.setAlignment(Qt.AlignCenter)
@@ -450,7 +498,6 @@ class ProfileSetupWindow(QWidget):
 
         card_layout.addWidget(self.avatar_error)
 
-        # ── دکمه ادامه ──
         card_layout.addSpacing(12)
 
         self.continue_button = HoverButton("ادامه و ورود به سامانه  →")
@@ -573,6 +620,10 @@ class ProfileSetupWindow(QWidget):
         return control_digit == calculated_digit
 
     def validate_username(self, text):
+        # ═══ محافظت: اگه error_label ساخته نشده، برگرد ═══
+        if not hasattr(self, "username_error"):
+            return
+
         if not text:
             self.clear_field_error(self.username_error)
             return
@@ -586,6 +637,10 @@ class ProfileSetupWindow(QWidget):
         self.clear_field_error(self.username_error)
 
     def validate_profession(self, text):
+        # ═══ محافظت ═══
+        if not hasattr(self, "profession_error"):
+            return
+
         if not text:
             self.clear_field_error(self.profession_error)
             return
@@ -593,12 +648,15 @@ class ProfileSetupWindow(QWidget):
             if character.isdigit():
                 self.show_field_error(
                     self.profession_error,
-                    "حرفه نباید شامل عدد باشد."
+                    "شغل نباید شامل عدد باشد."
                 )
                 return
         self.clear_field_error(self.profession_error)
 
     def validate_national_id_live(self, text):
+        if not hasattr(self, "national_id_error"):
+            return
+
         if not text:
             self.clear_field_error(self.national_id_error)
             return
@@ -620,6 +678,9 @@ class ProfileSetupWindow(QWidget):
         self.clear_field_error(self.national_id_error)
 
     def validate_birth_date_live(self, text):
+        if not hasattr(self, "birth_date_error"):
+            return
+
         if not text:
             self.clear_field_error(self.birth_date_error)
             return
@@ -717,14 +778,6 @@ class ProfileSetupWindow(QWidget):
     # ==========================================
 
     def _resolve_final_avatar(self):
-        """
-        اگه کاربر عکس سفارشی انتخاب کرده:
-        1. هش عکس رو حساب کن
-        2. اول توی دیتابیس بگرد (users.imageHash)
-        3. اگه پیدا شد → همون مسیر قبلی رو برگردون، آپلود نکن
-        4. اگه نبود → save_image صدا بزن (که خودش JSON cache رو چک می‌کنه)
-        اگه آواتار پیش‌فرض → (نام فایل، None)
-        """
         if not self._custom_image_source:
             return self.selected_avatar, None
 
@@ -734,7 +787,6 @@ class ProfileSetupWindow(QWidget):
         if not file_hash:
             return "men.png", None
 
-        # ═══ اول توی دیتابیس بگرد (با محافظت در برابر خطا) ═══
         existing = None
         try:
             existing = self.db.fetch_one(
@@ -756,7 +808,6 @@ class ProfileSetupWindow(QWidget):
             print("REUSING EXISTING PATH:", existing["imageBase64"])
             return existing["imageBase64"], file_hash
 
-        # ═══ توی دیتابیس نبود → save_image صدا بزن ═══
         dest = save_image(self._custom_image_source, file_hash)
         print("SAVE IMAGE RESULT:", dest)
 
@@ -790,19 +841,19 @@ class ProfileSetupWindow(QWidget):
         self.clear_field_error(self.username_error)
 
         if not profession:
-            self.show_field_error(self.profession_error, "لطفاً حرفه یا تخصص خودت را وارد کن.")
+            self.show_field_error(self.profession_error, "لطفاً شغل خودت را وارد کن.")
             self.profession_input.setFocus()
             return
 
         for character in profession:
             if character.isdigit():
-                self.show_field_error(self.profession_error, "حرفه نباید شامل عدد باشد.")
+                self.show_field_error(self.profession_error, "شغل نباید شامل عدد باشد.")
                 self.profession_input.setFocus()
                 return
 
         letter_count = sum(1 for c in profession if c.isalpha())
         if letter_count < 3:
-            self.show_field_error(self.profession_error, "حرفه باید حداقل ۳ حرف داشته باشد.")
+            self.show_field_error(self.profession_error, "شغل باید حداقل ۳ حرف داشته باشد.")
             self.profession_input.setFocus()
             return
 
@@ -846,13 +897,12 @@ class ProfileSetupWindow(QWidget):
 
         self.clear_field_error(self.avatar_error)
 
-        # ═══ ذخیره نهایی عکس + هش ═══
         final_avatar, final_avatar_hash = self._resolve_final_avatar()
         print("FINAL AVATAR:", final_avatar)
         print("FINAL HASH:", final_avatar_hash)
 
         # ═══════════════════════════════════════
-        # حالت no_phone
+        # حالت no_phone (کارمند اضافه‌شده توسط مالک)
         # ═══════════════════════════════════════
         if self.mode == "no_phone":
 
@@ -886,7 +936,6 @@ class ProfileSetupWindow(QWidget):
                 """
                 UPDATE users
                 SET name = %s,
-                    profession = %s,
                     nationalId = %s,
                     birthDate = %s,
                     imageBase64 = %s,
@@ -895,7 +944,6 @@ class ProfileSetupWindow(QWidget):
                 """,
                 (
                     username,
-                    profession,
                     national_id,
                     birth_date_string,
                     final_avatar,
@@ -908,6 +956,19 @@ class ProfileSetupWindow(QWidget):
                 QMessageBox.critical(self, "خطا", "بروزرسانی پروفایل انجام نشد.")
                 return
 
+            if self.prefill_member_id:
+                try:
+                    self.db.execute(
+                        """
+                        UPDATE employee_profiles
+                        SET jobTitle = %s
+                        WHERE memberId = %s
+                        """,
+                        (profession, self.prefill_member_id)
+                    )
+                except Exception as e:
+                    print("UPDATE JOBTITLE ERROR:", e)
+
             self.home_window = HomeWindow(
                 self.phone_number,
                 username,
@@ -918,7 +979,7 @@ class ProfileSetupWindow(QWidget):
             return
 
         # ═══════════════════════════════════════
-        # حالت ایمیل
+        # حالت ایمیل (گوگل)
         # ═══════════════════════════════════════
         if self.mode == "email":
 
@@ -1022,7 +1083,7 @@ class ProfileSetupWindow(QWidget):
             return
 
         # ═══════════════════════════════════════
-        # حالت phone
+        # حالت phone (کاربر جدید)
         # ═══════════════════════════════════════
 
         existing_national_id = self.db.fetch_one(

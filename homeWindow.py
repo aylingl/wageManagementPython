@@ -8,10 +8,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QFrame,
     QScrollArea,
-    QDialog
+    QDialog,
+    QApplication
 )
 
-from PySide6.QtCore import Qt, QPoint, QTimer
+from PySide6.QtCore import Qt, QPoint, QTimer, QRect, QEvent
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath
 
 from database import Database
@@ -101,7 +102,6 @@ class LogoutConfirmDialog(QDialog):
         layout.setContentsMargins(28, 26, 28, 24)
         layout.setSpacing(12)
 
-        # ═══ عکس پروفایل کاربر ═══
         avatar_pixmap = None
 
         if avatar:
@@ -118,7 +118,6 @@ class LogoutConfirmDialog(QDialog):
                     avatar_pixmap = QPixmap(path)
 
         if avatar_pixmap is not None and not avatar_pixmap.isNull():
-            # نمایش عکس پروفایل با حاشیه قرمز ملایم
             avatar_widget = RoundedAvatar(64)
 
             avatar_container = QLabel()
@@ -143,7 +142,6 @@ class LogoutConfirmDialog(QDialog):
             icon_row.addStretch()
             layout.addLayout(icon_row)
         else:
-            # ═══ آیکون ⏻ در دایره ═══
             icon_label = QLabel("⏻")
             icon_label.setFixedSize(60, 60)
             icon_label.setAlignment(Qt.AlignCenter)
@@ -274,6 +272,48 @@ class HomeWindow(QWidget):
         theme_manager.theme_changed.connect(self.on_theme_changed)
         signals.language_changed.connect(self.on_language_changed)
 
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+
+    # =====================================================
+    # EVENT FILTER
+    # =====================================================
+
+    def eventFilter(self, obj, event):
+        try:
+            if event.type() == QEvent.MouseButtonPress:
+                if self.group_menu is not None:
+
+                    if not self.isActiveWindow():
+                        return super().eventFilter(obj, event)
+
+                    try:
+                        pos = event.globalPosition().toPoint()
+                    except Exception:
+                        try:
+                            pos = event.globalPos()
+                        except Exception:
+                            pos = None
+
+                    if pos is not None:
+                        popup_tl = self.group_menu.mapToGlobal(QPoint(0, 0))
+                        popup_rect = QRect(popup_tl, self.group_menu.size())
+                        if popup_rect.contains(pos):
+                            return super().eventFilter(obj, event)
+
+                        card_tl = self.group_card.mapToGlobal(QPoint(0, 0))
+                        card_rect = QRect(card_tl, self.group_card.size())
+                        if card_rect.contains(pos):
+                            return super().eventFilter(obj, event)
+
+                        self.close_group_menu()
+
+        except Exception as error:
+            print("HOME EVENT FILTER ERROR:", error)
+
+        return super().eventFilter(obj, event)
+
     # =====================================================
     # THEME
     # =====================================================
@@ -310,12 +350,14 @@ class HomeWindow(QWidget):
         self.update_services()
 
     # =====================================================
-    # LOAD USER
+    # LOAD USER INFORMATION (با چند fallback برای شماره)
     # =====================================================
 
     def load_user_information(self):
 
         try:
+            user = None
+
             if self.email:
                 user = self.db.fetch_one(
                     """
@@ -327,20 +369,48 @@ class HomeWindow(QWidget):
                     (self.email,)
                 )
             else:
-                user = self.db.fetch_one(
-                    """
-                    SELECT userId, name, imageBase64
-                    FROM users
-                    WHERE phoneNumber = %s
-                    LIMIT 1
-                    """,
-                    (self.phone_number,)
-                )
+                if self.phone_number:
+                    # ═══ ۱) با فرمت دقیق ═══
+                    user = self.db.fetch_one(
+                        """
+                        SELECT userId, name, imageBase64
+                        FROM users
+                        WHERE phoneNumber = %s
+                        LIMIT 1
+                        """,
+                        (self.phone_number,)
+                    )
+
+                    # ═══ ۲) با ۱۰ رقم آخر ═══
+                    if not user:
+                        user = self.db.fetch_one(
+                            """
+                            SELECT userId, name, imageBase64
+                            FROM users
+                            WHERE RIGHT(phoneNumber, 10) = RIGHT(%s, 10)
+                            LIMIT 1
+                            """,
+                            (self.phone_number,)
+                        )
+
+                    # ═══ ۳) با ۹ رقم آخر (بدون صفر) ═══
+                    if not user:
+                        user = self.db.fetch_one(
+                            """
+                            SELECT userId, name, imageBase64
+                            FROM users
+                            WHERE RIGHT(phoneNumber, 9) = RIGHT(%s, 9)
+                            LIMIT 1
+                            """,
+                            (self.phone_number,)
+                        )
 
             if not user:
+                print("HOME: user not found for phone:", self.phone_number)
                 return
 
             self.user_id = user["userId"]
+            print("HOME: user_id =", self.user_id)
 
             theme_manager.load_for_user(self.user_id)
             self.load_user_language()
@@ -352,12 +422,14 @@ class HomeWindow(QWidget):
                 self.avatar = user["imageBase64"]
 
             self.groups = self.load_groups_from_database()
+            print("HOME: groups found =", len(self.groups))
 
             if self.groups:
                 first_group = self.groups[0]
                 self.current_group = first_group["name"] or "—"
                 rv = first_group.get("role", "employee")
                 self.current_role_key = self.get_role_key(rv)
+                print("HOME: role =", self.current_role_key)
 
         except Exception as e:
             print("Error loading home information:", e)
@@ -433,11 +505,6 @@ class HomeWindow(QWidget):
             if not self.user_id:
                 return
 
-            popup_was_visible = False
-            if self.group_menu is not None:
-                popup_was_visible = self.group_menu.isVisible()
-                self.close_group_menu()
-
             self.groups = self.load_groups_from_database()
 
             if self.groups:
@@ -457,9 +524,6 @@ class HomeWindow(QWidget):
             self.update_group_text()
             self.update_services()
 
-            if popup_was_visible:
-                self.show_group_menu()
-
         except Exception as error:
             print("HOME GROUP REFRESH ERROR:", error)
 
@@ -475,11 +539,9 @@ class HomeWindow(QWidget):
         main_layout.setContentsMargins(28, 22, 28, 22)
         main_layout.setSpacing(14)
 
-        # TOP
         top_layout = QHBoxLayout()
         top_layout.setSpacing(14)
 
-        # PROFILE CARD
         self.profile_card = QFrame()
         self.profile_card.setObjectName("profileCard")
         self.profile_card.setAttribute(Qt.WA_StyledBackground, True)
@@ -517,8 +579,8 @@ class HomeWindow(QWidget):
         profile_text.addWidget(profile_title)
         profile_text.addWidget(username_label)
 
-        # ═══ دکمه خروج (فلش رو به ادیت) ═══
-        self.logout_button = QPushButton("←")
+        # ═══ دکمه خروج با آیکون واقعی ═══
+        self.logout_button = QPushButton("[←")
         self.logout_button.setObjectName("logoutButton")
         self.logout_button.setFixedSize(34, 34)
         self.logout_button.setCursor(Qt.PointingHandCursor)
@@ -526,7 +588,6 @@ class HomeWindow(QWidget):
         self.logout_button.setToolTip(tr("logout"))
         self.logout_button.clicked.connect(self.logout)
 
-        # ═══ دکمه ویرایش ═══
         profile_edit = QPushButton("✎")
         profile_edit.setObjectName("profileEdit")
         profile_edit.setFixedSize(34, 34)
@@ -540,7 +601,6 @@ class HomeWindow(QWidget):
         profile_layout.addWidget(self.logout_button)
         profile_layout.addWidget(profile_edit)
 
-        # GROUP CARD
         self.group_card = QFrame()
         self.group_card.setObjectName("groupCard")
         self.group_card.setAttribute(Qt.WA_StyledBackground, True)
@@ -585,7 +645,10 @@ class HomeWindow(QWidget):
         group_layout.addWidget(group_arrow)
 
         def group_clicked(event):
-            self.show_group_menu()
+            if self.group_menu is not None:
+                self.close_group_menu()
+            else:
+                self.show_group_menu()
             event.accept()
 
         self.group_card.mousePressEvent = group_clicked
@@ -595,7 +658,6 @@ class HomeWindow(QWidget):
 
         main_layout.addLayout(top_layout)
 
-        # WELCOME
         welcome_layout = QVBoxLayout()
         welcome_layout.setContentsMargins(4, 5, 4, 4)
         welcome_layout.setSpacing(2)
@@ -614,7 +676,6 @@ class HomeWindow(QWidget):
 
         main_layout.addLayout(welcome_layout)
 
-        # SERVICES BOX
         self.services_box = QFrame()
         self.services_box.setObjectName("servicesBox")
         self.services_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -652,7 +713,6 @@ class HomeWindow(QWidget):
 
         main_layout.addWidget(self.services_box, 1)
 
-        # BOTTOM NAV
         nav_box = QFrame()
         nav_box.setObjectName("navBox")
         nav_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -674,7 +734,6 @@ class HomeWindow(QWidget):
 
         main_layout.addWidget(nav_box)
 
-        # INITIAL
         self.update_group_text()
         self.update_services()
 
@@ -734,8 +793,9 @@ class HomeWindow(QWidget):
                 color: #D93025;
                 border: none;
                 border-radius: 17px;
-                font-size: 18px;
+                font-size: 17px;
                 font-weight: 900;
+                padding: 0px;
             }}
 
             QPushButton#logoutButton:hover {{
@@ -1187,6 +1247,8 @@ class HomeWindow(QWidget):
 
     def logout(self):
         try:
+            self.close_group_menu()
+
             confirm = LogoutConfirmDialog(self, avatar=self.avatar)
             if confirm.exec() != QDialog.Accepted:
                 return
@@ -1204,6 +1266,7 @@ class HomeWindow(QWidget):
 
     def open_profile(self):
         try:
+            self.close_group_menu()
             from editProfileWindow import EditProfileWindow
             self.edit_profile_window = EditProfileWindow(
                 self,
@@ -1220,6 +1283,7 @@ class HomeWindow(QWidget):
             print("OPEN PROFILE ERROR:", e)
 
     def open_attendance(self):
+        self.close_group_menu()
         from attendanceWindow import AttendanceWindow
         complex_id = self.get_current_complex_id()
         self.attendance_window = AttendanceWindow(self.phone_number, complex_id)
@@ -1228,6 +1292,7 @@ class HomeWindow(QWidget):
         self.attendance_window.show()
 
     def open_finance(self):
+        self.close_group_menu()
         from financeWindow import FinanceWindow
         complex_id = self.get_current_complex_id()
         self.finance_window = FinanceWindow(self.phone_number, complex_id)
@@ -1236,6 +1301,7 @@ class HomeWindow(QWidget):
         self.finance_window.show()
 
     def open_employees(self):
+        self.close_group_menu()
         from employeesWindow import EmployeesWindow
         complex_id = self.get_current_complex_id()
         self.employees_window = EmployeesWindow(self.phone_number, complex_id)
@@ -1244,19 +1310,22 @@ class HomeWindow(QWidget):
         self.employees_window.show()
 
     def open_events(self):
+        self.close_group_menu()
         from eventsWindow import EventsWindow
         complex_id = self.get_current_complex_id()
-        self.events_window = EventsWindow(self,phone_number = self.phone_number,
-        complex_id = complex_id)
+        self.events_window = EventsWindow(self, phone_number=self.phone_number,
+                                          complex_id=complex_id)
         self.events_window.resize(self.size())
         self.events_window.move(self.pos())
         self.events_window.show()
         self.events_window.raise_()
 
     def open_reports(self):
+        self.close_group_menu()
         from reportsWindow import ReportsWindow
         complex_id = self.get_current_complex_id()
-        self.reports_window = ReportsWindow(self, phone_number = self.phone_number, complex_id = complex_id)
+        self.reports_window = ReportsWindow(self, phone_number=self.phone_number,
+                                            complex_id=complex_id)
         self.reports_window = ReportsWindow(self, self.phone_number)
         self.reports_window.resize(self.size())
         self.reports_window.move(self.pos())
@@ -1264,6 +1333,7 @@ class HomeWindow(QWidget):
         self.reports_window.raise_()
 
     def open_settings(self):
+        self.close_group_menu()
         from settingsWindow import SettingsWindow
         self.settings_window = SettingsWindow(self)
         self.settings_window.resize(self.size())
@@ -1272,6 +1342,7 @@ class HomeWindow(QWidget):
         self.settings_window.raise_()
 
     def open_messages(self):
+        self.close_group_menu()
         from messagesWindow import MessagesWindow
         self.messages_window = MessagesWindow(self)
         self.messages_window.resize(self.size())
@@ -1280,9 +1351,11 @@ class HomeWindow(QWidget):
         self.messages_window.raise_()
 
     def open_cartable(self):
+        self.close_group_menu()
         from cartableWindow import CartableWindow
         complex_id = self.get_current_complex_id()
-        self.cartable_window = CartableWindow(self, phone_number = self.phone_number, complex_id = complex_id)
+        self.cartable_window = CartableWindow(self, phone_number=self.phone_number,
+                                              complex_id=complex_id)
         self.cartable_window = CartableWindow(self)
         self.cartable_window.resize(self.size())
         self.cartable_window.move(self.pos())
@@ -1290,6 +1363,7 @@ class HomeWindow(QWidget):
         self.cartable_window.raise_()
 
     def Open_groups(self):
+        self.close_group_menu()
         from groupsWindow import GroupsWindow
         self.groups_window = GroupsWindow(self, self.phone_number)
         self.groups_window.resize(self.size())

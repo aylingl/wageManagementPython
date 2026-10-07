@@ -224,7 +224,7 @@ class PersianCalendarPopup(QWidget):
         year_row = QHBoxLayout()
         year_row.setSpacing(4)
 
-        prev_year = QPushButton("‹‹")
+        prev_year = QPushButton("››")
         prev_year.setObjectName("calNavBtn")
         prev_year.setFixedSize(32, 32)
         prev_year.setCursor(Qt.PointingHandCursor)
@@ -234,7 +234,7 @@ class PersianCalendarPopup(QWidget):
         self.year_label.setObjectName("calYearLabel")
         self.year_label.setAlignment(Qt.AlignCenter)
 
-        next_year = QPushButton("››")
+        next_year = QPushButton("‹‹")
         next_year.setObjectName("calNavBtn")
         next_year.setFixedSize(32, 32)
         next_year.setCursor(Qt.PointingHandCursor)
@@ -249,7 +249,7 @@ class PersianCalendarPopup(QWidget):
         month_row = QHBoxLayout()
         month_row.setSpacing(4)
 
-        prev_month = QPushButton("‹")
+        prev_month = QPushButton("›")
         prev_month.setObjectName("calNavBtn")
         prev_month.setFixedSize(32, 32)
         prev_month.setCursor(Qt.PointingHandCursor)
@@ -259,7 +259,7 @@ class PersianCalendarPopup(QWidget):
         self.month_label.setObjectName("calMonthLabel")
         self.month_label.setAlignment(Qt.AlignCenter)
 
-        next_month = QPushButton("›")
+        next_month = QPushButton("‹")
         next_month.setObjectName("calNavBtn")
         next_month.setFixedSize(32, 32)
         next_month.setCursor(Qt.PointingHandCursor)

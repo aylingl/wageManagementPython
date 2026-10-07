@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QGridLayout, QFrame, QLineEdit, QScrollArea, QScrollBar,
     QBoxLayout, QStackedWidget, QComboBox, QTimeEdit, QDialog,
-    QListWidget, QListWidgetItem, QGraphicsDropShadowEffect
+    QListWidget, QListWidgetItem, QGraphicsDropShadowEffect, QSpinBox
 )
 
 from PySide6.QtCore import (
@@ -229,8 +229,54 @@ class RoundedComboBox(QComboBox):
         self.hidePopup()
 
 # =========================================================
-# JALALI HELPERS
+# HELPERS
 # =========================================================
+
+def is_persian_text(text):
+    if not text:
+        return False
+    for c in text:
+        if '\u0600' <= c <= '\u06FF':
+            return True
+        if '\uFB50' <= c <= '\uFDFF':
+            return True
+        if '\uFE70' <= c <= '\uFEFF':
+            return True
+    return False
+
+def format_time_12h(dt):
+    """نمایش ساعت به فرمت ۱۲ ساعته با صبح/عصر"""
+    if dt is None:
+        return "—"
+
+    if isinstance(dt, datetime):
+        h = dt.hour
+        m = dt.minute
+    elif isinstance(dt, QTime):
+        h = dt.hour()
+        m = dt.minute()
+    else:
+        try:
+            return str(dt)[:5]
+        except Exception:
+            return "—"
+
+    if h < 5:
+        period = "بامداد"
+    elif h < 12:
+        period = "صبح"
+    elif h < 13:
+        period = "ظهر"
+    elif h < 19:
+        period = "عصر"
+    else:
+        period = "شب"
+
+    h12 = h % 12
+    if h12 == 0:
+        h12 = 12
+
+    return f"{h12}:{m:02d} {period}"
 
 def gregorian_to_jalali(gy, gm, gd):
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
@@ -312,6 +358,156 @@ def persian_date_long(qdate):
     jy, jm, jd = gregorian_to_jalali(qdate.year(), qdate.month(), qdate.day())
     weekday = WEEKDAY_NAMES[qdate.dayOfWeek() - 1]
     return f"{weekday} {jd} {MONTH_NAMES[jm - 1]} {jy}"
+
+# =========================================================
+# TIME 12 PICKER (صبح / عصر)
+# =========================================================
+
+class Time12Picker(QWidget):
+
+    def __init__(self, default_qtime=None, parent=None):
+        super().__init__(parent)
+
+        c = theme_manager.colors()
+
+        if default_qtime is None:
+            default_qtime = QTime.currentTime()
+
+        h24 = default_qtime.hour()
+        minute = default_qtime.minute()
+
+        if h24 < 12:
+            self.is_pm = False
+            h12 = h24 if h24 > 0 else 12
+        else:
+            self.is_pm = True
+            h12 = h24 if h24 == 12 else h24 - 12
+
+        outer = QHBoxLayout(self)
+        outer.setSpacing(8)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        spin_style = f"""
+            QSpinBox {{
+                background-color: {c['bg_input']};
+                border: 2px solid {c['border']};
+                border-radius: 18px;
+                padding: 0 8px;
+                color: {c['accent']};
+                font-size: 28px;
+                font-weight: 800;
+            }}
+            QSpinBox:focus {{
+                border: 2px solid {c['accent']};
+                background-color: {c['bg_card']};
+            }}
+        """
+
+        self.hour_spin = QSpinBox()
+        self.hour_spin.setRange(1, 12)
+        self.hour_spin.setValue(h12)
+        self.hour_spin.setAlignment(Qt.AlignCenter)
+        self.hour_spin.setButtonSymbols(QSpinBox.NoButtons)
+        self.hour_spin.setFixedHeight(80)
+        self.hour_spin.setStyleSheet(spin_style)
+
+        self.min_spin = QSpinBox()
+        self.min_spin.setRange(0, 59)
+        self.min_spin.setValue(minute)
+        self.min_spin.setAlignment(Qt.AlignCenter)
+        self.min_spin.setButtonSymbols(QSpinBox.NoButtons)
+        self.min_spin.setFixedHeight(80)
+        self.min_spin.setStyleSheet(spin_style)
+
+        sep = QLabel(":")
+        sep.setFixedWidth(14)
+        sep.setAlignment(Qt.AlignCenter)
+        sep.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 28px;"
+            f"font-weight: 800; background: transparent;"
+        )
+
+        self.am_btn = QPushButton("صبح")
+        self.am_btn.setFixedHeight(80)
+        self.am_btn.setMinimumWidth(70)
+        self.am_btn.setCursor(Qt.PointingHandCursor)
+        self.am_btn.clicked.connect(lambda: self._set_period(False))
+
+        self.pm_btn = QPushButton("عصر")
+        self.pm_btn.setFixedHeight(80)
+        self.pm_btn.setMinimumWidth(70)
+        self.pm_btn.setCursor(Qt.PointingHandCursor)
+        self.pm_btn.clicked.connect(lambda: self._set_period(True))
+
+        self._refresh_button_style()
+
+        outer.addWidget(self.hour_spin)
+        outer.addWidget(sep)
+        outer.addWidget(self.min_spin)
+        outer.addSpacing(4)
+        outer.addWidget(self.am_btn)
+        outer.addWidget(self.pm_btn)
+
+    def _set_period(self, is_pm):
+        self.is_pm = is_pm
+        self._refresh_button_style()
+
+    def _refresh_button_style(self):
+        c = theme_manager.colors()
+
+        active = f"""
+            QPushButton {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+                border-radius: 18px;
+                font-size: 14px;
+                font-weight: 800;
+            }}
+        """
+        inactive = f"""
+            QPushButton {{
+                background-color: {c['bg_input']};
+                color: {c['text_dim']};
+                border: 2px solid {c['border']};
+                border-radius: 18px;
+                font-size: 14px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background-color: {c['bg_hover']};
+                color: {c['accent']};
+            }}
+        """
+
+        self.am_btn.setStyleSheet(active if not self.is_pm else inactive)
+        self.pm_btn.setStyleSheet(active if self.is_pm else inactive)
+
+    def time(self):
+        h12 = self.hour_spin.value()
+        m = self.min_spin.value()
+
+        if self.is_pm:
+            h24 = 12 if h12 == 12 else h12 + 12
+        else:
+            h24 = 0 if h12 == 12 else h12
+
+        return QTime(h24, m, 0)
+
+    def setTime(self, qtime):
+        h24 = qtime.hour()
+        m = qtime.minute()
+
+        if h24 < 12:
+            self.is_pm = False
+            h12 = h24 if h24 > 0 else 12
+        else:
+            self.is_pm = True
+            h12 = h24 if h24 == 12 else h24 - 12
+
+        self.hour_spin.setValue(h12)
+        self.min_spin.setValue(m)
+        self._refresh_button_style()
 
 # =========================================================
 # PERSIAN CALENDAR POPUP
@@ -954,38 +1150,38 @@ class AttendanceWindow(QWidget):
             tabs = QHBoxLayout()
             tabs.setSpacing(6)
 
-            self.my_tab_btn = QPushButton(tr("my_attendance"))
-            self.my_tab_btn.setObjectName("tabButton")
-            self.my_tab_btn.setFixedHeight(40)
-            self.my_tab_btn.setCursor(Qt.PointingHandCursor)
-            self.my_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
-            self.my_tab_btn.clicked.connect(lambda: self.switch_tab(0))
-
             self.emp_tab_btn = QPushButton(tr("employees_attendance"))
             self.emp_tab_btn.setObjectName("tabButton")
             self.emp_tab_btn.setFixedHeight(40)
             self.emp_tab_btn.setCursor(Qt.PointingHandCursor)
             self.emp_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
-            self.emp_tab_btn.clicked.connect(lambda: self.switch_tab(1))
+            self.emp_tab_btn.clicked.connect(lambda: self.switch_tab(0))
 
-            tabs.addWidget(self.my_tab_btn)
+            self.my_tab_btn = QPushButton(tr("my_attendance"))
+            self.my_tab_btn.setObjectName("tabButton")
+            self.my_tab_btn.setFixedHeight(40)
+            self.my_tab_btn.setCursor(Qt.PointingHandCursor)
+            self.my_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
+            self.my_tab_btn.clicked.connect(lambda: self.switch_tab(1))
+
             tabs.addWidget(self.emp_tab_btn)
+            tabs.addWidget(self.my_tab_btn)
             tabs.addStretch()
 
             main_layout.addLayout(tabs)
 
             self.stack = QStackedWidget()
-            self.stack.addWidget(self.build_my_attendance_tab())
             self.stack.addWidget(self.build_employees_tab())
+            self.stack.addWidget(self.build_my_attendance_tab())
 
             main_layout.addWidget(self.stack, 1)
 
-            self.refresh_my_attendance()
             self.switch_tab(0)
         else:
             self.stack = QStackedWidget()
             self.stack.addWidget(self.build_my_attendance_tab())
             main_layout.addWidget(self.stack, 1)
+            self.refresh_my_attendance()
 
         self.apply_stylesheet()
 
@@ -1336,16 +1532,16 @@ class AttendanceWindow(QWidget):
             return
         self.stack.setCurrentIndex(index)
 
-        for i, btn in enumerate([self.my_tab_btn, self.emp_tab_btn]):
+        for i, btn in enumerate([self.emp_tab_btn, self.my_tab_btn]):
             btn.setProperty("selected", i == index)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
             btn.update()
 
         if index == 0:
-            self.refresh_my_attendance()
-        else:
             self.refresh_employees_attendance()
+        else:
+            self.refresh_my_attendance()
 
     def on_complex_changed(self, index):
         if index < 0 or index >= len(self.complexes):
@@ -1665,7 +1861,7 @@ class AttendanceWindow(QWidget):
             ci = record["checkIn"]
             if isinstance(ci, datetime):
                 self.entry_time = QTime(ci.hour, ci.minute, 0)
-                ci_text = ci.strftime("%H:%M")
+                ci_text = format_time_12h(ci)
             else:
                 ci_text = str(ci)[:5]
 
@@ -1678,8 +1874,8 @@ class AttendanceWindow(QWidget):
 
             ci = record["checkIn"]
             co = record["checkOut"]
-            ci_text = ci.strftime("%H:%M") if isinstance(ci, datetime) else str(ci)[:5]
-            co_text = co.strftime("%H:%M") if isinstance(co, datetime) else str(co)[:5]
+            ci_text = format_time_12h(ci) if ci else "—"
+            co_text = format_time_12h(co) if co else "—"
 
             self.entry_value.setText(ci_text)
             self.exit_value.setText(co_text)
@@ -1692,23 +1888,30 @@ class AttendanceWindow(QWidget):
             self.overtime_value.setText("—")
             self.remaining_value.setText("✓")
 
+        self._load_my_history()
+
+    def _load_my_history(self):
         while self.my_history_layout.count():
             item = self.my_history_layout.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
 
-        history = self.db.fetch_all(
-            """
-            SELECT workDate, checkIn, checkOut, workedMinutes,
-                   overtimeMinutes, approvalStatus
-            FROM attendance
-            WHERE memberId = %s
-            ORDER BY workDate DESC
-            LIMIT 60
-            """,
-            (self.member_id,)
-        )
+        try:
+            history = self.db.fetch_all(
+                """
+                SELECT workDate, checkIn, checkOut, workedMinutes,
+                       overtimeMinutes, approvalStatus
+                FROM attendance
+                WHERE memberId = %s
+                ORDER BY workDate DESC
+                LIMIT 60
+                """,
+                (self.member_id,)
+            )
+        except Exception as e:
+            print("LOAD MY HISTORY ERROR:", e)
+            history = []
 
         if not history:
             empty = QFrame()
@@ -1756,18 +1959,16 @@ class AttendanceWindow(QWidget):
         date_label.setObjectName("historyDate")
         layout.addWidget(date_label, 2)
 
-        ci = row["checkIn"]
-        co = row["checkOut"]
-        ci_text = ci.strftime("%H:%M") if isinstance(ci, datetime) else (str(ci)[:5] if ci else "—")
-        co_text = co.strftime("%H:%M") if isinstance(co, datetime) else (str(co)[:5] if co else "—")
+        ci_text = format_time_12h(row["checkIn"]) if row["checkIn"] else "—"
+        co_text = format_time_12h(row["checkOut"]) if row["checkOut"] else "—"
 
         in_label = QLabel(f"{tr('entry')}: {ci_text}")
         in_label.setObjectName("historyTime")
         out_label = QLabel(f"{tr('exit')}: {co_text}")
         out_label.setObjectName("historyTime")
 
-        layout.addWidget(in_label, 1)
-        layout.addWidget(out_label, 1)
+        layout.addWidget(in_label, 2)
+        layout.addWidget(out_label, 2)
 
         wm = row["workedMinutes"] or 0
         h, m = wm // 60, wm % 60
@@ -1803,11 +2004,161 @@ class AttendanceWindow(QWidget):
         return card
 
     # =====================================================
-    # REGISTER ENTRY / EXIT
+    # QUICK TIME DIALOG
+    # =====================================================
+
+    def open_quick_time_dialog(self, title_text, default_time, on_confirm, min_time=None):
+        c = theme_manager.colors()
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title_text)
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setModal(True)
+        dialog.setAttribute(Qt.WA_StyledBackground, True)
+        dialog.setFixedSize(460, 430)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(30, 28, 30, 24)
+        layout.setSpacing(14)
+
+        icon_label = QLabel("🕐")
+        icon_label.setFixedSize(70, 70)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet(
+            f"background-color: {c['accent_light']};"
+            f"color: {c['accent']};"
+            f"border: none; border-radius: 35px;"
+            f"font-size: 34px;"
+        )
+        icon_row = QHBoxLayout()
+        icon_row.addStretch()
+        icon_row.addWidget(icon_label)
+        icon_row.addStretch()
+        layout.addLayout(icon_row)
+
+        title = QLabel(title_text)
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 18px;"
+            f"font-weight: 800; background: transparent;"
+        )
+        layout.addWidget(title)
+
+        subtitle = QLabel("ساعت را انتخاب کنید (صبح یا عصر)")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 12px; background: transparent;"
+        )
+        layout.addWidget(subtitle)
+
+        if min_time is not None:
+            min_str = format_time_12h(min_time)
+            hint = QLabel(f"حداقل ساعت خروج: {min_str}")
+            hint.setAlignment(Qt.AlignCenter)
+            hint.setStyleSheet(
+                f"color: {c['accent']}; font-size: 11px;"
+                f"font-weight: 700; background: transparent;"
+            )
+            layout.addWidget(hint)
+
+        layout.addSpacing(6)
+
+        picker = Time12Picker(default_time)
+        layout.addWidget(picker)
+
+        preview = QLabel("")
+        preview.setAlignment(Qt.AlignCenter)
+        preview.setFixedHeight(30)
+        preview.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 13px;"
+            f"font-weight: 700; background: transparent;"
+        )
+
+        def update_preview():
+            selected = picker.time()
+            preview.setText(f"ساعت انتخابی: {format_time_12h(selected)}")
+
+        picker.hour_spin.valueChanged.connect(update_preview)
+        picker.min_spin.valueChanged.connect(update_preview)
+        picker.am_btn.clicked.connect(update_preview)
+        picker.pm_btn.clicked.connect(update_preview)
+
+        update_preview()
+        layout.addWidget(preview)
+
+        layout.addStretch()
+
+        btns = QHBoxLayout()
+        btns.setSpacing(10)
+
+        cancel_btn = QPushButton(tr("cancel"))
+        cancel_btn.setFixedHeight(48)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['bg_input']};
+                color: {c['text_dim']};
+                border: 1px solid {c['border']};
+                border-radius: 24px;
+                padding: 0 28px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: {c['bg_hover']}; }}
+        """)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        confirm_btn = QPushButton("تأیید")
+        confirm_btn.setFixedHeight(48)
+        confirm_btn.setCursor(Qt.PointingHandCursor)
+        confirm_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+                border-radius: 24px;
+                padding: 0 32px;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{ background-color: {c['accent_hover']}; }}
+        """)
+
+        def on_ok():
+            selected = picker.time()
+            if min_time is not None and selected < min_time:
+                NiceMessageBox.error(
+                    dialog, "خطا",
+                    f"ساعت انتخابی نمی‌تواند قبل از {format_time_12h(min_time)} باشد."
+                )
+                return
+            dialog.accept()
+            on_confirm(selected.hour(), selected.minute())
+
+        confirm_btn.clicked.connect(on_ok)
+
+        btns.addWidget(cancel_btn)
+        btns.addWidget(confirm_btn)
+        layout.addLayout(btns)
+
+        dialog.setStyleSheet(
+            f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}"
+        )
+        dialog.raise_()
+        dialog.activateWindow()
+        dialog.exec()
+
+    # =====================================================
+    # REGISTER ENTRY / EXIT (کارمند)
     # =====================================================
 
     def register_entry(self):
         if not self.member_id:
+            NiceMessageBox.error(
+                self, "خطا",
+                "شما به هیچ مجموعه‌ای متصل نیستید.\n"
+                "لطفاً ابتدا به یک مجموعه بپیوندید."
+            )
             return
 
         today = QDate.currentDate()
@@ -1827,36 +2178,45 @@ class AttendanceWindow(QWidget):
             self.refresh_my_attendance()
             return
 
-        now = datetime.now()
-        status = 'approved' if self.is_owner else 'pending'
+        def on_confirm(h, m):
+            entry_dt = datetime(today.year(), today.month(), today.day(), h, m, 0)
+            status = 'approved' if self.is_owner else 'pending'
 
-        if record:
-            self.db.execute(
-                """
-                UPDATE attendance
-                SET checkIn = %s, status = 'present', approvalStatus = %s
-                WHERE attendanceId = %s
-                """,
-                (now, status, record["attendanceId"])
-            )
-        else:
-            self.db.execute(
-                """
-                INSERT INTO attendance (memberId, workDate, checkIn, status, approvalStatus)
-                VALUES (%s, %s, %s, 'present', %s)
-                """,
-                (self.member_id, today_str, now, status)
+            if record:
+                self.db.execute(
+                    """
+                    UPDATE attendance
+                    SET checkIn = %s, status = 'present', approvalStatus = %s
+                    WHERE attendanceId = %s
+                    """,
+                    (entry_dt, status, record["attendanceId"])
+                )
+            else:
+                self.db.execute(
+                    """
+                    INSERT INTO attendance (memberId, workDate, checkIn, status, approvalStatus)
+                    VALUES (%s, %s, %s, 'present', %s)
+                    """,
+                    (self.member_id, today_str, entry_dt, status)
+                )
+
+            self.refresh_my_attendance()
+            signals.data_changed.emit("attendance")
+
+            NiceMessageBox.success(
+                self, tr("check_in_success"),
+                tr("checked_in_at", time=format_time_12h(entry_dt))
             )
 
-        NiceMessageBox.success(
-            self, tr("check_in_success"),
-            tr("checked_in_at", time=now.strftime('%H:%M'))
-        )
-        self.refresh_my_attendance()
-        signals.data_changed.emit("attendance")
+        self.open_quick_time_dialog(tr("check_in"), QTime.currentTime(), on_confirm)
 
     def register_exit(self):
         if not self.member_id:
+            NiceMessageBox.error(
+                self, "خطا",
+                "شما به هیچ مجموعه‌ای متصل نیستید.\n"
+                "لطفاً ابتدا به یک مجموعه بپیوندید."
+            )
             return
 
         today = QDate.currentDate()
@@ -1880,33 +2240,49 @@ class AttendanceWindow(QWidget):
             self.refresh_my_attendance()
             return
 
-        now = datetime.now()
         ci = record["checkIn"]
-
-        worked_minutes = 0
         if isinstance(ci, datetime):
-            delta = now - ci
-            worked_minutes = max(0, int(delta.total_seconds() // 60))
+            min_time = QTime(ci.hour, ci.minute, 0)
+        else:
+            min_time = QTime(0, 0, 0)
 
-        status = 'approved' if self.is_owner else 'pending'
+        def on_confirm(h, m):
+            exit_dt = datetime(today.year(), today.month(), today.day(), h, m, 0)
 
-        self.db.execute(
-            """
-            UPDATE attendance
-            SET checkOut = %s, workedMinutes = %s, approvalStatus = %s
-            WHERE attendanceId = %s
-            """,
-            (now, worked_minutes, status, record["attendanceId"])
-        )
+            if isinstance(ci, datetime) and exit_dt < ci:
+                NiceMessageBox.error(
+                    self, "خطا",
+                    f"ساعت خروج نمی‌تواند قبل از ساعت ورود ({format_time_12h(ci)}) باشد."
+                )
+                return
 
-        h, m = worked_minutes // 60, worked_minutes % 60
+            worked_minutes = 0
+            if isinstance(ci, datetime):
+                delta = exit_dt - ci
+                worked_minutes = max(0, int(delta.total_seconds() // 60))
 
-        NiceMessageBox.success(
-            self, tr("check_out_success"),
-            tr("check_out_msg", h=h, m=m)
-        )
-        self.refresh_my_attendance()
-        signals.data_changed.emit("attendance")
+            status = 'approved' if self.is_owner else 'pending'
+
+            self.db.execute(
+                """
+                UPDATE attendance
+                SET checkOut = %s, workedMinutes = %s, approvalStatus = %s
+                WHERE attendanceId = %s
+                """,
+                (exit_dt, worked_minutes, status, record["attendanceId"])
+            )
+
+            hh, mm = worked_minutes // 60, worked_minutes % 60
+
+            self.refresh_my_attendance()
+            signals.data_changed.emit("attendance")
+
+            NiceMessageBox.success(
+                self, tr("check_out_success"),
+                tr("check_out_msg", h=hh, m=mm)
+            )
+
+        self.open_quick_time_dialog(tr("check_out"), QTime.currentTime(), on_confirm, min_time)
 
     # =====================================================
     # ADD OVERTIME DIALOG
@@ -1914,6 +2290,7 @@ class AttendanceWindow(QWidget):
 
     def open_add_overtime_dialog(self):
         if not self.member_id:
+            NiceMessageBox.error(self, "خطا", "شما به هیچ مجموعه‌ای متصل نیستید.")
             return
 
         c = theme_manager.colors()
@@ -2118,11 +2495,11 @@ class AttendanceWindow(QWidget):
                 )
 
             dialog.accept()
+            self.refresh_my_attendance()
             NiceMessageBox.success(
                 self, tr("overtime_added"),
                 tr("overtime_added_msg", h=hours, m=mins)
             )
-            self.refresh_my_attendance()
 
         save_btn.clicked.connect(on_save)
         btns.addWidget(cancel_btn)
@@ -2189,21 +2566,25 @@ class AttendanceWindow(QWidget):
         selected_qdate = self.date_filter.date()
         selected_str = selected_qdate.toString("yyyy-MM-dd")
 
-        rows = self.db.fetch_all(
-            """
-            SELECT cm.memberId, u.name, u.phoneNumber, a.attendanceId,
-                   a.workDate, a.checkIn, a.checkOut, a.workedMinutes,
-                   a.overtimeMinutes, a.approvalStatus, a.description
-            FROM complex_members cm
-            INNER JOIN users u ON u.userId = cm.userId
-            LEFT JOIN attendance a ON a.memberId = cm.memberId AND a.workDate = %s
-            WHERE cm.complexId = %s
-              AND cm.role IN ('employee', 'both')
-              AND cm.isActive = '1'
-            ORDER BY u.name ASC
-            """,
-            (selected_str, self.complex_id)
-        )
+        try:
+            rows = self.db.fetch_all(
+                """
+                SELECT cm.memberId, u.name, u.phoneNumber, a.attendanceId,
+                       a.workDate, a.checkIn, a.checkOut, a.workedMinutes,
+                       a.overtimeMinutes, a.approvalStatus, a.description
+                FROM complex_members cm
+                INNER JOIN users u ON u.userId = cm.userId
+                LEFT JOIN attendance a ON a.memberId = cm.memberId AND a.workDate = %s
+                WHERE cm.complexId = %s
+                  AND cm.role IN ('employee', 'both')
+                  AND cm.isActive = '1'
+                ORDER BY u.name ASC
+                """,
+                (selected_str, self.complex_id)
+            )
+        except Exception as e:
+            print("REFRESH EMP ATTENDANCE ERROR:", e)
+            rows = []
 
         if not rows:
             empty = QFrame()
@@ -2232,56 +2613,78 @@ class AttendanceWindow(QWidget):
         card = QFrame()
         card.setObjectName("historyCard")
         card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setMinimumHeight(96)
+        card.setMinimumHeight(110)
 
         outer = QVBoxLayout(card)
         outer.setContentsMargins(18, 14, 18, 14)
         outer.setSpacing(10)
 
         top_row = QHBoxLayout()
-        top_row.setSpacing(10)
+        top_row.setSpacing(12)
 
         name_text = row.get("name") or "—"
-        initial = name_text.strip()[0] if name_text.strip() else "?"
-        avatar = QLabel(initial)
-        avatar.setFixedSize(38, 38)
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setStyleSheet(f"background-color: {c['accent_light']}; color: {c['accent']}; border: none; border-radius: 19px; font-size: 15px; font-weight: 800;")
-        top_row.addWidget(avatar)
+        is_persian = is_persian_text(name_text)
 
         info_col = QVBoxLayout()
-        info_col.setSpacing(2)
+        info_col.setSpacing(4)
+
         name_label = QLabel(name_text)
-        name_label.setStyleSheet(f"color: {c['text_main']}; font-size: 13px; font-weight: 700; background: transparent;")
+        name_label.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 14px;"
+            f"font-weight: 700; background: transparent;"
+        )
+        name_label.setWordWrap(True)
+        name_label.setMinimumWidth(160)
+
         phone = row.get("phoneNumber") or ""
         phone_label = QLabel(phone)
-        phone_label.setStyleSheet(f"color: {c['text_dim']}; font-size: 10px; background: transparent;")
+        phone_label.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 11px; background: transparent;"
+        )
+        phone_label.setLayoutDirection(Qt.LeftToRight)
+
+        if is_persian:
+            name_label.setLayoutDirection(Qt.RightToLeft)
+            name_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            phone_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        else:
+            name_label.setLayoutDirection(Qt.LeftToRight)
+            name_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            phone_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
         info_col.addWidget(name_label)
         info_col.addWidget(phone_label)
-        top_row.addLayout(info_col, 2)
+
+        top_row.addLayout(info_col, 3)
 
         ci = row.get("checkIn")
         co = row.get("checkOut")
-        ci_text = ci.strftime("%H:%M") if isinstance(ci, datetime) else (str(ci)[:5] if ci else "—")
-        co_text = co.strftime("%H:%M") if isinstance(co, datetime) else (str(co)[:5] if co else "—")
+        ci_text = format_time_12h(ci) if ci else "—"
+        co_text = format_time_12h(co) if co else "—"
 
         time_box = QFrame()
-        time_box.setStyleSheet(f"background-color: {c['bg_input']}; border: none; border-radius: 14px;")
+        time_box.setStyleSheet(
+            f"background-color: {c['bg_input']}; border: none; border-radius: 14px;"
+        )
         tb_layout = QHBoxLayout(time_box)
-        tb_layout.setContentsMargins(10, 4, 10, 4)
-        tb_layout.setSpacing(6)
+        tb_layout.setContentsMargins(12, 6, 12, 6)
+        tb_layout.setSpacing(8)
 
         in_lbl = QLabel(f"ورود: {ci_text}")
-        in_lbl.setStyleSheet(f"color: {c['text_main']}; font-size: 11px; font-weight: 700; background: transparent;")
+        in_lbl.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 12px; font-weight: 700; background: transparent;"
+        )
         sep = QLabel("|")
-        sep.setStyleSheet(f"color: {c['border']}; font-size: 12px; background: transparent;")
+        sep.setStyleSheet(f"color: {c['border']}; font-size: 13px; background: transparent;")
         out_lbl = QLabel(f"خروج: {co_text}")
-        out_lbl.setStyleSheet(f"color: {c['text_main']}; font-size: 11px; font-weight: 700; background: transparent;")
+        out_lbl.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 12px; font-weight: 700; background: transparent;"
+        )
 
         tb_layout.addWidget(in_lbl)
         tb_layout.addWidget(sep)
         tb_layout.addWidget(out_lbl)
-        top_row.addWidget(time_box, 2)
+        top_row.addWidget(time_box, 3)
 
         outer.addLayout(top_row)
 
@@ -2292,14 +2695,22 @@ class AttendanceWindow(QWidget):
         h, m = wm // 60, wm % 60
 
         worked_lbl = QLabel(f"ساعت کار: {h}{tr('hour_short')} {m}{tr('min_short')}")
-        worked_lbl.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; background-color: {c['accent_light']}; border: none; border-radius: 10px; padding: 4px 10px;")
+        worked_lbl.setStyleSheet(
+            f"color: {c['accent']}; font-size: 11px; font-weight: 700;"
+            f"background-color: {c['accent_light']}; border: none; border-radius: 10px;"
+            f"padding: 4px 10px;"
+        )
         bottom_row.addWidget(worked_lbl)
 
         ot = row.get("overtimeMinutes") or 0
         if ot > 0:
             ot_h, ot_m = ot // 60, ot % 60
             ot_label = QLabel(f"اضافه کاری: {ot_h}{tr('hour_short')} {ot_m}{tr('min_short')}")
-            ot_label.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 700; background-color: {c['accent_light']}; border: none; border-radius: 10px; padding: 4px 10px;")
+            ot_label.setStyleSheet(
+                f"color: {c['accent']}; font-size: 11px; font-weight: 700;"
+                f"background-color: {c['accent_light']}; border: none; border-radius: 10px;"
+                f"padding: 4px 10px;"
+            )
             bottom_row.addWidget(ot_label)
 
         bottom_row.addStretch()
@@ -2333,43 +2744,59 @@ class AttendanceWindow(QWidget):
                 in_btn = QPushButton("ثبت ورود")
                 in_btn.setObjectName("approveButton")
                 in_btn.setCursor(Qt.PointingHandCursor)
-                in_btn.clicked.connect(lambda checked=False, r=row: self.owner_register_entry(r))
+                in_btn.clicked.connect(
+                    lambda checked=False, r=row: self.owner_register_entry(r)
+                )
                 bottom_row.addWidget(in_btn)
             elif has_checkin and not has_checkout:
                 out_btn = QPushButton("ثبت خروج")
                 out_btn.setObjectName("rejectButton")
                 out_btn.setCursor(Qt.PointingHandCursor)
-                out_btn.clicked.connect(lambda checked=False, r=row: self.owner_register_exit(r))
+                out_btn.clicked.connect(
+                    lambda checked=False, r=row: self.owner_register_exit(r)
+                )
                 bottom_row.addWidget(out_btn)
 
         if approval == "pending" and row.get("attendanceId"):
             approve_btn = QPushButton(tr("approve"))
             approve_btn.setObjectName("approveButton")
             approve_btn.setCursor(Qt.PointingHandCursor)
-            approve_btn.clicked.connect(lambda checked=False, r=row: self.approve_attendance(r))
+            approve_btn.clicked.connect(
+                lambda checked=False, r=row: self.approve_attendance(r)
+            )
             bottom_row.addWidget(approve_btn)
 
             reject_btn = QPushButton(tr("reject"))
             reject_btn.setObjectName("rejectButton")
             reject_btn.setCursor(Qt.PointingHandCursor)
-            reject_btn.clicked.connect(lambda checked=False, r=row: self.reject_attendance(r))
+            reject_btn.clicked.connect(
+                lambda checked=False, r=row: self.reject_attendance(r)
+            )
             bottom_row.addWidget(reject_btn)
 
         edit_button = QPushButton(tr("edit"))
         edit_button.setObjectName("editButton")
         edit_button.setCursor(Qt.PointingHandCursor)
-        edit_button.clicked.connect(lambda checked=False, r=row: self.open_edit_dialog(r))
+        edit_button.clicked.connect(
+            lambda checked=False, r=row: self.open_edit_dialog(r)
+        )
         bottom_row.addWidget(edit_button)
 
         save_button = QPushButton(tr("save_btn"))
         save_button.setObjectName("saveButton")
         save_button.setCursor(Qt.PointingHandCursor)
-        save_button.clicked.connect(lambda checked=False, r=row: self.save_attendance_row(r))
+        save_button.clicked.connect(
+            lambda checked=False, r=row: self.save_attendance_row(r)
+        )
         bottom_row.addWidget(save_button)
 
         outer.addLayout(bottom_row)
 
         return card
+
+    # =====================================================
+    # OWNER REGISTER ENTRY / EXIT
+    # =====================================================
 
     def owner_register_entry(self, row):
         member_id = row.get("memberId")
@@ -2382,36 +2809,41 @@ class AttendanceWindow(QWidget):
 
         today = QDate.currentDate()
         today_str = today.toString("yyyy-MM-dd")
-        now = datetime.now()
-        entry_dt = datetime(
-            today.year(), today.month(), today.day(),
-            now.hour, now.minute, now.second
-        )
 
         attendance_id = row.get("attendanceId")
-        if attendance_id:
-            self.db.execute(
-                """
-                UPDATE attendance
-                SET checkIn = %s, status = 'present',
-                    approvalStatus = 'approved', approvedBy = %s, approvalDate = NOW()
-                WHERE attendanceId = %s
-                """,
-                (entry_dt, self.user_id, attendance_id)
-            )
-        else:
-            self.db.execute(
-                """
-                INSERT INTO attendance
-                (memberId, workDate, checkIn, status, approvalStatus, approvedBy, approvalDate)
-                VALUES (%s, %s, %s, 'present', 'approved', %s, NOW())
-                """,
-                (member_id, today_str, entry_dt, self.user_id)
+
+        def on_confirm(h, m):
+            entry_dt = datetime(today.year(), today.month(), today.day(), h, m, 0)
+
+            if attendance_id:
+                self.db.execute(
+                    """
+                    UPDATE attendance
+                    SET checkIn = %s, status = 'present',
+                        approvalStatus = 'approved', approvedBy = %s, approvalDate = NOW()
+                    WHERE attendanceId = %s
+                    """,
+                    (entry_dt, self.user_id, attendance_id)
+                )
+            else:
+                self.db.execute(
+                    """
+                    INSERT INTO attendance
+                    (memberId, workDate, checkIn, status, approvalStatus, approvedBy, approvalDate)
+                    VALUES (%s, %s, %s, 'present', 'approved', %s, NOW())
+                    """,
+                    (member_id, today_str, entry_dt, self.user_id)
+                )
+
+            self.refresh_employees_attendance()
+            signals.data_changed.emit("attendance")
+
+            NiceMessageBox.success(
+                self, "ثبت ورود",
+                f"ورود برای {row.get('name') or ''} در ساعت {format_time_12h(entry_dt)} ثبت شد."
             )
 
-        NiceMessageBox.success(self, "ثبت ورود", f"ورود برای {row.get('name') or ''} در ساعت {entry_dt.strftime('%H:%M')} ثبت شد.")
-        self.refresh_employees_attendance()
-        signals.data_changed.emit("attendance")
+        self.open_quick_time_dialog("ثبت ورود", QTime.currentTime(), on_confirm)
 
     def owner_register_exit(self, row):
         member_id = row.get("memberId")
@@ -2424,32 +2856,48 @@ class AttendanceWindow(QWidget):
             return
 
         today = QDate.currentDate()
-        now = datetime.now()
-        exit_dt = datetime(
-            today.year(), today.month(), today.day(),
-            now.hour, now.minute, now.second
-        )
 
         ci = row.get("checkIn")
-        worked_minutes = 0
         if isinstance(ci, datetime):
-            delta = exit_dt - ci
-            worked_minutes = max(0, int(delta.total_seconds() // 60))
+            min_time = QTime(ci.hour, ci.minute, 0)
+        else:
+            min_time = QTime(0, 0, 0)
 
-        self.db.execute(
-            """
-            UPDATE attendance
-            SET checkOut = %s, workedMinutes = %s,
-                approvalStatus = 'approved', approvedBy = %s, approvalDate = NOW()
-            WHERE attendanceId = %s
-            """,
-            (exit_dt, worked_minutes, self.user_id, attendance_id)
-        )
+        def on_confirm(h, m):
+            exit_dt = datetime(today.year(), today.month(), today.day(), h, m, 0)
 
-        h, m = worked_minutes // 60, worked_minutes % 60
-        NiceMessageBox.success(self, "ثبت خروج", f"خروج برای {row.get('name') or ''} در ساعت {exit_dt.strftime('%H:%M')} ثبت شد ({h} ساعت و {m} دقیقه کار).")
-        self.refresh_employees_attendance()
-        signals.data_changed.emit("attendance")
+            if isinstance(ci, datetime) and exit_dt < ci:
+                NiceMessageBox.error(
+                    self, "خطا",
+                    f"ساعت خروج نمی‌تواند قبل از ساعت ورود ({format_time_12h(ci)}) باشد."
+                )
+                return
+
+            worked_minutes = 0
+            if isinstance(ci, datetime):
+                delta = exit_dt - ci
+                worked_minutes = max(0, int(delta.total_seconds() // 60))
+
+            self.db.execute(
+                """
+                UPDATE attendance
+                SET checkOut = %s, workedMinutes = %s,
+                    approvalStatus = 'approved', approvedBy = %s, approvalDate = NOW()
+                WHERE attendanceId = %s
+                """,
+                (exit_dt, worked_minutes, self.user_id, attendance_id)
+            )
+
+            hh, mm = worked_minutes // 60, worked_minutes % 60
+            self.refresh_employees_attendance()
+            signals.data_changed.emit("attendance")
+
+            NiceMessageBox.success(
+                self, "ثبت خروج",
+                f"خروج برای {row.get('name') or ''} در ساعت {format_time_12h(exit_dt)} ثبت شد ({hh} ساعت و {mm} دقیقه کار)."
+            )
+
+        self.open_quick_time_dialog("ثبت خروج", QTime.currentTime(), on_confirm, min_time)
 
     def save_attendance_row(self, row):
         attendance_id = row.get("attendanceId")
@@ -2477,10 +2925,11 @@ class AttendanceWindow(QWidget):
             NiceMessageBox.error(self, tr("error"), tr("approve_failed"))
             return
 
-        NiceMessageBox.success(self, tr("attendance_saved"),
-                               tr("attendance_saved_msg", name=row.get('name', '')))
         self.refresh_employees_attendance()
         signals.data_changed.emit("attendance")
+
+        NiceMessageBox.success(self, tr("attendance_saved"),
+                               tr("attendance_saved_msg", name=row.get('name', '')))
 
     def approve_attendance(self, row):
         attendance_id = row.get("attendanceId")
@@ -2529,7 +2978,7 @@ class AttendanceWindow(QWidget):
         NiceMessageBox.warning(self, tr("rejected_msg"), tr("rejected_msg"))
 
     # =====================================================
-    # EDIT DIALOG (RESIZABLE)
+    # EDIT DIALOG
     # =====================================================
 
     def open_edit_dialog(self, row):
@@ -2541,16 +2990,13 @@ class AttendanceWindow(QWidget):
         dialog.setModal(True)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
 
-        # ═══ قابل تغییر اندازه + باریک ═══
-        dialog.setMinimumSize(420, 460)
-        dialog.resize(480, 620)
+        dialog.setMinimumSize(460, 500)
+        dialog.resize(520, 680)
 
-        # ═══ لایه اصلی ═══
         main_layout = QVBoxLayout(dialog)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # ═══ اسکرول گرد ═══
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -2559,7 +3005,6 @@ class AttendanceWindow(QWidget):
         vbar = RoundScrollBar(Qt.Vertical, scroll)
         scroll.setVerticalScrollBar(vbar)
 
-        # ═══ محتوا ═══
         content = QWidget()
         content.setStyleSheet(f"background-color: {c['bg_main']};")
 
@@ -2572,8 +3017,37 @@ class AttendanceWindow(QWidget):
         title.setStyleSheet(f"color: {c['text_main']}; font-size: 15px; font-weight: 700; background: transparent;")
         layout.addWidget(title)
 
-        inp_style = f"""
-            QTimeEdit, QLineEdit {{
+        # ═══ ساعت ورود ═══
+        in_label = QLabel(tr("check_in_time"))
+        in_label.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        layout.addWidget(in_label)
+
+        ci = row.get("checkIn")
+        default_in = QTime(ci.hour, ci.minute) if isinstance(ci, datetime) else QTime.currentTime()
+        in_picker = Time12Picker(default_in)
+        layout.addWidget(in_picker)
+
+        # ═══ ساعت خروج ═══
+        out_label = QLabel(tr("check_out_time"))
+        out_label.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        layout.addWidget(out_label)
+
+        co = row.get("checkOut")
+        default_out = QTime(co.hour, co.minute) if isinstance(co, datetime) else QTime(17, 0)
+        out_picker = Time12Picker(default_out)
+        layout.addWidget(out_picker)
+
+        # ═══ اضافه کاری ═══
+        ot_lbl = QLabel("اضافه کاری (ساعت:دقیقه)")
+        ot_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        layout.addWidget(ot_lbl)
+
+        ot_time = QTimeEdit()
+        ot_time.setDisplayFormat("HH:mm")
+        ot_time.setFixedHeight(44)
+        ot_time.setButtonSymbols(QTimeEdit.NoButtons)
+        ot_time.setStyleSheet(f"""
+            QTimeEdit {{
                 background-color: {c['bg_input']};
                 border: 1px solid {c['border']};
                 border-radius: 22px;
@@ -2582,54 +3056,11 @@ class AttendanceWindow(QWidget):
                 font-size: 13px;
                 min-height: 44px;
             }}
-            QTimeEdit:focus, QLineEdit:focus {{
+            QTimeEdit:focus {{
                 background: {c['bg_card']};
                 border: 2px solid {c['accent']};
             }}
-            QTimeEdit::up-button, QTimeEdit::down-button {{
-                width: 0px;
-                height: 0px;
-                border: none;
-                background: transparent;
-            }}
-        """
-
-        in_label = QLabel(tr("check_in_time"))
-        in_label.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
-
-        in_time = QTimeEdit()
-        in_time.setDisplayFormat("HH:mm")
-        in_time.setFixedHeight(44)
-        in_time.setStyleSheet(inp_style)
-
-        ci = row.get("checkIn")
-        in_time.setTime(QTime(ci.hour, ci.minute) if isinstance(ci, datetime) else QTime.currentTime())
-
-        layout.addWidget(in_label)
-        layout.addWidget(in_time)
-
-        out_label = QLabel(tr("check_out_time"))
-        out_label.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
-
-        out_time = QTimeEdit()
-        out_time.setDisplayFormat("HH:mm")
-        out_time.setFixedHeight(44)
-        out_time.setStyleSheet(inp_style)
-
-        co = row.get("checkOut")
-        out_time.setTime(QTime(co.hour, co.minute) if isinstance(co, datetime) else QTime(17, 0))
-
-        layout.addWidget(out_label)
-        layout.addWidget(out_time)
-
-        ot_lbl = QLabel("اضافه کاری (ساعت:دقیقه)")
-        ot_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
-        layout.addWidget(ot_lbl)
-
-        ot_time = QTimeEdit()
-        ot_time.setDisplayFormat("HH:mm")
-        ot_time.setFixedHeight(44)
-        ot_time.setStyleSheet(inp_style)
+        """)
 
         current_ot = int(row.get("overtimeMinutes") or 0)
         ot_h = current_ot // 60
@@ -2644,7 +3075,21 @@ class AttendanceWindow(QWidget):
         desc_input = QLineEdit()
         desc_input.setFixedHeight(44)
         desc_input.setText(row.get("description") or "")
-        desc_input.setStyleSheet(inp_style)
+        desc_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {c['bg_input']};
+                border: 1px solid {c['border']};
+                border-radius: 22px;
+                padding: 0 16px;
+                color: {c['text_main']};
+                font-size: 13px;
+                min-height: 44px;
+            }}
+            QLineEdit:focus {{
+                background: {c['bg_card']};
+                border: 2px solid {c['accent']};
+            }}
+        """)
 
         layout.addWidget(desc_label)
         layout.addWidget(desc_input)
@@ -2654,7 +3099,6 @@ class AttendanceWindow(QWidget):
         scroll.setWidget(content)
         main_layout.addWidget(scroll, 1)
 
-        # ═══ دکمه‌های ثابت پایین ═══
         bottom = QFrame()
         bottom.setAttribute(Qt.WA_StyledBackground, True)
         bottom.setStyleSheet(f"background-color: {c['bg_card']}; border-top: 1px solid {c['border']};")
@@ -2700,8 +3144,8 @@ class AttendanceWindow(QWidget):
             selected_date = self.date_filter.date()
             selected_date_str = selected_date.toString("yyyy-MM-dd")
 
-            new_in = in_time.time()
-            new_out = out_time.time()
+            new_in = in_picker.time()
+            new_out = out_picker.time()
 
             in_dt = datetime(selected_date.year(), selected_date.month(), selected_date.day(),
                              new_in.hour(), new_in.minute())

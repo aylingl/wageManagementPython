@@ -88,7 +88,7 @@ class Database:
                 database=self.config["database"],
                 charset="utf8mb4",
                 cursorclass=DictCursor,
-                autocommit=False,
+                autocommit=True,
             )
             print("MySQL connected successfully.")
             return True
