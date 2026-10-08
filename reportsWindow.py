@@ -4,13 +4,14 @@ from datetime import datetime, date, timedelta
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QFrame, QScrollArea, QScrollBar, QDialog, QGridLayout,
-    QComboBox, QListWidget, QListWidgetItem, QGraphicsDropShadowEffect
+    QComboBox, QListWidget, QListWidgetItem, QGraphicsDropShadowEffect,
+    QApplication
 )
 
 from PySide6.QtCore import (
-    Qt, QTimer, QDate, QPoint, QSize
+    Qt, QTimer, QDate, QPoint, QSize, Signal, QRectF
 )
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtGui import QPainter, QColor, QRegion, QPainterPath
 
 from database import Database
 from signals import signals
@@ -166,6 +167,13 @@ class RoundedComboBox(QComboBox):
 # JALALI HELPERS
 # =========================================================
 
+WEEKDAY_NAMES = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه", "شنبه", "یک‌شنبه"]
+WEEKDAY_SHORT = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
+MONTH_NAMES = [
+    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
+]
+
 def gregorian_to_jalali(gy, gm, gd):
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
     gy2 = gy + 1 if gm > 2 else gy
@@ -210,11 +218,381 @@ def jalali_to_gregorian(jy, jm, jd):
         gm += 1
     return gy, gm, gd
 
+def is_jalali_leap(jy):
+    try:
+        gy, gm, gd = jalali_to_gregorian(jy, 12, 30)
+        jy2, jm2, jd2 = gregorian_to_jalali(gy, gm, gd)
+        return (jy2 == jy and jm2 == 12 and jd2 == 30)
+    except Exception:
+        return False
+
+def jalali_month_days(jy, jm):
+    if jm <= 6:
+        return 31
+    if jm <= 11:
+        return 30
+    if is_jalali_leap(jy):
+        return 30
+    return 29
+
+def persian_date_long(d):
+    if isinstance(d, datetime):
+        d = d.date()
+    jy, jm, jd = gregorian_to_jalali(d.year, d.month, d.day)
+    weekday = WEEKDAY_NAMES[d.weekday()]
+    return f"{weekday} {jd} {MONTH_NAMES[jm - 1]} {jy}"
+
+def persian_date_short(d):
+    if isinstance(d, datetime):
+        d = d.date()
+    jy, jm, jd = gregorian_to_jalali(d.year, d.month, d.day)
+    return f"{jy:04d}/{jm:02d}/{jd:02d}"
+
+def format_time_12h(dt):
+    if dt is None:
+        return "—"
+    if isinstance(dt, datetime):
+        h, m = dt.hour, dt.minute
+    else:
+        try:
+            h, m = dt.hour, dt.minute
+        except Exception:
+            return str(dt)[:5]
+    if h < 5:
+        period = "بامداد"
+    elif h < 12:
+        period = "صبح"
+    elif h < 13:
+        period = "ظهر"
+    elif h < 19:
+        period = "عصر"
+    else:
+        period = "شب"
+    h12 = h % 12
+    if h12 == 0:
+        h12 = 12
+    return f"{h12}:{m:02d} {period}"
+
 def format_money(amount):
     try:
         return f"{amount:,.0f}"
     except Exception:
         return "0"
+
+# =========================================================
+# PERSIAN CALENDAR POPUP
+# =========================================================
+
+class PersianCalendarPopup(QWidget):
+
+    dateSelected = Signal(QDate)
+
+    def __init__(self, parent=None, current_qdate=None):
+        super().__init__(parent)
+
+        if current_qdate is None:
+            current_qdate = QDate.currentDate()
+
+        self.selected_qdate = current_qdate
+        jy, jm, jd = gregorian_to_jalali(
+            current_qdate.year(), current_qdate.month(), current_qdate.day()
+        )
+        self.view_year = jy
+        self.view_month = jm
+        self.selected_jy = jy
+        self.selected_jm = jm
+        self.selected_jd = jd
+
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+        self.setLayoutDirection(Qt.RightToLeft)
+
+        self._radius = 18
+        self._margin = 6
+        self.setFixedSize(300, 350)
+
+        self.build_ui()
+        self.refresh_grid()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = theme_manager.colors()
+
+        r = self._radius
+        m = self._margin
+        rect = self.rect().adjusted(m, m, -m, -m)
+
+        for i in range(6, 0, -1):
+            shadow_color = QColor(0, 0, 0, 4 + (6 - i) * 2)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(shadow_color)
+            painter.drawRoundedRect(rect.adjusted(-i, -i + 2, i, i + 2), r + i, r + i)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(c["bg_card"]))
+        painter.drawRoundedRect(rect, r, r)
+
+        painter.setPen(QColor(c["border"]))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(rect, r, r)
+        painter.end()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), self._radius + self._margin, self._radius + self._margin)
+        polygon = path.toFillPolygon().toPolygon()
+        self.setMask(QRegion(polygon))
+
+    def build_ui(self):
+        c = theme_manager.colors()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(self._margin + 14, self._margin + 14, self._margin + 14, self._margin + 14)
+        layout.setSpacing(8)
+
+        header = QHBoxLayout()
+        header.setSpacing(6)
+
+        prev_btn = QPushButton(">")
+        prev_btn.setObjectName("calNavBtn")
+        prev_btn.setFixedSize(30, 30)
+        prev_btn.setCursor(Qt.PointingHandCursor)
+        prev_btn.clicked.connect(self.go_prev_month)
+
+        self.month_label = QLabel()
+        self.month_label.setObjectName("calMonthLabel")
+        self.month_label.setAlignment(Qt.AlignCenter)
+
+        next_btn = QPushButton("<")
+        next_btn.setObjectName("calNavBtn")
+        next_btn.setFixedSize(30, 30)
+        next_btn.setCursor(Qt.PointingHandCursor)
+        next_btn.clicked.connect(self.go_next_month)
+
+        header.addWidget(prev_btn)
+        header.addWidget(self.month_label, 1)
+        header.addWidget(next_btn)
+        layout.addLayout(header)
+
+        wd_layout = QHBoxLayout()
+        wd_layout.setSpacing(2)
+        for name in WEEKDAY_SHORT:
+            lbl = QLabel(name)
+            lbl.setObjectName("calWeekday")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setFixedHeight(24)
+            wd_layout.addWidget(lbl, 1)
+        layout.addLayout(wd_layout)
+
+        self.days_layout = QGridLayout()
+        self.days_layout.setSpacing(2)
+        for col in range(7):
+            self.days_layout.setColumnStretch(col, 1)
+        layout.addLayout(self.days_layout, 1)
+
+        self.setStyleSheet(f"""
+            QLabel#calMonthLabel {{
+                color: {c['text_main']};
+                font-size: 13px;
+                font-weight: 700;
+                background: transparent;
+            }}
+            QPushButton#calNavBtn {{
+                background-color: {c['accent_light']};
+                color: {c['accent']};
+                border: 1px solid {c['border_hover']};
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: 700;
+                padding: 0px;
+            }}
+            QPushButton#calNavBtn:hover {{
+                background-color: {c['bg_hover']};
+            }}
+            QLabel#calWeekday {{
+                color: {c['text_dim']};
+                font-size: 10px;
+                font-weight: 700;
+                background: transparent;
+            }}
+            QPushButton#calDayBtn {{
+                background-color: transparent;
+                color: {c['text_main']};
+                border: none;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 600;
+                min-height: 28px;
+            }}
+            QPushButton#calDayBtn:hover {{
+                background-color: {c['bg_hover']};
+                color: {c['accent']};
+            }}
+            QPushButton#calDayBtn[today="true"] {{
+                border: 2px solid {c['accent']};
+                color: {c['accent']};
+            }}
+            QPushButton#calDayBtn[selected="true"] {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+            }}
+        """)
+
+    def refresh_grid(self):
+        while self.days_layout.count():
+            item = self.days_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        self.month_label.setText(f"{MONTH_NAMES[self.view_month - 1]} {self.view_year}")
+
+        days_in_month = jalali_month_days(self.view_year, self.view_month)
+        gy, gm, gd = jalali_to_gregorian(self.view_year, self.view_month, 1)
+        first_qdate = QDate(gy, gm, gd)
+        persian_weekday = (first_qdate.dayOfWeek() + 1) % 7
+
+        today_qdate = QDate.currentDate()
+        tjy, tjm, tjd = gregorian_to_jalali(
+            today_qdate.year(), today_qdate.month(), today_qdate.day()
+        )
+
+        row = 0
+        col = persian_weekday
+
+        for day in range(1, days_in_month + 1):
+            btn = QPushButton(str(day))
+            btn.setObjectName("calDayBtn")
+            btn.setCursor(Qt.PointingHandCursor)
+
+            is_today = (self.view_year == tjy and self.view_month == tjm and day == tjd)
+            is_selected = (
+                self.view_year == self.selected_jy
+                and self.view_month == self.selected_jm
+                and day == self.selected_jd
+            )
+
+            btn.setProperty("today", "true" if is_today else "false")
+            btn.setProperty("selected", "true" if is_selected else "false")
+            btn.clicked.connect(lambda checked=False, d=day: self.pick_day(d))
+
+            self.days_layout.addWidget(btn, row, col)
+            col += 1
+            if col > 6:
+                col = 0
+                row += 1
+
+    def go_prev_month(self):
+        self.view_month -= 1
+        if self.view_month < 1:
+            self.view_month = 12
+            self.view_year -= 1
+        self.refresh_grid()
+
+    def go_next_month(self):
+        self.view_month += 1
+        if self.view_month > 12:
+            self.view_month = 1
+            self.view_year += 1
+        self.refresh_grid()
+
+    def pick_day(self, day):
+        self.selected_jy = self.view_year
+        self.selected_jm = self.view_month
+        self.selected_jd = day
+        gy, gm, gd = jalali_to_gregorian(self.selected_jy, self.selected_jm, self.selected_jd)
+        self.selected_qdate = QDate(gy, gm, gd)
+        self.dateSelected.emit(self.selected_qdate)
+        self.close()
+
+# =========================================================
+# PERSIAN DATE BUTTON
+# =========================================================
+
+class PersianDateButton(QFrame):
+
+    dateChanged = Signal(QDate)
+
+    def __init__(self, parent=None, initial_qdate=None):
+        super().__init__(parent)
+
+        self._qdate = initial_qdate if initial_qdate is not None else QDate.currentDate()
+
+        self.setObjectName("persianDateFrame")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFixedHeight(42)
+        self.setMinimumWidth(180)
+        self.setCursor(Qt.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 0, 14, 0)
+        layout.setSpacing(8)
+
+        self.icon_label = QLabel("📅")
+        self.icon_label.setObjectName("dateIconLabel")
+        self.icon_label.setFixedSize(30, 30)
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        self.date_btn = QPushButton()
+        self.date_btn.setObjectName("persianDateButton")
+        self.date_btn.setCursor(Qt.PointingHandCursor)
+
+        layout.addWidget(self.icon_label)
+        layout.addWidget(self.date_btn, 1)
+
+        self._refresh_text()
+        self.mousePressEvent = self._frame_clicked
+        self.date_btn.clicked.connect(self._open_dialog)
+
+    def _frame_clicked(self, event):
+        self._open_dialog()
+        event.accept()
+
+    def _refresh_text(self):
+        jy, jm, jd = gregorian_to_jalali(
+            self._qdate.year(), self._qdate.month(), self._qdate.day()
+        )
+        self.date_btn.setText(f"{jy:04d} / {jm:02d} / {jd:02d}")
+
+    def date(self):
+        return self._qdate
+
+    def to_python_date(self):
+        return date(self._qdate.year(), self._qdate.month(), self._qdate.day())
+
+    def setDate(self, qdate):
+        self._qdate = qdate
+        self._refresh_text()
+
+    def _open_dialog(self):
+        self._popup = PersianCalendarPopup(self, self._qdate)
+        self._popup.dateSelected.connect(self._on_date_selected)
+        global_pos = self.mapToGlobal(QPoint(0, self.height() + 4))
+
+        try:
+            screen = QApplication.primaryScreen().availableGeometry()
+            x = global_pos.x()
+            if x + self._popup.width() > screen.right():
+                x = screen.right() - self._popup.width()
+            if x < screen.left():
+                x = screen.left()
+            global_pos.setX(x)
+        except Exception:
+            pass
+
+        self._popup.move(global_pos)
+        self._popup.show()
+
+    def _on_date_selected(self, qdate):
+        self._qdate = qdate
+        self._refresh_text()
+        self.dateChanged.emit(self._qdate)
 
 # =========================================================
 # NICE MESSAGE BOX
@@ -291,6 +669,61 @@ class NiceMessageBox:
         NiceMessageDialog(parent, title, text, "info").exec()
 
 # =========================================================
+# STAT BOX HELPER
+# =========================================================
+
+def create_stat_box(label_text, value_text, color_kind="blue", min_width=100):
+    c = theme_manager.colors()
+
+    box = QFrame()
+    box.setObjectName("statBox")
+    box.setAttribute(Qt.WA_StyledBackground, True)
+    box.setMinimumWidth(min_width)
+
+    if color_kind == "green":
+        bg = c['success_bg']
+        fg = c['success']
+    elif color_kind == "red":
+        bg = "#FFE5E8"
+        fg = "#D93025"
+    elif color_kind == "orange":
+        bg = "#FFF4DD"
+        fg = "#B87900"
+    else:
+        bg = c['accent_light']
+        fg = c['accent']
+
+    box.setStyleSheet(f"""
+        QFrame#statBox {{
+            background-color: {bg};
+            border: none;
+            border-radius: 14px;
+        }}
+    """)
+
+    layout = QVBoxLayout(box)
+    layout.setContentsMargins(14, 8, 14, 8)
+    layout.setSpacing(2)
+
+    lbl = QLabel(label_text)
+    lbl.setAlignment(Qt.AlignCenter)
+    lbl.setStyleSheet(
+        f"color: {c['text_dim']}; font-size: 9px; "
+        f"font-weight: 700; background: transparent;"
+    )
+
+    val = QLabel(value_text)
+    val.setAlignment(Qt.AlignCenter)
+    val.setStyleSheet(
+        f"color: {fg}; font-size: 13px; "
+        f"font-weight: 800; background: transparent;"
+    )
+
+    layout.addWidget(lbl)
+    layout.addWidget(val)
+    return box
+
+# =========================================================
 # REPORTS WINDOW
 # =========================================================
 
@@ -316,10 +749,9 @@ class ReportsWindow(QWidget):
         self.db = Database()
         self.user_id = None
 
-        # Date range filter
-        self.date_range = "this_month"
+        # پیش‌فرض: ۳ ماه اخیر
+        self.date_range = "last_3_months"
 
-        # Summary data
         self.summary = {
             "employees": 0,
             "hours": 0,
@@ -341,10 +773,6 @@ class ReportsWindow(QWidget):
         theme_manager.theme_changed.connect(self.on_theme_changed)
         signals.language_changed.connect(self.on_language_changed)
         signals.data_changed.connect(self.on_data_changed)
-
-    # =====================================================
-    # THEME / LANGUAGE
-    # =====================================================
 
     def on_theme_changed(self, theme_name):
         self.apply_stylesheet()
@@ -368,10 +796,6 @@ class ReportsWindow(QWidget):
     def on_data_changed(self, kind):
         self.calculate_reports()
 
-    # =====================================================
-    # LOAD USER
-    # =====================================================
-
     def load_user_id(self):
         if not self.phone_number:
             return
@@ -386,10 +810,10 @@ class ReportsWindow(QWidget):
             print("REPORTS LOAD USER ID ERROR:", e)
 
     # =====================================================
-    # DATE RANGE
+    # DATE RANGE (فقط preset)
     # =====================================================
 
-    def get_date_range_gregorian(self):
+    def _compute_preset_range(self):
         today = date.today()
 
         if self.date_range == "today":
@@ -400,14 +824,29 @@ class ReportsWindow(QWidget):
             return start, today
 
         if self.date_range == "this_month":
-            start = today.replace(day=1)
-            return start, today
+            jy, jm, jd = gregorian_to_jalali(today.year, today.month, today.day)
+            gy, gm, gd = jalali_to_gregorian(jy, jm, 1)
+            return date(gy, gm, gd), today
 
         if self.date_range == "last_3_months":
-            start = today - timedelta(days=90)
-            return start, today
+            jy, jm, jd = gregorian_to_jalali(today.year, today.month, today.day)
+            jm -= 3
+            if jm < 1:
+                jm += 12
+                jy -= 1
+            gy, gm, gd = jalali_to_gregorian(jy, jm, 1)
+            return date(gy, gm, gd), today
+
+        if self.date_range == "last_year":
+            jy, jm, jd = gregorian_to_jalali(today.year, today.month, today.day)
+            jy -= 1
+            gy, gm, gd = jalali_to_gregorian(jy, 1, 1)
+            return date(gy, gm, gd), today
 
         return today, today
+
+    def get_date_range_gregorian(self):
+        return self._compute_preset_range()
 
     # =====================================================
     # UI
@@ -449,47 +888,45 @@ class ReportsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # FILTER BOX
+        # FILTER BOX (فقط preset)
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
         filter_box.setAttribute(Qt.WA_StyledBackground, True)
 
-        filter_layout = QHBoxLayout(filter_box)
-        filter_layout.setContentsMargins(14, 10, 14, 10)
+        filter_layout = QVBoxLayout(filter_box)
+        filter_layout.setContentsMargins(16, 14, 16, 14)
         filter_layout.setSpacing(10)
 
-        filter_lbl = QLabel(tr("filter_report"))
-        filter_lbl.setObjectName("filterLabel")
+        filter_title = QLabel("📅  انتخاب بازه زمانی")
+        filter_title.setObjectName("filterLabel")
+        filter_title.setAlignment(Qt.AlignRight)
+        filter_layout.addWidget(filter_title)
 
-        self.date_combo = RoundedComboBox()
-        self.date_combo.setObjectName("filterCombo")
-        self.date_combo.setFixedHeight(36)
-        self.date_combo.setMinimumWidth(160)
-        self.date_combo.setCursor(Qt.PointingHandCursor)
-        self.date_combo.addItem(tr("today"), "today")
-        self.date_combo.addItem(tr("this_week"), "this_week")
-        self.date_combo.addItem(tr("this_month"), "this_month")
-        self.date_combo.addItem(tr("last_3_months"), "last_3_months")
+        preset_row = QHBoxLayout()
+        preset_row.setSpacing(8)
 
-        # Set current
-        for i in range(self.date_combo.count()):
-            if self.date_combo.itemData(i) == self.date_range:
-                self.date_combo.setCurrentIndex(i)
-                break
+        presets = [
+            ("امروز", "today"),
+            ("این هفته", "this_week"),
+            ("این ماه", "this_month"),
+            ("۳ ماه اخیر", "last_3_months"),
+            ("۱ سال اخیر", "last_year"),
+        ]
 
-        self.date_combo.currentIndexChanged.connect(self.on_date_changed)
+        self.preset_buttons = []
+        for label, key in presets:
+            btn = QPushButton(label)
+            btn.setObjectName("presetBtn")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(38)
+            btn.clicked.connect(
+                lambda checked=False, k=key: self.on_preset_selected(k)
+            )
+            preset_row.addWidget(btn)
+            self.preset_buttons.append((key, btn))
 
-        apply_btn = QPushButton(tr("apply_filter"))
-        apply_btn.setObjectName("applyBtn")
-        apply_btn.setFixedHeight(36)
-        apply_btn.setCursor(Qt.PointingHandCursor)
-        apply_btn.setAttribute(Qt.WA_StyledBackground, True)
-        apply_btn.clicked.connect(self.calculate_reports)
-
-        filter_layout.addWidget(filter_lbl)
-        filter_layout.addWidget(self.date_combo)
-        filter_layout.addStretch()
-        filter_layout.addWidget(apply_btn)
+        preset_row.addStretch()
+        filter_layout.addLayout(preset_row)
 
         main_layout.addWidget(filter_box)
 
@@ -511,12 +948,10 @@ class ReportsWindow(QWidget):
         content_layout.setContentsMargins(4, 4, 8, 4)
         content_layout.setSpacing(14)
 
-        # ── Summary title ──
         summary_title = QLabel(tr("report_summary"))
         summary_title.setObjectName("sectionTitle")
         content_layout.addWidget(summary_title)
 
-        # ── Summary cards ──
         summary_grid = QGridLayout()
         summary_grid.setSpacing(12)
 
@@ -539,12 +974,10 @@ class ReportsWindow(QWidget):
 
         content_layout.addLayout(summary_grid)
 
-        # ── Available reports title ──
         available_title = QLabel(tr("available_reports"))
         available_title.setObjectName("sectionTitle")
         content_layout.addWidget(available_title)
 
-        # ── Report cards ──
         reports_grid = QGridLayout()
         reports_grid.setSpacing(12)
 
@@ -580,10 +1013,45 @@ class ReportsWindow(QWidget):
         main_layout.addWidget(scroll, 1)
 
         self.apply_stylesheet()
+        self._refresh_preset_buttons()
 
-    # =====================================================
-    # SUMMARY CARD
-    # =====================================================
+    def _refresh_preset_buttons(self):
+        c = theme_manager.colors()
+        for key, btn in self.preset_buttons:
+            if key == self.date_range:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {c['accent']};
+                        color: white;
+                        border: none;
+                        border-radius: 19px;
+                        padding: 0 20px;
+                        font-size: 12px;
+                        font-weight: 700;
+                    }}
+                """)
+            else:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {c['bg_input']};
+                        color: {c['text_dim']};
+                        border: 1px solid {c['border']};
+                        border-radius: 19px;
+                        padding: 0 20px;
+                        font-size: 12px;
+                        font-weight: 600;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {c['accent_light']};
+                        color: {c['accent']};
+                        border: 1px solid {c['accent']};
+                    }}
+                """)
+
+    def on_preset_selected(self, key):
+        self.date_range = key
+        self._refresh_preset_buttons()
+        self.calculate_reports()
 
     def create_summary_card(self, grid, row, col, icon, title, value, box_name):
         card = QFrame()
@@ -618,10 +1086,6 @@ class ReportsWindow(QWidget):
 
         grid.addWidget(card, row, col)
         return value_label
-
-    # =====================================================
-    # REPORT CARD
-    # =====================================================
 
     def create_report_card(self, grid, row, col, icon, title, description, report_type):
         card = QFrame()
@@ -665,10 +1129,6 @@ class ReportsWindow(QWidget):
         layout.addWidget(btn, alignment=Qt.AlignLeft)
 
         grid.addWidget(card, row, col)
-
-    # =====================================================
-    # APPLY STYLESHEET
-    # =====================================================
 
     def apply_stylesheet(self):
         c = theme_manager.colors()
@@ -717,54 +1177,10 @@ class ReportsWindow(QWidget):
 
         QLabel#filterLabel {{
             color: {c['text_main']};
-            font-size: 12px;
-            font-weight: 600;
+            font-size: 13px;
+            font-weight: 800;
             background: transparent;
             border: none;
-        }}
-
-        QComboBox#filterCombo {{
-            background-color: {c['bg_input']};
-            color: {c['text_main']};
-            border: 1px solid {c['border']};
-            border-radius: 18px;
-            padding: 0 14px;
-            font-size: 12px;
-            font-weight: 600;
-        }}
-
-        QComboBox#filterCombo:hover {{
-            background-color: {c['bg_hover']};
-            border-color: {c['border_hover']};
-        }}
-
-        QComboBox#filterCombo::drop-down {{
-            border: none;
-            width: 24px;
-        }}
-
-        QComboBox#filterCombo::down-arrow {{
-            image: none;
-            width: 0px;
-            height: 0px;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 6px solid {c['accent']};
-            margin-right: 8px;
-        }}
-
-        QPushButton#applyBtn {{
-            background-color: {c['accent']};
-            color: white;
-            border: none;
-            border-radius: 18px;
-            padding: 0 18px;
-            font-size: 12px;
-            font-weight: 700;
-        }}
-
-        QPushButton#applyBtn:hover {{
-            background-color: {c['accent_hover']};
         }}
 
         QScrollArea {{
@@ -871,18 +1287,6 @@ class ReportsWindow(QWidget):
 
         """)
 
-    # =====================================================
-    # DATE CHANGED
-    # =====================================================
-
-    def on_date_changed(self, index):
-        self.date_range = self.date_combo.itemData(index) or "this_month"
-        self.calculate_reports()
-
-    # =====================================================
-    # CALCULATE
-    # =====================================================
-
     def calculate_reports(self):
         if not self.complex_id:
             return
@@ -890,7 +1294,6 @@ class ReportsWindow(QWidget):
         start_date, end_date = self.get_date_range_gregorian()
 
         try:
-            # ── Employees ──
             emp = self.db.fetch_one(
                 """
                 SELECT COUNT(*) AS cnt FROM complex_members
@@ -900,7 +1303,6 @@ class ReportsWindow(QWidget):
             )
             emp_count = int(emp["cnt"]) if emp else 0
 
-            # ── Working hours ──
             hours_row = self.db.fetch_one(
                 """
                 SELECT COALESCE(SUM(a.workedMinutes), 0) AS total
@@ -908,14 +1310,13 @@ class ReportsWindow(QWidget):
                 INNER JOIN complex_members cm ON cm.memberId = a.memberId
                 WHERE cm.complexId = %s
                   AND a.workDate BETWEEN %s AND %s
-                  AND a.approvalStatus = 'approved'
+                  AND a.checkIn IS NOT NULL
                 """,
                 (self.complex_id, start_date, end_date)
             )
             total_minutes = int(hours_row["total"]) if hours_row else 0
             total_hours = total_minutes // 60
 
-            # ── Payments ──
             pay_row = self.db.fetch_one(
                 """
                 SELECT COALESCE(SUM(p.amount), 0) AS total
@@ -928,7 +1329,6 @@ class ReportsWindow(QWidget):
             )
             total_payments = float(pay_row["total"]) if pay_row else 0
 
-            # ── Tasks done ──
             task_row = self.db.fetch_one(
                 """
                 SELECT COUNT(*) AS cnt
@@ -942,7 +1342,6 @@ class ReportsWindow(QWidget):
             )
             tasks_done = int(task_row["cnt"]) if task_row else 0
 
-            # ── Update UI ──
             self.emp_value.setText(str(emp_count))
             self.hours_value.setText(f"{total_hours} {tr('hours_text')}")
             self.pay_value.setText(f"{format_money(total_payments)} {tr('toman')}")
@@ -952,20 +1351,164 @@ class ReportsWindow(QWidget):
             print("REPORTS CALC ERROR:", e)
 
     # =====================================================
-    # OPEN REPORT
+    # DIALOG STYLESHEET
+    # =====================================================
+
+    def dialog_stylesheet(self):
+        c = theme_manager.colors()
+        return f"""
+            QDialog {{
+                background-color: {c['bg_main']};
+                font-family: "Vazirmatn";
+            }}
+
+            QFrame#dialogHeader {{
+                background-color: {c['bg_card']};
+                border-bottom: 1px solid {c['border']};
+            }}
+
+            QFrame#dialogBottom {{
+                background-color: {c['bg_card']};
+                border-top: 1px solid {c['border']};
+            }}
+
+            QFrame#datePickerBox {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
+                border-radius: 18px;
+            }}
+
+            QLabel#dateFieldLabel {{
+                color: {c['text_dim']};
+                font-size: 11px;
+                font-weight: 700;
+                background: transparent;
+            }}
+
+            QFrame#persianDateFrame {{
+                background-color: {c['bg_input']};
+                border: 1px solid {c['border']};
+                border-radius: 21px;
+            }}
+
+            QFrame#persianDateFrame:hover {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border_hover']};
+            }}
+
+            QLabel#dateIconLabel {{
+                background-color: {c['accent_light']};
+                border: none;
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: 700;
+            }}
+
+            QPushButton#persianDateButton {{
+                background-color: transparent;
+                border: none;
+                padding: 0 4px;
+                color: {c['text_main']};
+                font-size: 12px;
+                font-weight: 700;
+                text-align: center;
+            }}
+
+            QPushButton#applyDatesBtn {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+                border-radius: 21px;
+                padding: 0 24px;
+                font-size: 13px;
+                font-weight: 700;
+                min-height: 42px;
+            }}
+
+            QPushButton#applyDatesBtn:hover {{
+                background-color: {c['accent_hover']};
+            }}
+
+            QFrame#employeeStatCard {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
+                border-radius: 20px;
+            }}
+
+            QFrame#employeeStatCard:hover {{
+                background-color: {c['bg_hover']};
+                border: 1px solid {c['accent']};
+            }}
+
+            QFrame#statBox {{
+                border: none;
+                border-radius: 14px;
+            }}
+
+            QFrame#detailRow {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
+                border-radius: 16px;
+            }}
+
+            QFrame#statusBadgeGreen {{
+                background-color: {c['success_bg']};
+                border: none;
+                border-radius: 11px;
+            }}
+
+            QFrame#statusBadgeOrange {{
+                background-color: #FFF4DD;
+                border: none;
+                border-radius: 11px;
+            }}
+
+            QFrame#statusBadgeRed {{
+                background-color: #FFE5E8;
+                border: none;
+                border-radius: 11px;
+            }}
+
+            QFrame#summaryStatBox {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
+                border-radius: 16px;
+            }}
+
+            QFrame#summaryStatBoxGreen {{
+                background-color: {c['success_bg']};
+                border: 1px solid {c['border']};
+                border-radius: 16px;
+            }}
+
+            QFrame#summaryStatBoxOrange {{
+                background-color: #FFF4DD;
+                border: 1px solid {c['border']};
+                border-radius: 16px;
+            }}
+
+            QFrame#summaryStatBoxRed {{
+                background-color: #FFE5E8;
+                border: 1px solid {c['border']};
+                border-radius: 16px;
+            }}
+        """
+
+    # =====================================================
+    # OPEN REPORT (با Date Picker برای همه)
     # =====================================================
 
     def open_report(self, report_type):
         if not self.complex_id:
             return
 
-        start_date, end_date = self.get_date_range_gregorian()
+        initial_start, initial_end = self.get_date_range_gregorian()
         c = theme_manager.colors()
 
         dialog = QDialog(self)
         dialog.setLayoutDirection(Qt.RightToLeft)
-        dialog.setMinimumWidth(700)
-        dialog.setMinimumHeight(500)
+        dialog.setMinimumSize(800, 720)
+        dialog.resize(940, 800)
         dialog.setModal(True)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
 
@@ -975,31 +1518,93 @@ class ReportsWindow(QWidget):
             "employees": tr("report_employees"),
             "tasks": tr("report_tasks"),
         }
-        dialog.setWindowTitle(title_map.get(report_type, tr("reports_title")))
+        report_title = title_map.get(report_type, tr("reports_title"))
+        dialog.setWindowTitle(report_title)
 
         main_layout = QVBoxLayout(dialog)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Header
+        # ═══ Header ═══
         header = QFrame()
-        header.setStyleSheet(f"background-color: {c['bg_card']}; border-bottom: 1px solid {c['border']};")
+        header.setObjectName("dialogHeader")
+        header.setAttribute(Qt.WA_StyledBackground, True)
         h_layout = QVBoxLayout(header)
-        h_layout.setContentsMargins(20, 16, 20, 16)
+        h_layout.setContentsMargins(28, 20, 28, 20)
         h_layout.setSpacing(4)
 
-        h_title = QLabel(title_map.get(report_type, tr("reports_title")))
-        h_title.setStyleSheet(f"color: {c['text_main']}; font-size: 16px; font-weight: 800; background: transparent;")
-
-        range_text = f"{start_date} → {end_date}"
-        h_sub = QLabel(range_text)
-        h_sub.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 600; background: transparent;")
+        h_title = QLabel(report_title)
+        h_title.setAlignment(Qt.AlignCenter)
+        h_title.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 20px; "
+            f"font-weight: 800; background: transparent;"
+        )
 
         h_layout.addWidget(h_title)
-        h_layout.addWidget(h_sub)
         main_layout.addWidget(header)
 
-        # Scroll
+        # ═══ Date Picker Box (برای همه گزارش‌ها) ═══
+        date_box = QFrame()
+        date_box.setObjectName("datePickerBox")
+        date_box.setAttribute(Qt.WA_StyledBackground, True)
+        db_layout = QVBoxLayout(date_box)
+        db_layout.setContentsMargins(20, 14, 20, 14)
+        db_layout.setSpacing(10)
+
+        db_title = QLabel("📅  انتخاب بازه زمانی")
+        db_title.setAlignment(Qt.AlignRight)
+        db_title.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 13px; "
+            f"font-weight: 800; background: transparent;"
+        )
+        db_layout.addWidget(db_title)
+
+        picker_row = QHBoxLayout()
+        picker_row.setSpacing(12)
+
+        # از
+        start_col = QVBoxLayout()
+        start_col.setSpacing(4)
+        start_lbl = QLabel("از تاریخ")
+        start_lbl.setObjectName("dateFieldLabel")
+        start_picker = PersianDateButton(
+            initial_qdate=QDate(initial_start.year, initial_start.month, initial_start.day)
+        )
+        start_col.addWidget(start_lbl)
+        start_col.addWidget(start_picker)
+        picker_row.addLayout(start_col, 2)
+
+        # تا
+        end_col = QVBoxLayout()
+        end_col.setSpacing(4)
+        end_lbl = QLabel("تا تاریخ")
+        end_lbl.setObjectName("dateFieldLabel")
+        end_picker = PersianDateButton(
+            initial_qdate=QDate(initial_end.year, initial_end.month, initial_end.day)
+        )
+        end_col.addWidget(end_lbl)
+        end_col.addWidget(end_picker)
+        picker_row.addLayout(end_col, 2)
+
+        # اعمال
+        apply_btn = QPushButton("اعمال")
+        apply_btn.setObjectName("applyDatesBtn")
+        apply_btn.setCursor(Qt.PointingHandCursor)
+        apply_btn.setFixedHeight(42)
+        picker_row.addWidget(apply_btn, 1, Qt.AlignBottom)
+
+        db_layout.addLayout(picker_row)
+
+        # فاصله
+        wrap = QWidget()
+        wrap.setStyleSheet("background: transparent;")
+        wrap_layout = QVBoxLayout(wrap)
+        wrap_layout.setContentsMargins(20, 12, 20, 0)
+        wrap_layout.setSpacing(0)
+        wrap_layout.addWidget(date_box)
+        main_layout.addWidget(wrap)
+
+        # ═══ Scroll ═══
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -1012,71 +1617,69 @@ class ReportsWindow(QWidget):
         content = QWidget()
         content.setStyleSheet(f"background-color: {c['bg_main']};")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(18, 18, 18, 18)
-        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        content_layout.setSpacing(12)
 
-        rows = self.get_report_rows(report_type, start_date, end_date)
-
-        if not rows:
-            empty = QLabel(tr("no_records"))
-            empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet(f"color: {c['text_dim']}; font-size: 13px; padding: 40px; background: transparent;")
-            content_layout.addWidget(empty)
-        else:
-            for r in rows:
-                card = QFrame()
-                card.setObjectName("repRow")
-                card.setAttribute(Qt.WA_StyledBackground, True)
-                card.setStyleSheet(f"""
-                    QFrame#repRow {{
-                        background-color: {c['bg_card']};
-                        border: 1px solid {c['border']};
-                        border-radius: 14px;
-                    }}
-                """)
-
-                rl = QHBoxLayout(card)
-                rl.setContentsMargins(14, 10, 14, 10)
-                rl.setSpacing(10)
-
-                for key in ["col1", "col2", "col3", "col4"]:
-                    if key in r:
-                        lbl = QLabel(str(r[key]))
-                        if key == "col1":
-                            lbl.setStyleSheet(f"color: {c['text_main']}; font-size: 12px; font-weight: 700; background: transparent;")
-                        elif key == "col4":
-                            lbl.setStyleSheet(f"color: {c['accent']}; font-size: 12px; font-weight: 700; background: transparent;")
-                        else:
-                            lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 11px; background: transparent;")
-                        rl.addWidget(lbl, 1)
-                    else:
-                        rl.addStretch(1)
-
-                content_layout.addWidget(card)
-
-        content_layout.addStretch()
-        scroll.setWidget(content)
         main_layout.addWidget(scroll, 1)
 
-        # Bottom
+        # ═══ refresh function ═══
+        def refresh_content():
+            while content_layout.count():
+                item = content_layout.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.deleteLater()
+
+            sd = start_picker.to_python_date()
+            ed = end_picker.to_python_date()
+
+            # محدوده نمایش داده بشه
+            range_lbl = QLabel(f"از {persian_date_short(sd)} تا {persian_date_short(ed)}")
+            range_lbl.setAlignment(Qt.AlignCenter)
+            range_lbl.setStyleSheet(
+                f"color: {c['accent']}; font-size: 12px; "
+                f"font-weight: 700; background: transparent; padding: 4px;"
+            )
+            content_layout.addWidget(range_lbl)
+            content_layout.addSpacing(4)
+
+            if report_type == "attendance":
+                self.build_attendance_report(content_layout, sd, ed)
+            elif report_type == "finance":
+                self.build_finance_report(content_layout, sd, ed)
+            elif report_type == "employees":
+                self.build_employees_report(content_layout)
+            elif report_type == "tasks":
+                self.build_tasks_report(content_layout, sd, ed)
+
+            content_layout.addStretch()
+
+        apply_btn.clicked.connect(refresh_content)
+
+        # initial build
+        refresh_content()
+        scroll.setWidget(content)
+
+        # ═══ Bottom ═══
         bottom = QFrame()
-        bottom.setStyleSheet(f"background-color: {c['bg_card']}; border-top: 1px solid {c['border']};")
+        bottom.setObjectName("dialogBottom")
+        bottom.setAttribute(Qt.WA_StyledBackground, True)
         b_layout = QHBoxLayout(bottom)
         b_layout.setContentsMargins(20, 12, 20, 12)
 
         close_btn = QPushButton(tr("close"))
-        close_btn.setFixedHeight(40)
-        close_btn.setMinimumWidth(130)
+        close_btn.setFixedHeight(44)
+        close_btn.setMinimumWidth(150)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {c['accent']};
                 color: white;
                 border: none;
-                border-radius: 20px;
+                border-radius: 22px;
                 font-size: 13px;
                 font-weight: 700;
-                padding: 0 22px;
+                padding: 0 28px;
             }}
             QPushButton:hover {{
                 background-color: {c['accent_hover']};
@@ -1089,129 +1692,1224 @@ class ReportsWindow(QWidget):
         b_layout.addStretch()
         main_layout.addWidget(bottom)
 
-        dialog.setStyleSheet(f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}")
+        dialog.setStyleSheet(self.dialog_stylesheet())
         dialog.exec()
 
     # =====================================================
-    # GET REPORT ROWS
+    # BUILD ATTENDANCE REPORT
     # =====================================================
 
-    def get_report_rows(self, report_type, start_date, end_date):
-        rows = []
+    def build_attendance_report(self, layout, start_date, end_date):
+        c = theme_manager.colors()
 
         try:
-            if report_type == "attendance":
-                data = self.db.fetch_all(
-                    """
-                    SELECT u.name, a.workDate, a.checkIn, a.checkOut,
-                           a.workedMinutes, a.overtimeMinutes
-                    FROM attendance a
-                    INNER JOIN complex_members cm ON cm.memberId = a.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                      AND a.workDate BETWEEN %s AND %s
-                      AND a.approvalStatus = 'approved'
-                    ORDER BY a.workDate DESC
-                    LIMIT 200
-                    """,
-                    (self.complex_id, start_date, end_date)
-                )
-                for d in data or []:
-                    wm = int(d.get("workedMinutes") or 0)
-                    h = wm // 60
-                    m = wm % 60
-                    ot = int(d.get("overtimeMinutes") or 0)
-                    ot_h = ot // 60
-                    ot_m = ot % 60
-                    rows.append({
-                        "col1": d.get("name") or "—",
-                        "col2": str(d.get("workDate") or "-"),
-                        "col3": f"{h}{tr('hour_short')} {m}{tr('min_short')}",
-                        "col4": f"OT {ot_h}{tr('hour_short')} {ot_m}{tr('min_short')}" if ot > 0 else "-",
-                    })
-
-            elif report_type == "finance":
-                data = self.db.fetch_all(
-                    """
-                    SELECT u.name, p.amount, p.paymentType, p.paymentDate, p.description
-                    FROM payments p
-                    INNER JOIN complex_members cm ON cm.memberId = p.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                      AND DATE(p.paymentDate) BETWEEN %s AND %s
-                    ORDER BY p.paymentDate DESC
-                    LIMIT 200
-                    """,
-                    (self.complex_id, start_date, end_date)
-                )
-                type_map = {
-                    "salary": tr("payment_salary"),
-                    "job": tr("payment_job"),
-                    "bonus": tr("payment_bonus"),
-                    "advance": tr("payment_advance"),
-                    "other": tr("payment_other"),
-                }
-                for d in data or []:
-                    rows.append({
-                        "col1": d.get("name") or "—",
-                        "col2": type_map.get(d.get("paymentType"), "-"),
-                        "col3": str(d.get("paymentDate") or "-")[:16],
-                        "col4": f"{format_money(d.get('amount') or 0)} {tr('toman')}",
-                    })
-
-            elif report_type == "employees":
-                data = self.db.fetch_all(
-                    """
-                    SELECT u.name, cm.role, ep.jobTitle, ep.baseSalary
-                    FROM complex_members cm
-                    INNER JOIN users u ON u.userId = cm.userId
-                    LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
-                    WHERE cm.complexId = %s
-                      AND cm.role IN ('employee', 'both')
-                      AND cm.isActive = '1'
-                    ORDER BY u.name ASC
-                    """,
-                    (self.complex_id,)
-                )
-                for d in data or []:
-                    rows.append({
-                        "col1": d.get("name") or "—",
-                        "col2": d.get("jobTitle") or tr("no_job"),
-                        "col3": tr("employee_role"),
-                        "col4": f"{format_money(d.get('baseSalary') or 0)} {tr('toman')}",
-                    })
-
-            elif report_type == "tasks":
-                data = self.db.fetch_all(
-                    """
-                    SELECT u.name, j.jobTitle, ej.status, ej.price, ej.assignedDate
-                    FROM employee_jobs ej
-                    INNER JOIN complex_members cm ON cm.memberId = ej.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    LEFT JOIN jobs j ON j.jobId = ej.jobId
-                    WHERE cm.complexId = %s
-                      AND DATE(ej.assignedDate) BETWEEN %s AND %s
-                    ORDER BY ej.assignedDate DESC
-                    LIMIT 200
-                    """,
-                    (self.complex_id, start_date, end_date)
-                )
-                status_map = {
-                    "pending": tr("cartable_pending"),
-                    "inProgress": tr("cartable_in_progress"),
-                    "completed": tr("cartable_completed"),
-                    "rejected": tr("cartable_rejected"),
-                    "cancelled": tr("cartable_cancelled"),
-                }
-                for d in data or []:
-                    rows.append({
-                        "col1": d.get("name") or "—",
-                        "col2": d.get("jobTitle") or tr("job_no_desc"),
-                        "col3": status_map.get(d.get("status"), "-"),
-                        "col4": f"{format_money(d.get('price') or 0)} {tr('toman')}",
-                    })
-
+            employees = self.db.fetch_all(
+                """
+                SELECT cm.memberId, u.name, u.phoneNumber
+                FROM complex_members cm
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s
+                  AND cm.role IN ('employee', 'both')
+                  AND cm.isActive = '1'
+                ORDER BY u.name ASC
+                """,
+                (self.complex_id,)
+            )
         except Exception as e:
-            print("GET REPORT ROWS ERROR:", e)
+            print("BUILD ATTENDANCE REPORT ERROR:", e)
+            employees = []
 
-        return rows
+        if not employees:
+            empty = QLabel("کارمندی یافت نشد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 13px; "
+                f"padding: 40px; background: transparent;"
+            )
+            layout.addWidget(empty)
+            return
+
+        hint = QLabel("💡 برای دیدن تاریخچه کامل هر کارمند، روی کارت او کلیک کنید.")
+        hint.setAlignment(Qt.AlignRight)
+        hint.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 11px; "
+            f"padding: 4px 4px; background: transparent;"
+        )
+        layout.addWidget(hint)
+
+        for emp in employees:
+            try:
+                stats = self.db.fetch_one(
+                    """
+                    SELECT
+                        COUNT(DISTINCT CASE WHEN status = 'absent' THEN workDate END) AS absent_days,
+                        COUNT(DISTINCT CASE WHEN checkIn IS NOT NULL THEN workDate END) AS present_days,
+                        COALESCE(SUM(CASE WHEN checkIn IS NOT NULL THEN workedMinutes ELSE 0 END), 0) AS minutes,
+                        COALESCE(SUM(CASE WHEN checkIn IS NOT NULL THEN overtimeMinutes ELSE 0 END), 0) AS ot
+                    FROM attendance
+                    WHERE memberId = %s
+                      AND workDate BETWEEN %s AND %s
+                    """,
+                    (emp["memberId"], start_date, end_date)
+                )
+            except Exception as e:
+                print("EMP ATT STATS ERROR:", e)
+                stats = None
+
+            present_days = int(stats["present_days"] or 0) if stats else 0
+            absent_days = int(stats["absent_days"] or 0) if stats else 0
+            minutes = int(stats["minutes"] or 0) if stats else 0
+            ot = int(stats["ot"] or 0) if stats else 0
+
+            h = minutes // 60
+            m = minutes % 60
+            ot_h = ot // 60
+            ot_m = ot % 60
+
+            card = QFrame()
+            card.setObjectName("employeeStatCard")
+            card.setAttribute(Qt.WA_StyledBackground, True)
+            card.setCursor(Qt.PointingHandCursor)
+            card.setMinimumHeight(96)
+
+            cl = QHBoxLayout(card)
+            cl.setContentsMargins(18, 14, 18, 14)
+            cl.setSpacing(16)
+
+            name_text = emp.get("name") or "—"
+            initial = name_text.strip()[0] if name_text.strip() else "?"
+
+            avatar = QLabel(initial)
+            avatar.setFixedSize(48, 48)
+            avatar.setAlignment(Qt.AlignCenter)
+            avatar.setStyleSheet(
+                f"background-color: {c['accent_light']}; "
+                f"color: {c['accent']}; "
+                f"border-radius: 24px; "
+                f"font-size: 18px; font-weight: 800;"
+            )
+
+            info_col = QVBoxLayout()
+            info_col.setSpacing(3)
+
+            name_lbl = QLabel(name_text)
+            name_lbl.setStyleSheet(
+                f"color: {c['text_main']}; font-size: 14px; "
+                f"font-weight: 700; background: transparent;"
+            )
+
+            phone_lbl = QLabel(emp.get("phoneNumber") or "—")
+            phone_lbl.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 11px; "
+                f"background: transparent;"
+            )
+
+            info_col.addWidget(name_lbl)
+            info_col.addWidget(phone_lbl)
+
+            stats_col = QHBoxLayout()
+            stats_col.setSpacing(10)
+
+            stats_col.addWidget(create_stat_box(
+                "روز حاضر", str(present_days), "green", 90
+            ))
+            stats_col.addWidget(create_stat_box(
+                "روز غایب", str(absent_days), "red" if absent_days > 0 else "blue", 90
+            ))
+            stats_col.addWidget(create_stat_box(
+                "ساعت کار", f"{h}س {m}د", "blue", 110
+            ))
+            stats_col.addWidget(create_stat_box(
+                "اضافه کاری",
+                f"{ot_h}س {ot_m}د" if ot > 0 else "ندارد",
+                "orange" if ot > 0 else "blue",
+                110
+            ))
+
+            cl.addWidget(avatar)
+            cl.addLayout(info_col, 2)
+            cl.addLayout(stats_col, 6)
+
+            card.mousePressEvent = (
+                lambda event, e=emp: self.open_employee_attendance_detail(
+                    e, start_date, end_date
+                )
+            )
+
+            layout.addWidget(card)
+
+    # =====================================================
+    # EMPLOYEE ATTENDANCE DETAIL
+    # =====================================================
+
+    def open_employee_attendance_detail(self, employee, start_date, end_date):
+        c = theme_manager.colors()
+
+        dialog = QDialog(self)
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setMinimumSize(820, 700)
+        dialog.resize(960, 760)
+        dialog.setModal(True)
+        dialog.setAttribute(Qt.WA_StyledBackground, True)
+
+        name_text = employee.get("name") or "—"
+        dialog.setWindowTitle(f"تاریخچه حضور — {name_text}")
+
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("dialogHeader")
+        header.setAttribute(Qt.WA_StyledBackground, True)
+        h_layout = QVBoxLayout(header)
+        h_layout.setContentsMargins(28, 20, 28, 20)
+        h_layout.setSpacing(4)
+
+        h_name = QLabel(name_text)
+        h_name.setAlignment(Qt.AlignCenter)
+        h_name.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 20px; "
+            f"font-weight: 800; background: transparent;"
+        )
+
+        h_phone = QLabel(employee.get("phoneNumber") or "—")
+        h_phone.setAlignment(Qt.AlignCenter)
+        h_phone.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 12px; "
+            f"font-weight: 600; background: transparent;"
+        )
+
+        range_text = f"از {persian_date_short(start_date)} تا {persian_date_short(end_date)}"
+        h_range = QLabel(range_text)
+        h_range.setAlignment(Qt.AlignCenter)
+        h_range.setStyleSheet(
+            f"color: {c['accent']}; font-size: 12px; "
+            f"font-weight: 700; background: transparent;"
+        )
+
+        h_layout.addWidget(h_name)
+        h_layout.addWidget(h_phone)
+        h_layout.addWidget(h_range)
+        main_layout.addWidget(header)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        bar = RoundScrollBar(Qt.Vertical, scroll)
+        scroll.setVerticalScrollBar(bar)
+
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {c['bg_main']};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        content_layout.setSpacing(10)
+
+        try:
+            records = self.db.fetch_all(
+                """
+                SELECT workDate, checkIn, checkOut, workedMinutes,
+                       overtimeMinutes, approvalStatus, status
+                FROM attendance
+                WHERE memberId = %s
+                  AND workDate BETWEEN %s AND %s
+                ORDER BY workDate DESC
+                """,
+                (employee["memberId"], start_date, end_date)
+            )
+        except Exception as e:
+            print("EMP ATT DETAIL ERROR:", e)
+            records = []
+
+        if not records:
+            empty = QLabel("رکوردی در این بازه یافت نشد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 13px; "
+                f"padding: 60px; background: transparent;"
+            )
+            content_layout.addWidget(empty)
+            content_layout.addStretch()
+        else:
+            present_count = 0
+            absent_count = 0
+            total_minutes = 0
+            total_ot = 0
+
+            for r in records:
+                if r.get("status") == "absent":
+                    absent_count += 1
+                elif r.get("checkIn"):
+                    present_count += 1
+                    total_minutes += int(r.get("workedMinutes") or 0)
+                    total_ot += int(r.get("overtimeMinutes") or 0)
+
+            h = total_minutes // 60
+            m = total_minutes % 60
+            ot_h = total_ot // 60
+            ot_m = total_ot % 60
+
+            summary_box = QFrame()
+            summary_box.setObjectName("summaryStatBox")
+            summary_box.setAttribute(Qt.WA_StyledBackground, True)
+            sl = QHBoxLayout(summary_box)
+            sl.setContentsMargins(16, 14, 16, 14)
+            sl.setSpacing(12)
+
+            sl.addWidget(create_stat_box("روز حاضر", str(present_count), "green", 110))
+            sl.addWidget(create_stat_box("روز غایب", str(absent_count), "red" if absent_count > 0 else "blue", 110))
+            sl.addWidget(create_stat_box("کل ساعت کار", f"{h}س {m}د", "blue", 140))
+            sl.addWidget(create_stat_box("کل اضافه کاری", f"{ot_h}س {ot_m}د", "orange" if total_ot > 0 else "blue", 140))
+
+            content_layout.addWidget(summary_box)
+            content_layout.addSpacing(6)
+
+            for r in records:
+                is_absent = (r.get("status") == "absent")
+
+                card = QFrame()
+                card.setObjectName("detailRow")
+                card.setAttribute(Qt.WA_StyledBackground, True)
+                card.setMinimumHeight(76)
+
+                rl = QHBoxLayout(card)
+                rl.setContentsMargins(16, 12, 16, 12)
+                rl.setSpacing(10)
+
+                wd = r.get("workDate")
+                if isinstance(wd, (date, datetime)):
+                    date_str = persian_date_long(wd)
+                else:
+                    date_str = str(wd) if wd else "—"
+
+                date_lbl = QLabel(date_str)
+                date_lbl.setStyleSheet(
+                    f"color: {c['text_main']}; font-size: 12px; "
+                    f"font-weight: 700; background: transparent;"
+                )
+                date_lbl.setMinimumWidth(200)
+
+                if is_absent:
+                    in_lbl = QLabel("—")
+                    in_lbl.setStyleSheet(
+                        f"color: {c['text_dim']}; font-size: 11px; "
+                        f"background: transparent;"
+                    )
+                    in_lbl.setMinimumWidth(140)
+
+                    out_lbl = QLabel("—")
+                    out_lbl.setStyleSheet(
+                        f"color: {c['text_dim']}; font-size: 11px; "
+                        f"background: transparent;"
+                    )
+                    out_lbl.setMinimumWidth(140)
+
+                    hours_lbl = QLabel("—")
+                    hours_lbl.setStyleSheet(
+                        f"color: {c['text_dim']}; font-size: 12px; "
+                        f"background: transparent;"
+                    )
+                    hours_lbl.setMinimumWidth(70)
+
+                    ot_lbl = QLabel("—")
+                    ot_lbl.setStyleSheet(
+                        f"color: {c['text_dim']}; font-size: 11px; "
+                        f"background: transparent;"
+                    )
+
+                    rl.addWidget(date_lbl, 2)
+                    rl.addWidget(in_lbl, 1)
+                    rl.addWidget(out_lbl, 1)
+                    rl.addWidget(hours_lbl, 1)
+                    rl.addWidget(ot_lbl, 1)
+                    rl.addStretch()
+                else:
+                    ci_text = format_time_12h(r.get("checkIn")) if r.get("checkIn") else "—"
+                    co_text = format_time_12h(r.get("checkOut")) if r.get("checkOut") else "—"
+
+                    in_lbl = QLabel(f"ورود: {ci_text}")
+                    in_lbl.setStyleSheet(
+                        f"color: {c['text_dim']}; font-size: 11px; "
+                        f"background: transparent;"
+                    )
+                    in_lbl.setMinimumWidth(140)
+
+                    out_lbl = QLabel(f"خروج: {co_text}")
+                    out_lbl.setStyleSheet(
+                        f"color: {c['text_dim']}; font-size: 11px; "
+                        f"background: transparent;"
+                    )
+                    out_lbl.setMinimumWidth(140)
+
+                    wm = int(r.get("workedMinutes") or 0)
+                    wh, wmin = wm // 60, wm % 60
+
+                    hours_lbl = QLabel(f"{wh}س {wmin}د")
+                    hours_lbl.setStyleSheet(
+                        f"color: {c['accent']}; font-size: 12px; "
+                        f"font-weight: 700; background: transparent;"
+                    )
+                    hours_lbl.setMinimumWidth(70)
+
+                    ot_val = int(r.get("overtimeMinutes") or 0)
+                    if ot_val > 0:
+                        ot_h2, ot_m2 = ot_val // 60, ot_val % 60
+                        ot_lbl = QLabel(f"OT {ot_h2}س {ot_m2}د")
+                        ot_lbl.setStyleSheet(
+                            f"color: #B87900; font-size: 11px; "
+                            f"font-weight: 700; background: transparent;"
+                        )
+                    else:
+                        ot_lbl = QLabel("—")
+                        ot_lbl.setStyleSheet(
+                            f"color: {c['text_dim']}; font-size: 11px; "
+                            f"background: transparent;"
+                        )
+
+                    appr = r.get("approvalStatus") or "pending"
+                    if appr == "approved":
+                        status_text = "تایید"
+                        badge_name = "statusBadgeGreen"
+                        status_color = c['success']
+                    elif appr == "rejected":
+                        status_text = "رد"
+                        badge_name = "statusBadgeRed"
+                        status_color = "#D93025"
+                    else:
+                        status_text = "در انتظار"
+                        badge_name = "statusBadgeOrange"
+                        status_color = "#B87900"
+
+                    badge = QFrame()
+                    badge.setObjectName(badge_name)
+                    badge.setAttribute(Qt.WA_StyledBackground, True)
+                    badge.setFixedSize(84, 26)
+                    bl = QHBoxLayout(badge)
+                    bl.setContentsMargins(0, 0, 0, 0)
+                    bl.setAlignment(Qt.AlignCenter)
+                    blbl = QLabel(status_text)
+                    blbl.setStyleSheet(
+                        f"color: {status_color}; font-size: 10px; "
+                        f"font-weight: 700; background: transparent;"
+                    )
+                    bl.addWidget(blbl)
+
+                    rl.addWidget(date_lbl, 2)
+                    rl.addWidget(in_lbl, 1)
+                    rl.addWidget(out_lbl, 1)
+                    rl.addWidget(hours_lbl, 1)
+                    rl.addWidget(ot_lbl, 1)
+                    rl.addStretch()
+                    rl.addWidget(badge)
+
+                content_layout.addWidget(card)
+
+            content_layout.addStretch()
+
+        scroll.setWidget(content)
+        main_layout.addWidget(scroll, 1)
+
+        bottom = QFrame()
+        bottom.setObjectName("dialogBottom")
+        bottom.setAttribute(Qt.WA_StyledBackground, True)
+        bl2 = QHBoxLayout(bottom)
+        bl2.setContentsMargins(20, 12, 20, 12)
+
+        close_btn = QPushButton(tr("close"))
+        close_btn.setFixedHeight(44)
+        close_btn.setMinimumWidth(150)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+                border-radius: 22px;
+                font-size: 13px;
+                font-weight: 700;
+                padding: 0 28px;
+            }}
+            QPushButton:hover {{
+                background-color: {c['accent_hover']};
+            }}
+        """)
+        close_btn.clicked.connect(dialog.accept)
+
+        bl2.addStretch()
+        bl2.addWidget(close_btn)
+        bl2.addStretch()
+        main_layout.addWidget(bottom)
+
+        dialog.setStyleSheet(self.dialog_stylesheet())
+        dialog.exec()
+
+    # =====================================================
+    # BUILD FINANCE REPORT
+    # =====================================================
+
+    def build_finance_report(self, layout, start_date, end_date):
+        c = theme_manager.colors()
+
+        try:
+            employees = self.db.fetch_all(
+                """
+                SELECT cm.memberId, u.name, u.phoneNumber
+                FROM complex_members cm
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s
+                  AND cm.role IN ('employee', 'both')
+                  AND cm.isActive = '1'
+                ORDER BY u.name ASC
+                """,
+                (self.complex_id,)
+            )
+        except Exception as e:
+            print("BUILD FINANCE REPORT ERROR:", e)
+            employees = []
+
+        if not employees:
+            empty = QLabel("کارمندی یافت نشد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 13px; "
+                f"padding: 40px; background: transparent;"
+            )
+            layout.addWidget(empty)
+            return
+
+        hint = QLabel("💡 برای دیدن تاریخچه مالی کامل هر کارمند، روی کارت او کلیک کنید.")
+        hint.setAlignment(Qt.AlignRight)
+        hint.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 11px; "
+            f"padding: 4px 4px; background: transparent;"
+        )
+        layout.addWidget(hint)
+
+        for emp in employees:
+            try:
+                stats = self.db.fetch_one(
+                    """
+                    SELECT COUNT(*) AS cnt,
+                           COALESCE(SUM(amount), 0) AS total
+                    FROM payments
+                    WHERE memberId = %s
+                      AND DATE(paymentDate) BETWEEN %s AND %s
+                    """,
+                    (emp["memberId"], start_date, end_date)
+                )
+            except Exception as e:
+                print("EMP FIN STATS ERROR:", e)
+                stats = None
+
+            count = int(stats["cnt"] or 0) if stats else 0
+            total = float(stats["total"] or 0) if stats else 0
+
+            card = QFrame()
+            card.setObjectName("employeeStatCard")
+            card.setAttribute(Qt.WA_StyledBackground, True)
+            card.setCursor(Qt.PointingHandCursor)
+            card.setMinimumHeight(96)
+
+            cl = QHBoxLayout(card)
+            cl.setContentsMargins(18, 14, 18, 14)
+            cl.setSpacing(16)
+
+            name_text = emp.get("name") or "—"
+            initial = name_text.strip()[0] if name_text.strip() else "?"
+
+            avatar = QLabel(initial)
+            avatar.setFixedSize(48, 48)
+            avatar.setAlignment(Qt.AlignCenter)
+            avatar.setStyleSheet(
+                f"background-color: {c['accent_light']}; "
+                f"color: {c['accent']}; "
+                f"border-radius: 24px; "
+                f"font-size: 18px; font-weight: 800;"
+            )
+
+            info_col = QVBoxLayout()
+            info_col.setSpacing(3)
+
+            name_lbl = QLabel(name_text)
+            name_lbl.setStyleSheet(
+                f"color: {c['text_main']}; font-size: 14px; "
+                f"font-weight: 700; background: transparent;"
+            )
+
+            phone_lbl = QLabel(emp.get("phoneNumber") or "—")
+            phone_lbl.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 11px; "
+                f"background: transparent;"
+            )
+
+            info_col.addWidget(name_lbl)
+            info_col.addWidget(phone_lbl)
+
+            stats_col = QHBoxLayout()
+            stats_col.setSpacing(10)
+
+            stats_col.addWidget(create_stat_box("تعداد پرداخت", str(count), "blue", 120))
+            stats_col.addWidget(create_stat_box(
+                "جمع پرداخت",
+                f"{format_money(total)} ت",
+                "green",
+                160
+            ))
+
+            cl.addWidget(avatar)
+            cl.addLayout(info_col, 2)
+            cl.addLayout(stats_col, 5)
+
+            card.mousePressEvent = (
+                lambda event, e=emp: self.open_employee_finance_detail(
+                    e, start_date, end_date
+                )
+            )
+
+            layout.addWidget(card)
+
+    # =====================================================
+    # EMPLOYEE FINANCE DETAIL
+    # =====================================================
+
+    def open_employee_finance_detail(self, employee, start_date, end_date):
+        c = theme_manager.colors()
+
+        dialog = QDialog(self)
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setMinimumSize(820, 700)
+        dialog.resize(960, 760)
+        dialog.setModal(True)
+        dialog.setAttribute(Qt.WA_StyledBackground, True)
+
+        name_text = employee.get("name") or "—"
+        dialog.setWindowTitle(f"تاریخچه مالی — {name_text}")
+
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("dialogHeader")
+        header.setAttribute(Qt.WA_StyledBackground, True)
+        h_layout = QVBoxLayout(header)
+        h_layout.setContentsMargins(28, 20, 28, 20)
+        h_layout.setSpacing(4)
+
+        h_name = QLabel(name_text)
+        h_name.setAlignment(Qt.AlignCenter)
+        h_name.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 20px; "
+            f"font-weight: 800; background: transparent;"
+        )
+
+        h_phone = QLabel(employee.get("phoneNumber") or "—")
+        h_phone.setAlignment(Qt.AlignCenter)
+        h_phone.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 12px; "
+            f"font-weight: 600; background: transparent;"
+        )
+
+        range_text = f"از {persian_date_short(start_date)} تا {persian_date_short(end_date)}"
+        h_range = QLabel(range_text)
+        h_range.setAlignment(Qt.AlignCenter)
+        h_range.setStyleSheet(
+            f"color: {c['accent']}; font-size: 12px; "
+            f"font-weight: 700; background: transparent;"
+        )
+
+        h_layout.addWidget(h_name)
+        h_layout.addWidget(h_phone)
+        h_layout.addWidget(h_range)
+        main_layout.addWidget(header)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        bar = RoundScrollBar(Qt.Vertical, scroll)
+        scroll.setVerticalScrollBar(bar)
+
+        content = QWidget()
+        content.setStyleSheet(f"background-color: {c['bg_main']};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 20, 20, 20)
+        content_layout.setSpacing(10)
+
+        try:
+            records = self.db.fetch_all(
+                """
+                SELECT paymentType, amount, paymentDate, description
+                FROM payments
+                WHERE memberId = %s
+                  AND DATE(paymentDate) BETWEEN %s AND %s
+                ORDER BY paymentDate DESC
+                """,
+                (employee["memberId"], start_date, end_date)
+            )
+        except Exception as e:
+            print("EMP FIN DETAIL ERROR:", e)
+            records = []
+
+        if not records:
+            empty = QLabel("رکوردی در این بازه یافت نشد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 13px; "
+                f"padding: 60px; background: transparent;"
+            )
+            content_layout.addWidget(empty)
+            content_layout.addStretch()
+        else:
+            total_amount = sum(float(r.get("amount") or 0) for r in records)
+
+            summary_box = QFrame()
+            summary_box.setObjectName("summaryStatBox")
+            summary_box.setAttribute(Qt.WA_StyledBackground, True)
+            sl = QHBoxLayout(summary_box)
+            sl.setContentsMargins(16, 14, 16, 14)
+            sl.setSpacing(12)
+
+            sl.addWidget(create_stat_box("تعداد پرداخت", str(len(records)), "blue", 140))
+            sl.addWidget(create_stat_box(
+                "جمع کل",
+                f"{format_money(total_amount)} تومان",
+                "green",
+                220
+            ))
+            content_layout.addWidget(summary_box)
+            content_layout.addSpacing(6)
+
+            type_map = {
+                "salary": tr("payment_salary"),
+                "job": tr("payment_job"),
+                "bonus": tr("payment_bonus"),
+                "advance": tr("payment_advance"),
+                "other": tr("payment_other"),
+            }
+
+            for r in records:
+                card = QFrame()
+                card.setObjectName("detailRow")
+                card.setAttribute(Qt.WA_StyledBackground, True)
+                card.setMinimumHeight(76)
+
+                rl = QHBoxLayout(card)
+                rl.setContentsMargins(16, 12, 16, 12)
+                rl.setSpacing(10)
+
+                pd = r.get("paymentDate")
+                if isinstance(pd, datetime):
+                    date_str = persian_date_long(pd)
+                    time_str = format_time_12h(pd)
+                elif isinstance(pd, date):
+                    date_str = persian_date_long(pd)
+                    time_str = ""
+                else:
+                    date_str = str(pd) if pd else "—"
+                    time_str = ""
+
+                date_lbl = QLabel(date_str)
+                date_lbl.setStyleSheet(
+                    f"color: {c['text_main']}; font-size: 12px; "
+                    f"font-weight: 700; background: transparent;"
+                )
+                date_lbl.setMinimumWidth(200)
+
+                time_lbl = QLabel(time_str if time_str else "—")
+                time_lbl.setStyleSheet(
+                    f"color: {c['text_dim']}; font-size: 11px; "
+                    f"background: transparent;"
+                )
+                time_lbl.setMinimumWidth(110)
+
+                type_text = type_map.get(r.get("paymentType"), "—")
+                type_lbl = QLabel(type_text)
+                type_lbl.setStyleSheet(
+                    f"color: {c['accent']}; font-size: 11px; "
+                    f"font-weight: 700; background: transparent;"
+                )
+                type_lbl.setMinimumWidth(90)
+
+                amount_lbl = QLabel(f"{format_money(r.get('amount') or 0)} تومان")
+                amount_lbl.setStyleSheet(
+                    f"color: {c['success']}; font-size: 13px; "
+                    f"font-weight: 800; background: transparent;"
+                )
+
+                rl.addWidget(date_lbl, 2)
+                rl.addWidget(time_lbl, 1)
+                rl.addWidget(type_lbl, 1)
+                rl.addStretch()
+                rl.addWidget(amount_lbl)
+
+                content_layout.addWidget(card)
+
+            content_layout.addStretch()
+
+        scroll.setWidget(content)
+        main_layout.addWidget(scroll, 1)
+
+        bottom = QFrame()
+        bottom.setObjectName("dialogBottom")
+        bottom.setAttribute(Qt.WA_StyledBackground, True)
+        bl2 = QHBoxLayout(bottom)
+        bl2.setContentsMargins(20, 12, 20, 12)
+
+        close_btn = QPushButton(tr("close"))
+        close_btn.setFixedHeight(44)
+        close_btn.setMinimumWidth(150)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+                border-radius: 22px;
+                font-size: 13px;
+                font-weight: 700;
+                padding: 0 28px;
+            }}
+            QPushButton:hover {{
+                background-color: {c['accent_hover']};
+            }}
+        """)
+        close_btn.clicked.connect(dialog.accept)
+
+        bl2.addStretch()
+        bl2.addWidget(close_btn)
+        bl2.addStretch()
+        main_layout.addWidget(bottom)
+
+        dialog.setStyleSheet(self.dialog_stylesheet())
+        dialog.exec()
+
+    # =====================================================
+    # BUILD EMPLOYEES REPORT
+    # =====================================================
+
+    def build_employees_report(self, layout):
+        c = theme_manager.colors()
+
+        try:
+            employees = self.db.fetch_all(
+                """
+                SELECT u.name, u.phoneNumber, cm.role,
+                       ep.jobTitle, ep.employmentType, ep.salaryType,
+                       ep.baseSalary, ep.workDays, ep.workHours,
+                       ep.workStartTime, ep.workEndTime
+                FROM complex_members cm
+                INNER JOIN users u ON u.userId = cm.userId
+                LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
+                WHERE cm.complexId = %s
+                  AND cm.role IN ('employee', 'both')
+                  AND cm.isActive = '1'
+                ORDER BY u.name ASC
+                """,
+                (self.complex_id,)
+            )
+        except Exception as e:
+            print("BUILD EMPLOYEES REPORT ERROR:", e)
+            employees = []
+
+        if not employees:
+            empty = QLabel("کارمندی یافت نشد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 13px; "
+                f"padding: 40px; background: transparent;"
+            )
+            layout.addWidget(empty)
+            return
+
+        for emp in employees:
+            card = QFrame()
+            card.setObjectName("detailRow")
+            card.setAttribute(Qt.WA_StyledBackground, True)
+            card.setMinimumHeight(110)
+
+            rl = QHBoxLayout(card)
+            rl.setContentsMargins(18, 14, 18, 14)
+            rl.setSpacing(16)
+
+            name_text = emp.get("name") or "—"
+            initial = name_text.strip()[0] if name_text.strip() else "?"
+
+            avatar = QLabel(initial)
+            avatar.setFixedSize(48, 48)
+            avatar.setAlignment(Qt.AlignCenter)
+            avatar.setStyleSheet(
+                f"background-color: {c['accent_light']}; "
+                f"color: {c['accent']}; "
+                f"border-radius: 24px; "
+                f"font-size: 18px; font-weight: 800;"
+            )
+
+            info_col = QVBoxLayout()
+            info_col.setSpacing(3)
+
+            name_lbl = QLabel(name_text)
+            name_lbl.setStyleSheet(
+                f"color: {c['text_main']}; font-size: 14px; "
+                f"font-weight: 700; background: transparent;"
+            )
+
+            phone_lbl = QLabel(emp.get("phoneNumber") or "—")
+            phone_lbl.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 11px; "
+                f"background: transparent;"
+            )
+
+            job_lbl = QLabel(emp.get("jobTitle") or "—")
+            job_lbl.setStyleSheet(
+                f"color: {c['accent']}; font-size: 11px; "
+                f"font-weight: 700; background: transparent;"
+            )
+
+            info_col.addWidget(name_lbl)
+            info_col.addWidget(phone_lbl)
+            info_col.addWidget(job_lbl)
+
+            stats_col = QHBoxLayout()
+            stats_col.setSpacing(10)
+
+            base = float(emp.get("baseSalary") or 0)
+            days = float(emp.get("workDays") or 26)
+            hours = float(emp.get("workHours") or 8)
+
+            stats_col.addWidget(create_stat_box(
+                "حقوق پایه", f"{format_money(base)}", "green", 140
+            ))
+            stats_col.addWidget(create_stat_box(
+                "روز کارکرد", f"{days:g} روز", "blue", 110
+            ))
+            stats_col.addWidget(create_stat_box(
+                "ساعت روزانه", f"{hours:g} ساعت", "blue", 110
+            ))
+
+            rl.addWidget(avatar)
+            rl.addLayout(info_col, 2)
+            rl.addLayout(stats_col, 5)
+
+            layout.addWidget(card)
+
+    # =====================================================
+    # BUILD TASKS REPORT
+    # =====================================================
+
+    def build_tasks_report(self, layout, start_date, end_date):
+        c = theme_manager.colors()
+
+        try:
+            stats = self.db.fetch_one(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN ej.status = 'pending' THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN ej.status = 'inProgress' THEN 1 ELSE 0 END) AS in_progress,
+                    SUM(CASE WHEN ej.status = 'completed' THEN 1 ELSE 0 END) AS completed,
+                    SUM(CASE WHEN ej.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+                    SUM(CASE WHEN ej.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                    COALESCE(SUM(CASE WHEN ej.status = 'completed' THEN ej.price ELSE 0 END), 0) AS total_paid
+                FROM employee_jobs ej
+                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                WHERE cm.complexId = %s
+                  AND DATE(ej.assignedDate) BETWEEN %s AND %s
+                """,
+                (self.complex_id, start_date, end_date)
+            )
+        except Exception as e:
+            print("TASKS STATS ERROR:", e)
+            stats = None
+
+        total = int(stats["total"] or 0) if stats else 0
+        pending = int(stats["pending"] or 0) if stats else 0
+        in_progress = int(stats["in_progress"] or 0) if stats else 0
+        completed = int(stats["completed"] or 0) if stats else 0
+        rejected = int(stats["rejected"] or 0) if stats else 0
+        cancelled = int(stats["cancelled"] or 0) if stats else 0
+        total_paid = float(stats["total_paid"] or 0) if stats else 0
+
+        summary_grid = QGridLayout()
+        summary_grid.setSpacing(10)
+
+        summary_grid.addWidget(
+            self._create_summary_stat("کل کارها", str(total), "summaryStatBox"),
+            0, 0
+        )
+        summary_grid.addWidget(
+            self._create_summary_stat("در انتظار", str(pending), "summaryStatBoxOrange"),
+            0, 1
+        )
+        summary_grid.addWidget(
+            self._create_summary_stat("در حال انجام", str(in_progress), "summaryStatBoxOrange"),
+            0, 2
+        )
+        summary_grid.addWidget(
+            self._create_summary_stat("تکمیل شده", str(completed), "summaryStatBoxGreen"),
+            0, 3
+        )
+        summary_grid.addWidget(
+            self._create_summary_stat("رد شده", str(rejected), "summaryStatBoxRed"),
+            1, 0
+        )
+        summary_grid.addWidget(
+            self._create_summary_stat("لغو شده", str(cancelled), "summaryStatBox"),
+            1, 1
+        )
+        summary_grid.addWidget(
+            self._create_summary_stat(
+                "جمع پرداخت‌شده",
+                f"{format_money(total_paid)} ت",
+                "summaryStatBoxGreen"
+            ),
+            1, 2, 1, 2
+        )
+
+        layout.addLayout(summary_grid)
+        layout.addSpacing(10)
+
+        section = QLabel("عملکرد کارمندان")
+        section.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 13px; "
+            f"font-weight: 700; background: transparent; padding: 4px;"
+        )
+        layout.addWidget(section)
+
+        try:
+            per_emp = self.db.fetch_all(
+                """
+                SELECT u.name,
+                       COUNT(ej.employeeJobId) AS total,
+                       SUM(CASE WHEN ej.status = 'completed' THEN 1 ELSE 0 END) AS done,
+                       SUM(CASE WHEN ej.status = 'inProgress' THEN 1 ELSE 0 END) AS in_prog,
+                       COALESCE(SUM(CASE WHEN ej.status = 'completed' THEN ej.price ELSE 0 END), 0) AS earned
+                FROM employee_jobs ej
+                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s
+                  AND DATE(ej.assignedDate) BETWEEN %s AND %s
+                GROUP BY u.userId, u.name
+                ORDER BY done DESC, u.name ASC
+                """,
+                (self.complex_id, start_date, end_date)
+            )
+        except Exception as e:
+            print("PER EMP TASKS ERROR:", e)
+            per_emp = []
+
+        if per_emp:
+            for emp in per_emp:
+                card = QFrame()
+                card.setObjectName("detailRow")
+                card.setAttribute(Qt.WA_StyledBackground, True)
+                card.setMinimumHeight(84)
+
+                rl = QHBoxLayout(card)
+                rl.setContentsMargins(18, 12, 18, 12)
+                rl.setSpacing(14)
+
+                name_text = emp.get("name") or "—"
+                initial = name_text.strip()[0] if name_text.strip() else "?"
+
+                avatar = QLabel(initial)
+                avatar.setFixedSize(44, 44)
+                avatar.setAlignment(Qt.AlignCenter)
+                avatar.setStyleSheet(
+                    f"background-color: {c['accent_light']}; "
+                    f"color: {c['accent']}; "
+                    f"border-radius: 22px; "
+                    f"font-size: 16px; font-weight: 800;"
+                )
+
+                name_lbl = QLabel(name_text)
+                name_lbl.setStyleSheet(
+                    f"color: {c['text_main']}; font-size: 13px; "
+                    f"font-weight: 700; background: transparent;"
+                )
+                name_lbl.setMinimumWidth(160)
+
+                tot = int(emp.get("total") or 0)
+                done = int(emp.get("done") or 0)
+                in_prog = int(emp.get("in_prog") or 0)
+                earned = float(emp.get("earned") or 0)
+
+                stats_col = QHBoxLayout()
+                stats_col.setSpacing(10)
+
+                stats_col.addWidget(create_stat_box("کل", str(tot), "blue", 90))
+                stats_col.addWidget(create_stat_box("تکمیل", str(done), "green", 90))
+                stats_col.addWidget(create_stat_box("در حال انجام", str(in_prog), "orange", 100))
+                stats_col.addWidget(create_stat_box("درآمد", f"{format_money(earned)}", "green", 150))
+
+                rl.addWidget(avatar)
+                rl.addWidget(name_lbl, 2)
+                rl.addLayout(stats_col, 6)
+
+                layout.addWidget(card)
+
+        layout.addSpacing(10)
+
+        detail_section = QLabel("جزئیات کارها (با تاریخ)")
+        detail_section.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 13px; "
+            f"font-weight: 700; background: transparent; padding: 4px;"
+        )
+        layout.addWidget(detail_section)
+
+        try:
+            tasks = self.db.fetch_all(
+                """
+                SELECT u.name, j.jobTitle, ej.status, ej.price,
+                       ej.assignedDate, ej.completedDate, ej.description
+                FROM employee_jobs ej
+                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                LEFT JOIN jobs j ON j.jobId = ej.jobId
+                WHERE cm.complexId = %s
+                  AND DATE(ej.assignedDate) BETWEEN %s AND %s
+                ORDER BY ej.assignedDate DESC
+                LIMIT 200
+                """,
+                (self.complex_id, start_date, end_date)
+            )
+        except Exception as e:
+            print("TASKS DETAIL ERROR:", e)
+            tasks = []
+
+        if not tasks:
+            empty = QLabel("کاری یافت نشد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 12px; "
+                f"padding: 30px; background: transparent;"
+            )
+            layout.addWidget(empty)
+            return
+
+        status_map = {
+            "pending": ("در انتظار", "statusBadgeOrange", "#B87900"),
+            "inProgress": ("در حال انجام", "statusBadgeOrange", "#B87900"),
+            "completed": ("تکمیل", "statusBadgeGreen", c['success']),
+            "rejected": ("رد شده", "statusBadgeRed", "#D93025"),
+            "cancelled": ("لغو شده", "statusBadgeRed", "#D93025"),
+        }
+
+        for t in tasks:
+            card = QFrame()
+            card.setObjectName("detailRow")
+            card.setAttribute(Qt.WA_StyledBackground, True)
+            card.setMinimumHeight(72)
+
+            rl = QHBoxLayout(card)
+            rl.setContentsMargins(16, 12, 16, 12)
+            rl.setSpacing(10)
+
+            ad = t.get("assignedDate")
+            if isinstance(ad, datetime):
+                date_str = persian_date_long(ad)
+                time_str = format_time_12h(ad)
+            elif isinstance(ad, date):
+                date_str = persian_date_long(ad)
+                time_str = ""
+            else:
+                date_str = str(ad) if ad else "—"
+                time_str = ""
+
+            date_lbl = QLabel(date_str)
+            date_lbl.setStyleSheet(
+                f"color: {c['text_main']}; font-size: 12px; "
+                f"font-weight: 700; background: transparent;"
+            )
+            date_lbl.setMinimumWidth(180)
+
+            time_lbl = QLabel(time_str if time_str else "—")
+            time_lbl.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 11px; "
+                f"background: transparent;"
+            )
+            time_lbl.setMinimumWidth(110)
+
+            name_lbl = QLabel(t.get("name") or "—")
+            name_lbl.setStyleSheet(
+                f"color: {c['accent']}; font-size: 12px; "
+                f"font-weight: 700; background: transparent;"
+            )
+            name_lbl.setMinimumWidth(140)
+
+            title_lbl = QLabel(t.get("jobTitle") or "—")
+            title_lbl.setStyleSheet(
+                f"color: {c['text_main']}; font-size: 12px; "
+                f"background: transparent;"
+            )
+
+            price_lbl = QLabel(f"{format_money(t.get('price') or 0)} ت")
+            price_lbl.setStyleSheet(
+                f"color: {c['success']}; font-size: 12px; "
+                f"font-weight: 700; background: transparent;"
+            )
+
+            status_key = t.get("status") or "pending"
+            st_text, st_badge, st_color = status_map.get(
+                status_key, ("—", "statusBadgeOrange", "#B87900")
+            )
+
+            badge = QFrame()
+            badge.setObjectName(st_badge)
+            badge.setAttribute(Qt.WA_StyledBackground, True)
+            badge.setFixedSize(90, 26)
+            bl = QHBoxLayout(badge)
+            bl.setContentsMargins(0, 0, 0, 0)
+            bl.setAlignment(Qt.AlignCenter)
+            blbl = QLabel(st_text)
+            blbl.setStyleSheet(
+                f"color: {st_color}; font-size: 10px; "
+                f"font-weight: 700; background: transparent;"
+            )
+            bl.addWidget(blbl)
+
+            rl.addWidget(date_lbl, 2)
+            rl.addWidget(time_lbl, 1)
+            rl.addWidget(name_lbl, 1)
+            rl.addWidget(title_lbl, 3)
+            rl.addStretch()
+            rl.addWidget(price_lbl)
+            rl.addWidget(badge)
+
+            layout.addWidget(card)
+
+    def _create_summary_stat(self, title, value, object_name):
+        c = theme_manager.colors()
+
+        card = QFrame()
+        card.setObjectName(object_name)
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setMinimumHeight(76)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(4)
+        layout.setAlignment(Qt.AlignCenter)
+
+        t = QLabel(title)
+        t.setAlignment(Qt.AlignCenter)
+        t.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 11px; "
+            f"font-weight: 600; background: transparent;"
+        )
+
+        v = QLabel(value)
+        v.setAlignment(Qt.AlignCenter)
+        v.setStyleSheet(
+            f"color: {c['accent']}; font-size: 18px; "
+            f"font-weight: 800; background: transparent;"
+        )
+
+        layout.addWidget(t)
+        layout.addWidget(v)
+        return card
