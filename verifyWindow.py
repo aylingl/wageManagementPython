@@ -306,6 +306,9 @@ class VerifyWindow(QWidget):
             self.update_timer
         )
 
+        # ═══ focus خودکار روی اولین خانه OTP ═══
+        QTimer.singleShot(100, self.otp_boxes[0].setFocus)
+
         # =========================
         # Style
         # =========================
@@ -414,6 +417,15 @@ class VerifyWindow(QWidget):
             }
 
         """)
+
+    # =====================================
+    # focus خودکار روی اولین خانه OTP
+    # =====================================
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # هر بار که پنجره نمایش داده شد، focus روی اولین خانه OTP
+        QTimer.singleShot(50, lambda: self.otp_boxes[0].setFocus())
 
     # =====================================
     # رفتن به خانه بعدی

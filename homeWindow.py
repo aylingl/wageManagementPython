@@ -915,8 +915,7 @@ class HomeWindow(QWidget):
                 border: none;
             }}
 
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {{
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
                 background: transparent;
                 border: none;
             }}
@@ -1167,12 +1166,15 @@ class HomeWindow(QWidget):
             self.create_service_card("💰", tr("finance"), self.open_finance)
         )
 
+        # ═══ کارتابل برای همه (مالک و کارمند) ═══
+        self.scroll_layout.addWidget(
+            self.create_service_card("📥", tr("cartable"), self.open_cartable)
+        )
+
+        # ═══ کارمندان فقط برای مالک ═══
         if self.current_role_key in ("owner_role", "both_role"):
             self.scroll_layout.addWidget(
                 self.create_service_card("👥", tr("employees"), self.open_employees)
-            )
-            self.scroll_layout.addWidget(
-                self.create_service_card("📥", tr("cartable"), self.open_cartable)
             )
 
         self.scroll_layout.addWidget(
@@ -1326,7 +1328,6 @@ class HomeWindow(QWidget):
         complex_id = self.get_current_complex_id()
         self.reports_window = ReportsWindow(self, phone_number=self.phone_number,
                                             complex_id=complex_id)
-        self.reports_window = ReportsWindow(self, self.phone_number)
         self.reports_window.resize(self.size())
         self.reports_window.move(self.pos())
         self.reports_window.show()
@@ -1354,9 +1355,11 @@ class HomeWindow(QWidget):
         self.close_group_menu()
         from cartableWindow import CartableWindow
         complex_id = self.get_current_complex_id()
-        self.cartable_window = CartableWindow(self, phone_number=self.phone_number,
-                                              complex_id=complex_id)
-        self.cartable_window = CartableWindow(self)
+        self.cartable_window = CartableWindow(
+            self,
+            phone_number=self.phone_number,
+            complex_id=complex_id
+        )
         self.cartable_window.resize(self.size())
         self.cartable_window.move(self.pos())
         self.cartable_window.show()

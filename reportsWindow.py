@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QFrame, QScrollArea, QScrollBar, QDialog, QGridLayout,
     QComboBox, QListWidget, QListWidgetItem, QGraphicsDropShadowEffect,
-    QApplication
+    QApplication, QBoxLayout
 )
 
 from PySide6.QtCore import (
@@ -749,7 +749,6 @@ class ReportsWindow(QWidget):
         self.db = Database()
         self.user_id = None
 
-        # پیش‌فرض: ۳ ماه اخیر
         self.date_range = "last_3_months"
 
         self.summary = {
@@ -808,10 +807,6 @@ class ReportsWindow(QWidget):
                 self.user_id = user["userId"]
         except Exception as e:
             print("REPORTS LOAD USER ID ERROR:", e)
-
-    # =====================================================
-    # DATE RANGE (فقط preset)
-    # =====================================================
 
     def _compute_preset_range(self):
         today = date.today()
@@ -873,12 +868,17 @@ class ReportsWindow(QWidget):
 
         title_layout = QVBoxLayout()
         title_layout.setSpacing(2)
+        title_layout.setAlignment(Qt.AlignRight)
 
         title = QLabel(tr("reports_title"))
         title.setObjectName("reportsTitle")
+        title.setLayoutDirection(Qt.RightToLeft)
+        title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         subtitle = QLabel(tr("reports_subtitle"))
         subtitle.setObjectName("reportsSubtitle")
+        subtitle.setLayoutDirection(Qt.RightToLeft)
+        subtitle.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
@@ -888,7 +888,7 @@ class ReportsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # FILTER BOX (فقط preset)
+        # FILTER BOX
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
         filter_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -897,20 +897,28 @@ class ReportsWindow(QWidget):
         filter_layout.setContentsMargins(16, 14, 16, 14)
         filter_layout.setSpacing(10)
 
-        filter_title = QLabel("📅  انتخاب بازه زمانی")
+        filter_title = QLabel("انتخاب بازه زمانی")
         filter_title.setObjectName("filterLabel")
-        filter_title.setAlignment(Qt.AlignRight)
+        filter_title.setLayoutDirection(Qt.RightToLeft)
+        filter_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         filter_layout.addWidget(filter_title)
 
-        preset_row = QHBoxLayout()
-        preset_row.setSpacing(8)
+        # Rounded container for presets
+        presets_container = QFrame()
+        presets_container.setObjectName("presetsContainer")
+        presets_container.setAttribute(Qt.WA_StyledBackground, True)
+
+        presets_row = QHBoxLayout(presets_container)
+        presets_row.setContentsMargins(8, 8, 8, 8)
+        presets_row.setSpacing(6)
+        presets_row.setDirection(QBoxLayout.RightToLeft)
 
         presets = [
-            ("امروز", "today"),
-            ("این هفته", "this_week"),
-            ("این ماه", "this_month"),
-            ("۳ ماه اخیر", "last_3_months"),
             ("۱ سال اخیر", "last_year"),
+            ("۳ ماه اخیر", "last_3_months"),
+            ("این ماه", "this_month"),
+            ("این هفته", "this_week"),
+            ("امروز", "today"),
         ]
 
         self.preset_buttons = []
@@ -919,14 +927,16 @@ class ReportsWindow(QWidget):
             btn.setObjectName("presetBtn")
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(38)
+            btn.setMinimumWidth(90)
             btn.clicked.connect(
                 lambda checked=False, k=key: self.on_preset_selected(k)
             )
-            preset_row.addWidget(btn)
+            presets_row.addWidget(btn)
             self.preset_buttons.append((key, btn))
 
-        preset_row.addStretch()
-        filter_layout.addLayout(preset_row)
+        presets_row.addStretch()
+
+        filter_layout.addWidget(presets_container)
 
         main_layout.addWidget(filter_box)
 
@@ -950,6 +960,8 @@ class ReportsWindow(QWidget):
 
         summary_title = QLabel(tr("report_summary"))
         summary_title.setObjectName("sectionTitle")
+        summary_title.setLayoutDirection(Qt.RightToLeft)
+        summary_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         content_layout.addWidget(summary_title)
 
         summary_grid = QGridLayout()
@@ -976,6 +988,8 @@ class ReportsWindow(QWidget):
 
         available_title = QLabel(tr("available_reports"))
         available_title.setObjectName("sectionTitle")
+        available_title.setLayoutDirection(Qt.RightToLeft)
+        available_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         content_layout.addWidget(available_title)
 
         reports_grid = QGridLayout()
@@ -1025,7 +1039,7 @@ class ReportsWindow(QWidget):
                         color: white;
                         border: none;
                         border-radius: 19px;
-                        padding: 0 20px;
+                        padding: 0 18px;
                         font-size: 12px;
                         font-weight: 700;
                     }}
@@ -1033,18 +1047,17 @@ class ReportsWindow(QWidget):
             else:
                 btn.setStyleSheet(f"""
                     QPushButton {{
-                        background-color: {c['bg_input']};
+                        background-color: transparent;
                         color: {c['text_dim']};
-                        border: 1px solid {c['border']};
+                        border: none;
                         border-radius: 19px;
-                        padding: 0 20px;
+                        padding: 0 18px;
                         font-size: 12px;
                         font-weight: 600;
                     }}
                     QPushButton:hover {{
                         background-color: {c['accent_light']};
                         color: {c['accent']};
-                        border: 1px solid {c['accent']};
                     }}
                 """)
 
@@ -1073,9 +1086,13 @@ class ReportsWindow(QWidget):
 
         title_label = QLabel(title)
         title_label.setObjectName("statTitle")
+        title_label.setLayoutDirection(Qt.RightToLeft)
+        title_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         value_label = QLabel(value)
         value_label.setObjectName("statValue")
+        value_label.setLayoutDirection(Qt.RightToLeft)
+        value_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         text_layout.addWidget(title_label)
         text_layout.addWidget(value_label)
@@ -1107,6 +1124,8 @@ class ReportsWindow(QWidget):
 
         title_label = QLabel(title)
         title_label.setObjectName("reportTitle")
+        title_label.setLayoutDirection(Qt.RightToLeft)
+        title_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         top_layout.addWidget(icon_label)
         top_layout.addWidget(title_label)
@@ -1115,6 +1134,8 @@ class ReportsWindow(QWidget):
         desc_label = QLabel(description)
         desc_label.setObjectName("reportDesc")
         desc_label.setWordWrap(True)
+        desc_label.setLayoutDirection(Qt.RightToLeft)
+        desc_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         btn = QPushButton(tr("view_report"))
         btn.setObjectName("reportBtn")
@@ -1126,7 +1147,11 @@ class ReportsWindow(QWidget):
         layout.addLayout(top_layout)
         layout.addWidget(desc_label)
         layout.addStretch()
-        layout.addWidget(btn, alignment=Qt.AlignLeft)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
 
         grid.addWidget(card, row, col)
 
@@ -1181,6 +1206,12 @@ class ReportsWindow(QWidget):
             font-weight: 800;
             background: transparent;
             border: none;
+        }}
+
+        QFrame#presetsContainer {{
+            background-color: {c['bg_input']};
+            border: 1px solid {c['border']};
+            border-radius: 24px;
         }}
 
         QScrollArea {{
@@ -1495,7 +1526,7 @@ class ReportsWindow(QWidget):
         """
 
     # =====================================================
-    # OPEN REPORT (با Date Picker برای همه)
+    # OPEN REPORT
     # =====================================================
 
     def open_report(self, report_type):
@@ -1507,10 +1538,10 @@ class ReportsWindow(QWidget):
 
         dialog = QDialog(self)
         dialog.setLayoutDirection(Qt.RightToLeft)
-        dialog.setMinimumSize(800, 720)
-        dialog.resize(940, 800)
         dialog.setModal(True)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
+        dialog.resize(self.size())
+        dialog.move(self.pos())
 
         title_map = {
             "attendance": tr("report_attendance"),
@@ -1525,7 +1556,7 @@ class ReportsWindow(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # ═══ Header ═══
+        # Header
         header = QFrame()
         header.setObjectName("dialogHeader")
         header.setAttribute(Qt.WA_StyledBackground, True)
@@ -1543,7 +1574,7 @@ class ReportsWindow(QWidget):
         h_layout.addWidget(h_title)
         main_layout.addWidget(header)
 
-        # ═══ Date Picker Box (برای همه گزارش‌ها) ═══
+        # Date picker box
         date_box = QFrame()
         date_box.setObjectName("datePickerBox")
         date_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -1551,8 +1582,9 @@ class ReportsWindow(QWidget):
         db_layout.setContentsMargins(20, 14, 20, 14)
         db_layout.setSpacing(10)
 
-        db_title = QLabel("📅  انتخاب بازه زمانی")
-        db_title.setAlignment(Qt.AlignRight)
+        db_title = QLabel("انتخاب بازه زمانی")
+        db_title.setLayoutDirection(Qt.RightToLeft)
+        db_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         db_title.setStyleSheet(
             f"color: {c['text_main']}; font-size: 13px; "
             f"font-weight: 800; background: transparent;"
@@ -1562,11 +1594,12 @@ class ReportsWindow(QWidget):
         picker_row = QHBoxLayout()
         picker_row.setSpacing(12)
 
-        # از
         start_col = QVBoxLayout()
         start_col.setSpacing(4)
         start_lbl = QLabel("از تاریخ")
         start_lbl.setObjectName("dateFieldLabel")
+        start_lbl.setLayoutDirection(Qt.RightToLeft)
+        start_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         start_picker = PersianDateButton(
             initial_qdate=QDate(initial_start.year, initial_start.month, initial_start.day)
         )
@@ -1574,11 +1607,12 @@ class ReportsWindow(QWidget):
         start_col.addWidget(start_picker)
         picker_row.addLayout(start_col, 2)
 
-        # تا
         end_col = QVBoxLayout()
         end_col.setSpacing(4)
         end_lbl = QLabel("تا تاریخ")
         end_lbl.setObjectName("dateFieldLabel")
+        end_lbl.setLayoutDirection(Qt.RightToLeft)
+        end_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         end_picker = PersianDateButton(
             initial_qdate=QDate(initial_end.year, initial_end.month, initial_end.day)
         )
@@ -1586,7 +1620,6 @@ class ReportsWindow(QWidget):
         end_col.addWidget(end_picker)
         picker_row.addLayout(end_col, 2)
 
-        # اعمال
         apply_btn = QPushButton("اعمال")
         apply_btn.setObjectName("applyDatesBtn")
         apply_btn.setCursor(Qt.PointingHandCursor)
@@ -1595,7 +1628,6 @@ class ReportsWindow(QWidget):
 
         db_layout.addLayout(picker_row)
 
-        # فاصله
         wrap = QWidget()
         wrap.setStyleSheet("background: transparent;")
         wrap_layout = QVBoxLayout(wrap)
@@ -1604,7 +1636,7 @@ class ReportsWindow(QWidget):
         wrap_layout.addWidget(date_box)
         main_layout.addWidget(wrap)
 
-        # ═══ Scroll ═══
+        # Scroll
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -1622,7 +1654,6 @@ class ReportsWindow(QWidget):
 
         main_layout.addWidget(scroll, 1)
 
-        # ═══ refresh function ═══
         def refresh_content():
             while content_layout.count():
                 item = content_layout.takeAt(0)
@@ -1632,16 +1663,6 @@ class ReportsWindow(QWidget):
 
             sd = start_picker.to_python_date()
             ed = end_picker.to_python_date()
-
-            # محدوده نمایش داده بشه
-            range_lbl = QLabel(f"از {persian_date_short(sd)} تا {persian_date_short(ed)}")
-            range_lbl.setAlignment(Qt.AlignCenter)
-            range_lbl.setStyleSheet(
-                f"color: {c['accent']}; font-size: 12px; "
-                f"font-weight: 700; background: transparent; padding: 4px;"
-            )
-            content_layout.addWidget(range_lbl)
-            content_layout.addSpacing(4)
 
             if report_type == "attendance":
                 self.build_attendance_report(content_layout, sd, ed)
@@ -1655,12 +1676,10 @@ class ReportsWindow(QWidget):
             content_layout.addStretch()
 
         apply_btn.clicked.connect(refresh_content)
-
-        # initial build
         refresh_content()
         scroll.setWidget(content)
 
-        # ═══ Bottom ═══
+        # Bottom
         bottom = QFrame()
         bottom.setObjectName("dialogBottom")
         bottom.setAttribute(Qt.WA_StyledBackground, True)
@@ -1729,8 +1748,9 @@ class ReportsWindow(QWidget):
             layout.addWidget(empty)
             return
 
-        hint = QLabel("💡 برای دیدن تاریخچه کامل هر کارمند، روی کارت او کلیک کنید.")
-        hint.setAlignment(Qt.AlignRight)
+        hint = QLabel("برای دیدن تاریخچه کامل هر کارمند، روی کارت او کلیک کنید.")
+        hint.setLayoutDirection(Qt.RightToLeft)
+        hint.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         hint.setStyleSheet(
             f"color: {c['text_dim']}; font-size: 11px; "
             f"padding: 4px 4px; background: transparent;"
@@ -1792,20 +1812,36 @@ class ReportsWindow(QWidget):
             info_col = QVBoxLayout()
             info_col.setSpacing(3)
 
+            name_row = QHBoxLayout()
+            name_row.setContentsMargins(0, 0, 0, 0)
+            name_row.setSpacing(0)
+
             name_lbl = QLabel(name_text)
             name_lbl.setStyleSheet(
                 f"color: {c['text_main']}; font-size: 14px; "
                 f"font-weight: 700; background: transparent;"
             )
+            name_lbl.setLayoutDirection(Qt.RightToLeft)
+            name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            name_row.addWidget(name_lbl)
+            name_row.addStretch()
+
+            phone_row = QHBoxLayout()
+            phone_row.setContentsMargins(0, 0, 0, 0)
+            phone_row.setSpacing(0)
 
             phone_lbl = QLabel(emp.get("phoneNumber") or "—")
             phone_lbl.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 11px; "
                 f"background: transparent;"
             )
+            phone_lbl.setLayoutDirection(Qt.RightToLeft)
+            phone_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            phone_row.addWidget(phone_lbl)
+            phone_row.addStretch()
 
-            info_col.addWidget(name_lbl)
-            info_col.addWidget(phone_lbl)
+            info_col.addLayout(name_row)
+            info_col.addLayout(phone_row)
 
             stats_col = QHBoxLayout()
             stats_col.setSpacing(10)
@@ -1814,7 +1850,10 @@ class ReportsWindow(QWidget):
                 "روز حاضر", str(present_days), "green", 90
             ))
             stats_col.addWidget(create_stat_box(
-                "روز غایب", str(absent_days), "red" if absent_days > 0 else "blue", 90
+                "روز غایب",
+                str(absent_days) if absent_days > 0 else "غیبت ندارد",
+                "red" if absent_days > 0 else "blue",
+                100
             ))
             stats_col.addWidget(create_stat_box(
                 "ساعت کار", f"{h}س {m}د", "blue", 110
@@ -1847,10 +1886,10 @@ class ReportsWindow(QWidget):
 
         dialog = QDialog(self)
         dialog.setLayoutDirection(Qt.RightToLeft)
-        dialog.setMinimumSize(820, 700)
-        dialog.resize(960, 760)
         dialog.setModal(True)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
+        dialog.resize(self.size())
+        dialog.move(self.pos())
 
         name_text = employee.get("name") or "—"
         dialog.setWindowTitle(f"تاریخچه حضور — {name_text}")
@@ -1880,17 +1919,8 @@ class ReportsWindow(QWidget):
             f"font-weight: 600; background: transparent;"
         )
 
-        range_text = f"از {persian_date_short(start_date)} تا {persian_date_short(end_date)}"
-        h_range = QLabel(range_text)
-        h_range.setAlignment(Qt.AlignCenter)
-        h_range.setStyleSheet(
-            f"color: {c['accent']}; font-size: 12px; "
-            f"font-weight: 700; background: transparent;"
-        )
-
         h_layout.addWidget(h_name)
         h_layout.addWidget(h_phone)
-        h_layout.addWidget(h_range)
         main_layout.addWidget(header)
 
         scroll = QScrollArea()
@@ -1960,7 +1990,12 @@ class ReportsWindow(QWidget):
             sl.setSpacing(12)
 
             sl.addWidget(create_stat_box("روز حاضر", str(present_count), "green", 110))
-            sl.addWidget(create_stat_box("روز غایب", str(absent_count), "red" if absent_count > 0 else "blue", 110))
+            sl.addWidget(create_stat_box(
+                "روز غایب",
+                str(absent_count) if absent_count > 0 else "غیبت ندارد",
+                "red" if absent_count > 0 else "blue",
+                110
+            ))
             sl.addWidget(create_stat_box("کل ساعت کار", f"{h}س {m}د", "blue", 140))
             sl.addWidget(create_stat_box("کل اضافه کاری", f"{ot_h}س {ot_m}د", "orange" if total_ot > 0 else "blue", 140))
 
@@ -1990,34 +2025,36 @@ class ReportsWindow(QWidget):
                     f"color: {c['text_main']}; font-size: 12px; "
                     f"font-weight: 700; background: transparent;"
                 )
+                date_lbl.setLayoutDirection(Qt.RightToLeft)
+                date_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 date_lbl.setMinimumWidth(200)
 
                 if is_absent:
-                    in_lbl = QLabel("—")
+                    in_lbl = QLabel("غیبت")
                     in_lbl.setStyleSheet(
-                        f"color: {c['text_dim']}; font-size: 11px; "
-                        f"background: transparent;"
+                        f"color: #D93025; font-size: 11px; "
+                        f"font-weight: 700; background: transparent;"
                     )
                     in_lbl.setMinimumWidth(140)
 
-                    out_lbl = QLabel("—")
+                    out_lbl = QLabel("غیبت")
                     out_lbl.setStyleSheet(
-                        f"color: {c['text_dim']}; font-size: 11px; "
-                        f"background: transparent;"
+                        f"color: #D93025; font-size: 11px; "
+                        f"font-weight: 700; background: transparent;"
                     )
                     out_lbl.setMinimumWidth(140)
 
-                    hours_lbl = QLabel("—")
+                    hours_lbl = QLabel("غیبت")
                     hours_lbl.setStyleSheet(
-                        f"color: {c['text_dim']}; font-size: 12px; "
-                        f"background: transparent;"
+                        f"color: #D93025; font-size: 12px; "
+                        f"font-weight: 700; background: transparent;"
                     )
                     hours_lbl.setMinimumWidth(70)
 
-                    ot_lbl = QLabel("—")
+                    ot_lbl = QLabel("غیبت")
                     ot_lbl.setStyleSheet(
-                        f"color: {c['text_dim']}; font-size: 11px; "
-                        f"background: transparent;"
+                        f"color: #D93025; font-size: 11px; "
+                        f"font-weight: 700; background: transparent;"
                     )
 
                     rl.addWidget(date_lbl, 2)
@@ -2180,8 +2217,9 @@ class ReportsWindow(QWidget):
             layout.addWidget(empty)
             return
 
-        hint = QLabel("💡 برای دیدن تاریخچه مالی کامل هر کارمند، روی کارت او کلیک کنید.")
-        hint.setAlignment(Qt.AlignRight)
+        hint = QLabel("برای دیدن تاریخچه مالی کامل هر کارمند، روی کارت او کلیک کنید.")
+        hint.setLayoutDirection(Qt.RightToLeft)
+        hint.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         hint.setStyleSheet(
             f"color: {c['text_dim']}; font-size: 11px; "
             f"padding: 4px 4px; background: transparent;"
@@ -2233,20 +2271,36 @@ class ReportsWindow(QWidget):
             info_col = QVBoxLayout()
             info_col.setSpacing(3)
 
+            name_row = QHBoxLayout()
+            name_row.setContentsMargins(0, 0, 0, 0)
+            name_row.setSpacing(0)
+
             name_lbl = QLabel(name_text)
             name_lbl.setStyleSheet(
                 f"color: {c['text_main']}; font-size: 14px; "
                 f"font-weight: 700; background: transparent;"
             )
+            name_lbl.setLayoutDirection(Qt.RightToLeft)
+            name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            name_row.addWidget(name_lbl)
+            name_row.addStretch()
+
+            phone_row = QHBoxLayout()
+            phone_row.setContentsMargins(0, 0, 0, 0)
+            phone_row.setSpacing(0)
 
             phone_lbl = QLabel(emp.get("phoneNumber") or "—")
             phone_lbl.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 11px; "
                 f"background: transparent;"
             )
+            phone_lbl.setLayoutDirection(Qt.RightToLeft)
+            phone_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            phone_row.addWidget(phone_lbl)
+            phone_row.addStretch()
 
-            info_col.addWidget(name_lbl)
-            info_col.addWidget(phone_lbl)
+            info_col.addLayout(name_row)
+            info_col.addLayout(phone_row)
 
             stats_col = QHBoxLayout()
             stats_col.setSpacing(10)
@@ -2280,10 +2334,10 @@ class ReportsWindow(QWidget):
 
         dialog = QDialog(self)
         dialog.setLayoutDirection(Qt.RightToLeft)
-        dialog.setMinimumSize(820, 700)
-        dialog.resize(960, 760)
         dialog.setModal(True)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
+        dialog.resize(self.size())
+        dialog.move(self.pos())
 
         name_text = employee.get("name") or "—"
         dialog.setWindowTitle(f"تاریخچه مالی — {name_text}")
@@ -2313,17 +2367,8 @@ class ReportsWindow(QWidget):
             f"font-weight: 600; background: transparent;"
         )
 
-        range_text = f"از {persian_date_short(start_date)} تا {persian_date_short(end_date)}"
-        h_range = QLabel(range_text)
-        h_range.setAlignment(Qt.AlignCenter)
-        h_range.setStyleSheet(
-            f"color: {c['accent']}; font-size: 12px; "
-            f"font-weight: 700; background: transparent;"
-        )
-
         h_layout.addWidget(h_name)
         h_layout.addWidget(h_phone)
-        h_layout.addWidget(h_range)
         main_layout.addWidget(header)
 
         scroll = QScrollArea()
@@ -2419,6 +2464,8 @@ class ReportsWindow(QWidget):
                     f"color: {c['text_main']}; font-size: 12px; "
                     f"font-weight: 700; background: transparent;"
                 )
+                date_lbl.setLayoutDirection(Qt.RightToLeft)
+                date_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 date_lbl.setMinimumWidth(200)
 
                 time_lbl = QLabel(time_str if time_str else "—")
@@ -2553,27 +2600,51 @@ class ReportsWindow(QWidget):
             info_col = QVBoxLayout()
             info_col.setSpacing(3)
 
+            name_row = QHBoxLayout()
+            name_row.setContentsMargins(0, 0, 0, 0)
+            name_row.setSpacing(0)
+
             name_lbl = QLabel(name_text)
             name_lbl.setStyleSheet(
                 f"color: {c['text_main']}; font-size: 14px; "
                 f"font-weight: 700; background: transparent;"
             )
+            name_lbl.setLayoutDirection(Qt.RightToLeft)
+            name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            name_row.addWidget(name_lbl)
+            name_row.addStretch()
+
+            phone_row = QHBoxLayout()
+            phone_row.setContentsMargins(0, 0, 0, 0)
+            phone_row.setSpacing(0)
 
             phone_lbl = QLabel(emp.get("phoneNumber") or "—")
             phone_lbl.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 11px; "
                 f"background: transparent;"
             )
+            phone_lbl.setLayoutDirection(Qt.RightToLeft)
+            phone_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            phone_row.addWidget(phone_lbl)
+            phone_row.addStretch()
+
+            job_row = QHBoxLayout()
+            job_row.setContentsMargins(0, 0, 0, 0)
+            job_row.setSpacing(0)
 
             job_lbl = QLabel(emp.get("jobTitle") or "—")
             job_lbl.setStyleSheet(
                 f"color: {c['accent']}; font-size: 11px; "
                 f"font-weight: 700; background: transparent;"
             )
+            job_lbl.setLayoutDirection(Qt.RightToLeft)
+            job_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            job_row.addWidget(job_lbl)
+            job_row.addStretch()
 
-            info_col.addWidget(name_lbl)
-            info_col.addWidget(phone_lbl)
-            info_col.addWidget(job_lbl)
+            info_col.addLayout(name_row)
+            info_col.addLayout(phone_row)
+            info_col.addLayout(job_row)
 
             stats_col = QHBoxLayout()
             stats_col.setSpacing(10)
@@ -2675,6 +2746,8 @@ class ReportsWindow(QWidget):
         layout.addSpacing(10)
 
         section = QLabel("عملکرد کارمندان")
+        section.setLayoutDirection(Qt.RightToLeft)
+        section.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         section.setStyleSheet(
             f"color: {c['text_main']}; font-size: 13px; "
             f"font-weight: 700; background: transparent; padding: 4px;"
@@ -2732,6 +2805,8 @@ class ReportsWindow(QWidget):
                     f"color: {c['text_main']}; font-size: 13px; "
                     f"font-weight: 700; background: transparent;"
                 )
+                name_lbl.setLayoutDirection(Qt.RightToLeft)
+                name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 name_lbl.setMinimumWidth(160)
 
                 tot = int(emp.get("total") or 0)
@@ -2755,7 +2830,9 @@ class ReportsWindow(QWidget):
 
         layout.addSpacing(10)
 
-        detail_section = QLabel("جزئیات کارها (با تاریخ)")
+        detail_section = QLabel("جزئیات کارها")
+        detail_section.setLayoutDirection(Qt.RightToLeft)
+        detail_section.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         detail_section.setStyleSheet(
             f"color: {c['text_main']}; font-size: 13px; "
             f"font-weight: 700; background: transparent; padding: 4px;"
@@ -2826,6 +2903,8 @@ class ReportsWindow(QWidget):
                 f"color: {c['text_main']}; font-size: 12px; "
                 f"font-weight: 700; background: transparent;"
             )
+            date_lbl.setLayoutDirection(Qt.RightToLeft)
+            date_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             date_lbl.setMinimumWidth(180)
 
             time_lbl = QLabel(time_str if time_str else "—")
@@ -2840,6 +2919,8 @@ class ReportsWindow(QWidget):
                 f"color: {c['accent']}; font-size: 12px; "
                 f"font-weight: 700; background: transparent;"
             )
+            name_lbl.setLayoutDirection(Qt.RightToLeft)
+            name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             name_lbl.setMinimumWidth(140)
 
             title_lbl = QLabel(t.get("jobTitle") or "—")
@@ -2847,6 +2928,8 @@ class ReportsWindow(QWidget):
                 f"color: {c['text_main']}; font-size: 12px; "
                 f"background: transparent;"
             )
+            title_lbl.setLayoutDirection(Qt.RightToLeft)
+            title_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
             price_lbl = QLabel(f"{format_money(t.get('price') or 0)} ت")
             price_lbl.setStyleSheet(

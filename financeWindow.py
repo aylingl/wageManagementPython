@@ -205,19 +205,6 @@ def jalali_string(qdate):
     jy, jm, jd = gregorian_to_jalali(qdate.year(), qdate.month(), qdate.day())
     return f"{jy:04d}/{jm:02d}/{jd:02d}"
 
-def jalali_month_year_str(d):
-    try:
-        if isinstance(d, datetime):
-            gy, gm, gd = d.year, d.month, d.day
-        elif isinstance(d, date):
-            gy, gm, gd = d.year, d.month, d.day
-        else:
-            return str(d)
-        jy, jm, jd = gregorian_to_jalali(gy, gm, gd)
-        return f"{MONTH_NAMES[jm - 1]} {jy}"
-    except Exception:
-        return str(d)
-
 def jalali_full_date_str(d):
     try:
         if isinstance(d, datetime):
@@ -497,9 +484,11 @@ class PersianDateButton(QFrame):
         self.icon_label.setObjectName("dateIconLabel")
         self.icon_label.setFixedSize(32, 32)
         self.icon_label.setAlignment(Qt.AlignCenter)
+        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.date_btn = QPushButton()
         self.date_btn.setObjectName("persianDateButton")
         self.date_btn.setCursor(Qt.PointingHandCursor)
+        self.date_btn.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.icon_label)
         layout.addWidget(self.date_btn, 1)
         self._refresh_text()
@@ -547,7 +536,7 @@ class PersianDateButton(QFrame):
         self.dateChanged.emit(self._qdate)
 
 # =========================================================
-# PERSIAN MONTH POPUP / BUTTON
+# PERSIAN MONTH POPUP
 # =========================================================
 
 class PersianMonthPopup(QWidget):
@@ -634,6 +623,7 @@ class PersianMonthPopup(QWidget):
             btn.setObjectName("monthBtn")
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFixedHeight(50)
+            btn.setFocusPolicy(Qt.NoFocus)
             if idx + 1 == self.selected_month and self.view_year == self.selected_year:
                 btn.setProperty("selected", "true")
             else:
@@ -668,6 +658,10 @@ class PersianMonthPopup(QWidget):
         self.monthSelected.emit(self.selected_year, self.selected_month)
         self.close()
 
+# =========================================================
+# PERSIAN MONTH BUTTON (fully custom painted)
+# =========================================================
+
 class PersianMonthButton(QFrame):
     monthChanged = Signal(int, int)
 
@@ -677,33 +671,91 @@ class PersianMonthButton(QFrame):
         jy, jm, jd = gregorian_to_jalali(today.year(), today.month(), today.day())
         self.year = jy
         self.month = jm
-        self.setObjectName("persianDateFrame")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+
+        # ═══ غیرفعال کردن رسم پیش‌فرض QFrame ═══
+        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShadow(QFrame.Plain)
+        self.setLineWidth(0)
+        self.setMidLineWidth(0)
+
+        self.setAttribute(Qt.WA_Hover, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
         self.setFixedHeight(42)
         self.setFixedWidth(170)
         self.setCursor(Qt.PointingHandCursor)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 0, 10, 0)
-        layout.setSpacing(4)
-        icon = QLabel("📅")
-        icon.setObjectName("dateIconLabel")
-        icon.setFixedSize(28, 28)
-        icon.setAlignment(Qt.AlignCenter)
-        self.month_btn = QPushButton()
-        self.month_btn.setObjectName("persianDateButton")
-        self.month_btn.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(icon)
-        layout.addWidget(self.month_btn, 1)
-        self._refresh_text()
-        self.mousePressEvent = self._frame_clicked
-        self.month_btn.clicked.connect(self._open_popup)
+        self.setFocusPolicy(Qt.NoFocus)
 
-    def _frame_clicked(self, event):
-        self._open_popup()
-        event.accept()
+        self._hover = False
+        self.setStyleSheet("QFrame { background: transparent; border: none; }")
 
-    def _refresh_text(self):
-        self.month_btn.setText(f"{MONTH_NAMES[self.month - 1]} {self.year}")
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = theme_manager.colors()
+
+        rect = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
+
+        # ─── پس‌زمینه + بردر ───
+        if self._hover:
+            painter.setBrush(QColor(c["bg_card"]))
+            painter.setPen(QColor(c["border_hover"]))
+        else:
+            painter.setBrush(QColor(c["bg_input"]))
+            painter.setPen(QColor(c["border"]))
+
+        painter.drawRoundedRect(rect, 21.0, 21.0)
+
+        # ─── آیکون: یه مربع گرد سمت راست ───
+        icon_size = 28
+        icon_margin = 7
+        icon_x = rect.right() - icon_size - icon_margin
+        icon_y = rect.top() + icon_margin
+        icon_rect = QRectF(icon_x, icon_y, icon_size, icon_size)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(c["accent_light"]))
+        painter.drawRoundedRect(icon_rect, 10.0, 10.0)
+
+        # ایموجی تقویم
+        font = painter.font()
+        font.setFamily("Segoe UI Emoji")
+        font.setPointSize(12)
+        painter.setFont(font)
+        painter.setPen(QColor(c["accent"]))
+        painter.drawText(icon_rect, Qt.AlignCenter, "📅")
+
+        # ─── متن ماه ───
+        painter.setPen(
+            QColor(c["accent"]) if self._hover else QColor(c["text_main"])
+        )
+        font = painter.font()
+        font.setFamily("Vazirmatn")
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+
+        text_rect = rect.adjusted(12.0, 0.0, -(icon_size + icon_margin + 8), 0.0)
+        painter.drawText(
+            text_rect,
+            Qt.AlignRight | Qt.AlignVCenter,
+            f"{MONTH_NAMES[self.month - 1]} {self.year}"
+        )
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._open_popup()
+            event.accept()
 
     def _open_popup(self):
         self._popup = PersianMonthPopup(self, self.year, self.month)
@@ -728,7 +780,7 @@ class PersianMonthButton(QFrame):
             return
         self.year = year
         self.month = month
-        self._refresh_text()
+        self.update()
         self.monthChanged.emit(year, month)
 
 # =========================================================
@@ -756,6 +808,8 @@ class FinanceWindow(QWidget):
         self.bonus_filter_month = jm
         self.deduction_filter_year = jy
         self.deduction_filter_month = jm
+        self.jobs_filter_year = jy
+        self.jobs_filter_month = jm
         self.setWindowTitle(tr("finance_title"))
         self.resize(1050, 720)
         self.setMinimumSize(700, 550)
@@ -907,15 +961,16 @@ class FinanceWindow(QWidget):
         if self.is_owner:
             tabs = QHBoxLayout()
             tabs.setSpacing(6)
-            tab_keys = [
-                ("tab_summary", "summary"),
-                ("tab_salaries", "salaries"),
-                ("tab_bonuses", "bonuses"),
-                ("tab_deductions", "deductions"),
-                ("tab_history", "history"),
+            tab_labels = [
+                tr("tab_summary"),
+                tr("tab_salaries"),
+                tr("tab_bonuses"),
+                tr("tab_deductions"),
+                "کارمزد",
+                tr("tab_history"),
             ]
-            for i, (key, name) in enumerate(tab_keys):
-                btn = QPushButton(tr(key))
+            for i, label in enumerate(tab_labels):
+                btn = QPushButton(label)
                 btn.setObjectName("tabButton")
                 btn.setFixedHeight(40)
                 btn.setCursor(Qt.PointingHandCursor)
@@ -930,6 +985,7 @@ class FinanceWindow(QWidget):
             self.stack.addWidget(self.build_salaries_tab())
             self.stack.addWidget(self.build_bonuses_tab())
             self.stack.addWidget(self.build_deductions_tab())
+            self.stack.addWidget(self.build_jobs_tab())
             self.stack.addWidget(self.build_history_tab())
             main_layout.addWidget(self.stack, 1)
             self.switch_tab(0)
@@ -953,7 +1009,7 @@ class FinanceWindow(QWidget):
             QComboBox#finComplexCombo:hover {{ border-color: {c['accent']}; background-color: {c['bg_hover']}; }}
             QComboBox#finComplexCombo::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 30px; border: none; background: transparent; }}
             QComboBox#finComplexCombo::down-arrow {{ image: none; width: 0px; height: 0px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid {c['accent']}; margin-right: 10px; }}
-            QPushButton#tabButton {{ background-color: {c['bg_card']}; color: {c['text_dim']}; border: 1px solid {c['border']}; border-radius: 20px; padding: 0 22px; font-size: 12px; font-weight: 600; }}
+            QPushButton#tabButton {{ background-color: {c['bg_card']}; color: {c['text_dim']}; border: 1px solid {c['border']}; border-radius: 20px; padding: 0 18px; font-size: 12px; font-weight: 600; }}
             QPushButton#tabButton:hover {{ background-color: {c['bg_hover']}; }}
             QPushButton#tabButton[selected="true"] {{ background-color: {c['accent']}; color: white; border: 1px solid {c['accent']}; }}
             QFrame#box {{ background-color: {c['bg_card']}; border: 1px solid {c['border']}; border-radius: 28px; }}
@@ -1020,6 +1076,8 @@ class FinanceWindow(QWidget):
         elif index == 3:
             self.refresh_deductions()
         elif index == 4:
+            self.refresh_jobs()
+        elif index == 5:
             self.refresh_history()
 
     def on_complex_changed(self, index):
@@ -1211,6 +1269,492 @@ class FinanceWindow(QWidget):
         self.deduction_filter_year = year
         self.deduction_filter_month = month
         self.refresh_deductions()
+
+    # ═══════════════════════════════════════════════════════════
+    # TAB کارمزد
+    # ═══════════════════════════════════════════════════════════
+
+    def build_jobs_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        top_box = QFrame()
+        top_box.setObjectName("box")
+        top_box.setAttribute(Qt.WA_StyledBackground, True)
+        top_layout = QHBoxLayout(top_box)
+        top_layout.setContentsMargins(20, 14, 20, 14)
+        top_layout.setSpacing(12)
+        title = QLabel("کارمزد")
+        title.setObjectName("sectionTitle")
+        month_lbl = QLabel(tr("month_label"))
+        month_lbl.setStyleSheet(f"color: {theme_manager.colors()['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        self.jobs_month_btn = PersianMonthButton()
+        self.jobs_month_btn.monthChanged.connect(self.on_jobs_month_changed)
+        top_layout.addWidget(title)
+        top_layout.addSpacing(10)
+        top_layout.addWidget(month_lbl)
+        top_layout.addWidget(self.jobs_month_btn)
+        top_layout.addStretch()
+        layout.addWidget(top_box)
+        content = QWidget()
+        self.jobs_layout = QVBoxLayout(content)
+        self.jobs_layout.setContentsMargins(4, 4, 12, 4)
+        self.jobs_layout.setSpacing(8)
+        scroll = self.make_rounded_scroll(content)
+        container = self.make_container_box(scroll)
+        layout.addWidget(container, 1)
+        return widget
+
+    def on_jobs_month_changed(self, year, month):
+        self.jobs_filter_year = year
+        self.jobs_filter_month = month
+        self.refresh_jobs()
+
+    def refresh_jobs(self):
+        if not self.is_owner or not self.complex_id:
+            return
+
+        while self.jobs_layout.count():
+            item = self.jobs_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        gy, gm, gd = jalali_to_gregorian(
+            self.jobs_filter_year, self.jobs_filter_month, 1
+        )
+        if self.jobs_filter_month <= 6:
+            last_d = 31
+        elif self.jobs_filter_month <= 11:
+            last_d = 30
+        elif is_jalali_leap(self.jobs_filter_year):
+            last_d = 30
+        else:
+            last_d = 29
+        gy2, gm2, gd2 = jalali_to_gregorian(
+            self.jobs_filter_year, self.jobs_filter_month, last_d
+        )
+        first_day = date(gy, gm, gd)
+        last_day = date(gy2, gm2, gd2)
+
+        approved_rows = self.db.fetch_all(
+            """
+            SELECT ej.employeeJobId, ej.memberId, ej.price, ej.quantity,
+                   ej.completedDate, ej.startDate, ej.deadline, ej.status,
+                   j.jobTitle, u.name AS employee_name,
+                   (SELECT COALESCE(SUM(p.amount), 0)
+                    FROM payments p
+                    WHERE p.employeeJobId = ej.employeeJobId
+                      AND p.paymentType = 'job') AS paid_amount
+            FROM employee_jobs ej
+            INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+            INNER JOIN users u ON u.userId = cm.userId
+            LEFT JOIN jobs j ON j.jobId = ej.jobId
+            WHERE cm.complexId = %s
+              AND ej.status = 'approved'
+              AND ej.completedDate IS NOT NULL
+              AND DATE(ej.completedDate) BETWEEN %s AND %s
+            ORDER BY ej.completedDate DESC
+            """,
+            (self.complex_id, first_day, last_day)
+        ) or []
+
+        pending_rows = self.db.fetch_all(
+            """
+            SELECT ej.employeeJobId, ej.memberId, ej.price, ej.quantity,
+                   ej.completedDate, j.jobTitle, u.name AS employee_name
+            FROM employee_jobs ej
+            INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+            INNER JOIN users u ON u.userId = cm.userId
+            LEFT JOIN jobs j ON j.jobId = ej.jobId
+            WHERE cm.complexId = %s
+              AND ej.status = 'completed'
+            ORDER BY ej.completedDate DESC
+            """,
+            (self.complex_id,)
+        ) or []
+
+        if not approved_rows and not pending_rows:
+            empty = QFrame()
+            empty.setObjectName("emptyCard")
+            empty.setAttribute(Qt.WA_StyledBackground, True)
+            empty.setMinimumHeight(200)
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(24, 34, 24, 34)
+            el.setSpacing(10)
+
+            icon = QLabel("💼")
+            icon.setAlignment(Qt.AlignCenter)
+            icon.setStyleSheet("font-size: 44px; background: transparent;")
+
+            t1 = QLabel("هیچ کار تأییدشده‌ای در این ماه وجود ندارد")
+            t1.setAlignment(Qt.AlignCenter)
+            t1.setStyleSheet(
+                f"color: {theme_manager.colors()['text_main']};"
+                f"font-size: 14px; font-weight: 800; background: transparent;"
+            )
+
+            t2 = QLabel(
+                "کارها بعد از انجام توسط کارمند و تأیید مالک در کارتابل،\n"
+                "در این بخش برای پرداخت نمایش داده می‌شوند."
+            )
+            t2.setAlignment(Qt.AlignCenter)
+            t2.setWordWrap(True)
+            t2.setStyleSheet(
+                f"color: {theme_manager.colors()['text_dim']};"
+                f"font-size: 12px; background: transparent;"
+            )
+
+            el.addWidget(icon)
+            el.addWidget(t1)
+            el.addWidget(t2)
+
+            self.jobs_layout.addWidget(empty)
+            self.jobs_layout.addStretch()
+            return
+
+        # ─── هشدار کارهای منتظر تأیید — قرمز خیلی ملایم ───
+        if pending_rows:
+            warn = QLabel(
+                f"⚠️  {len(pending_rows)} کار انجام‌شده منتظر تأیید در کارتابل دارید. "
+                f"بعد از تأیید، اینجا برای پرداخت نمایش داده می‌شوند."
+            )
+            warn.setWordWrap(True)
+            warn.setStyleSheet(
+                "color: #C97B7B;"
+                "background-color: #FFF5F5;"
+                "border: 1px solid #F5C2C2;"
+                "border-radius: 12px;"
+                "padding: 10px 16px;"
+                "font-size: 12px;"
+                "font-weight: 700;"
+            )
+            self.jobs_layout.addWidget(warn)
+
+        for row in approved_rows:
+            price = float(row.get("price") or 0)
+            qty = float(row.get("quantity") or 1)
+            job_total = price * qty
+            paid = float(row.get("paid_amount") or 0)
+            card = self.create_job_card(row, job_total, paid)
+            self.jobs_layout.addWidget(card)
+
+        self.jobs_layout.addStretch()
+
+    def create_job_card(self, row, job_total, paid_amount):
+        card = QFrame()
+        card.setObjectName("boxSub")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setMinimumHeight(90)
+
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(14)
+
+        info_col = QVBoxLayout()
+        info_col.setSpacing(3)
+
+        name_lbl = QLabel(row.get("employee_name") or "—")
+        name_lbl.setObjectName("empName")
+        name_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
+
+        title_lbl = QLabel(row.get("jobTitle") or "—")
+        title_lbl.setStyleSheet(
+            f"color: {theme_manager.colors()['accent']};"
+            f"font-size: 12px; font-weight: 700; background: transparent;"
+        )
+        title_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
+
+        cd = row.get("completedDate")
+        date_str = jalali_full_date_str(cd)
+        date_lbl = QLabel(f"تاریخ اتمام: {date_str}")
+        date_lbl.setObjectName("empInfo")
+        date_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
+
+        qty = float(row.get("quantity") or 1)
+        price = float(row.get("price") or 0)
+        detail_text = (
+            f"تعداد: {qty:g}  ×  "
+            f"قیمت واحد: {format_money(price)} ت  =  "
+            f"{format_money(job_total)} ت"
+        )
+        detail_lbl = QLabel(detail_text)
+        detail_lbl.setObjectName("empInfo")
+        detail_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
+
+        info_col.addWidget(name_lbl)
+        info_col.addWidget(title_lbl)
+        info_col.addWidget(detail_lbl)
+        info_col.addWidget(date_lbl)
+
+        layout.addLayout(info_col, 3)
+
+        pay_col = QVBoxLayout()
+        pay_col.setSpacing(6)
+        pay_col.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        total_lbl = QLabel(f"{format_money(job_total)} ت")
+        total_lbl.setStyleSheet(
+            f"color: {theme_manager.colors()['accent']};"
+            f"font-size: 16px; font-weight: 800; background: transparent;"
+        )
+        total_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        pay_col.addWidget(total_lbl)
+
+        EPS = 1
+        if paid_amount >= (job_total - EPS) and job_total > 0:
+            badge = QLabel("✅ پرداخت‌شده")
+            badge.setObjectName("badgePaid")
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setFixedHeight(30)
+            pay_col.addWidget(badge)
+        elif paid_amount > 0:
+            remain = max(0, job_total - paid_amount)
+            badge = QLabel(
+                f"🟡 پرداخت ناقص — مانده: {format_money(remain)} ت"
+            )
+            badge.setObjectName("badgePending")
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setFixedHeight(30)
+            pay_col.addWidget(badge)
+
+            pay_btn = QPushButton("💳 پرداخت مانده")
+            pay_btn.setObjectName("payBtn")
+            pay_btn.setCursor(Qt.PointingHandCursor)
+            pay_btn.setAttribute(Qt.WA_StyledBackground, True)
+            pay_btn.clicked.connect(
+                lambda checked=False, r=row, jt=job_total, pa=paid_amount:
+                self.pay_job(r, jt, pa)
+            )
+            pay_col.addWidget(pay_btn)
+        else:
+            badge = QLabel("⏳ در انتظار پرداخت")
+            badge.setObjectName("badgePending")
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setFixedHeight(30)
+            pay_col.addWidget(badge)
+
+            pay_btn = QPushButton("💳 پرداخت")
+            pay_btn.setObjectName("payBtn")
+            pay_btn.setCursor(Qt.PointingHandCursor)
+            pay_btn.setAttribute(Qt.WA_StyledBackground, True)
+            pay_btn.clicked.connect(
+                lambda checked=False, r=row, jt=job_total, pa=0:
+                self.pay_job(r, jt, pa)
+            )
+            pay_col.addWidget(pay_btn)
+
+        layout.addLayout(pay_col, 1)
+
+        return card
+
+    def pay_job(self, row, job_total, already_paid):
+        job_id = row.get("employeeJobId")
+        member_id = row.get("memberId")
+        if not job_id or not member_id:
+            return
+
+        employee_name = row.get("employee_name") or "—"
+        job_title = row.get("jobTitle") or "—"
+        remain = max(0, job_total - already_paid)
+
+        c = theme_manager.colors()
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("پرداخت کارمزد")
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setMinimumWidth(460)
+        dialog.setModal(True)
+        dialog.setAttribute(Qt.WA_StyledBackground, True)
+
+        d_layout = QVBoxLayout(dialog)
+        d_layout.setContentsMargins(28, 26, 28, 24)
+        d_layout.setSpacing(10)
+
+        title = QLabel(f"پرداخت کارمزد — {employee_name}")
+        title.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 16px;"
+            f"font-weight: 700; background: transparent;"
+        )
+        d_layout.addWidget(title)
+
+        job_lbl = QLabel(f"کار: {job_title}")
+        job_lbl.setStyleSheet(
+            f"color: {c['accent']}; font-size: 12px;"
+            f"font-weight: 600; background: transparent;"
+        )
+        d_layout.addWidget(job_lbl)
+
+        info_lbl = QLabel(
+            f"جمع کار: {format_money(job_total)} ت  •  "
+            f"پرداخت‌شده: {format_money(already_paid)} ت"
+        )
+        info_lbl.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 11px; background: transparent;"
+        )
+        d_layout.addWidget(info_lbl)
+
+        remain_lbl = QLabel(f"مانده برای پرداخت: {format_money(remain)} ت")
+        remain_lbl.setStyleSheet(
+            f"color: {c['warning']}; font-size: 12px;"
+            f"font-weight: 700; background: transparent;"
+        )
+        d_layout.addWidget(remain_lbl)
+
+        d_layout.addSpacing(6)
+
+        amount_lbl = QLabel("مبلغ این پرداخت (تومان)")
+        amount_lbl.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 12px;"
+            f"font-weight: 600; background: transparent;"
+        )
+        d_layout.addWidget(amount_lbl)
+
+        amount_input = QLineEdit()
+        amount_input.setText(f"{int(remain):,}")
+        amount_input.setLayoutDirection(Qt.LeftToRight)
+        amount_input.setFixedHeight(46)
+        amount_input.setStyleSheet(f"""
+            QLineEdit {{
+                background-color: {c['bg_input']};
+                border: 1px solid {c['border']};
+                border-radius: 23px;
+                padding: 0 18px;
+                color: {c['text_main']};
+                font-size: 14px;
+                font-weight: 700;
+            }}
+            QLineEdit:focus {{
+                background-color: {c['bg_card']};
+                border: 2px solid {c['accent']};
+            }}
+        """)
+
+        def format_amount_live(text):
+            digits = "".join(ch for ch in text if ch.isdigit())
+            if not digits:
+                return
+            try:
+                num = int(digits)
+                formatted = f"{num:,}"
+                if text != formatted:
+                    amount_input.blockSignals(True)
+                    amount_input.setText(formatted)
+                    amount_input.setCursorPosition(len(formatted))
+                    amount_input.blockSignals(False)
+            except ValueError:
+                pass
+
+        amount_input.textChanged.connect(format_amount_live)
+        d_layout.addWidget(amount_input)
+        d_layout.addSpacing(6)
+
+        date_lbl = QLabel("تاریخ پرداخت")
+        date_lbl.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 12px;"
+            f"font-weight: 600; background: transparent;"
+        )
+        d_layout.addWidget(date_lbl)
+
+        date_picker = PersianDateButton(initial_qdate=QDate.currentDate())
+        d_layout.addWidget(date_picker)
+        d_layout.addSpacing(10)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(10)
+
+        cancel_btn = QPushButton(tr("cancel"))
+        cancel_btn.setFixedHeight(46)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['bg_input']};
+                color: {c['text_dim']};
+                border: 1px solid {c['border']};
+                border-radius: 23px;
+                padding: 0 26px;
+                font-size: 13px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{ background-color: {c['bg_hover']}; }}
+        """)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        pay_btn = QPushButton("تأیید و پرداخت")
+        pay_btn.setFixedHeight(46)
+        pay_btn.setCursor(Qt.PointingHandCursor)
+        pay_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['accent']};
+                color: white;
+                border: none;
+                border-radius: 23px;
+                padding: 0 30px;
+                font-size: 13px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{ background-color: {c['accent_hover']}; }}
+        """)
+
+        def on_pay():
+            amount_text = amount_input.text().strip()
+            if not amount_text:
+                NiceMessageBox.error(dialog, tr("error"), tr("err_amount_required"))
+                return
+            try:
+                amount = float(amount_text.replace(",", "").replace("٬", ""))
+            except ValueError:
+                NiceMessageBox.error(dialog, tr("error"), tr("err_amount_invalid"))
+                return
+            if amount <= 0:
+                NiceMessageBox.error(dialog, tr("error"), tr("err_amount_positive"))
+                return
+            if amount > remain + 1:
+                NiceMessageBox.error(
+                    dialog, tr("error"),
+                    f"مبلغ نمی‌تواند بیشتر از مانده ({format_money(remain)} تومان) باشد."
+                )
+                return
+
+            selected_qdate = date_picker.date()
+            now = datetime.now()
+            pay_dt = datetime(
+                selected_qdate.year(), selected_qdate.month(), selected_qdate.day(),
+                now.hour, now.minute, now.second
+            )
+
+            self.db.execute("""
+                INSERT INTO payments
+                (memberId, complexId, employeeJobId, amount,
+                 paymentType, paymentDate, paidBy, description)
+                VALUES (%s, %s, %s, %s, 'job', %s, %s, %s)
+                """,
+                (member_id, self.complex_id, job_id, amount, pay_dt, self.user_id,
+                 f"پرداخت کارمزد — {job_title}")
+            )
+
+            dialog.accept()
+            NiceMessageBox.success(
+                self, "پرداخت ثبت شد",
+                f"{format_money(amount)} تومان برای {employee_name} ثبت شد."
+            )
+            self.refresh_jobs()
+            self.refresh_dashboard()
+            signals.data_changed.emit("all")
+
+        pay_btn.clicked.connect(on_pay)
+        btns.addWidget(cancel_btn)
+        btns.addWidget(pay_btn)
+        d_layout.addLayout(btns)
+
+        dialog.setStyleSheet(
+            f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}"
+        )
+        dialog.exec()
+
+    # ═══════════════════════════════════════════════════════════
 
     def build_history_tab(self):
         widget = QWidget()
