@@ -9,12 +9,16 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtCore import Qt, QTime, QPoint, QSize, QTimer
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtGui import QPainter, QColor, QPolygon
 
 from database import Database
 from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
+
+from hierarchy import (
+    role_to_level, set_supervisor_and_level
+)
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -93,19 +97,91 @@ class RoundedComboBox(QComboBox):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
         self._popup = None
         self._list = None
 
-    def showPopup(self):
-        if self._popup is not None:
-            self.hidePopup()
-            return
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setEditable(False)
 
+        self.setStyleSheet("""
+            QComboBox {
+                background: transparent;
+                border: none;
+                color: transparent;
+                padding: 0px;
+            }
+            QComboBox::drop-down {
+                width: 0px;
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                width: 0px;
+                height: 0px;
+            }
+        """)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = theme_manager.colors()
+
+        rect = self.rect().adjusted(1, 1, -1, -1)
+
+        painter.setPen(QColor(c["border"]))
+        painter.setBrush(QColor(c["bg_input"]))
+        painter.drawRoundedRect(rect, 22, 22)
+
+        idx = self.currentIndex()
+        text = self.itemText(idx) if idx >= 0 else ""
+
+        painter.setPen(QColor(c["text_main"]))
+        font = painter.font()
+        font.setFamily("Vazirmatn")
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+
+        text_rect = rect.adjusted(20, 0, -50, 0)
+        painter.drawText(
+            text_rect,
+            Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter,
+            text
+        )
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(c["accent"]))
+        cx = rect.left() + 22
+        cy = rect.center().y()
+        triangle = QPolygon([
+            QPoint(cx - 5, cy - 2),
+            QPoint(cx + 5, cy - 2),
+            QPoint(cx,     cy + 4),
+        ])
+        painter.drawPolygon(triangle)
+
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            if self._popup is None:
+                self.showPopup()
+            else:
+                self.hidePopup()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def showPopup(self):
         self._popup = QFrame(None)
         self._popup.setWindowFlags(
             Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
         )
         self._popup.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._popup.setLayoutDirection(Qt.RightToLeft)
 
         outer = QVBoxLayout(self._popup)
         outer.setContentsMargins(10, 10, 10, 10)
@@ -131,6 +207,7 @@ class RoundedComboBox(QComboBox):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setLayoutDirection(Qt.RightToLeft)
 
         c = theme_manager.colors()
 
@@ -184,7 +261,9 @@ class RoundedComboBox(QComboBox):
         for i in range(self.count()):
             item = QListWidgetItem(self.itemText(i))
             item.setData(Qt.UserRole, i)
-            item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item.setTextAlignment(
+                Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
+            )
             item.setSizeHint(QSize(0, 42))
             self._list.addItem(item)
             if i == self.currentIndex():
@@ -203,13 +282,13 @@ class RoundedComboBox(QComboBox):
 
         count = max(self.count(), 1)
         content_h = count * 42 + 32
-        popup_w = max(self.width(), 180)
-        popup_h = min(content_h, 260)
+        popup_w = max(self.width(), 200)
+        popup_h = min(content_h, 280)
 
         self._popup.setFixedWidth(popup_w)
         self._popup.setFixedHeight(popup_h)
 
-        pos = self.mapToGlobal(QPoint(0, self.height() + 4))
+        pos = self.mapToGlobal(QPoint(self.width() - popup_w, self.height() + 4))
         self._popup.move(pos)
         self._popup.show()
 
@@ -243,7 +322,6 @@ class NiceMessageDialog(QDialog):
 
         c = theme_manager.colors()
 
-        # ═══ قرمز روشن و زنده (نه تیره مثل امور مالی) ═══
         if kind == "success":
             icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
         elif kind == "error":
@@ -343,6 +421,9 @@ class AddEmployees(QWidget):
     def __init__(self, parent_window=None, complex_id=None):
         super().__init__(parent_window)
 
+        # ═══ FramelessWindowHint + Window ═══
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
+
         self.parent_window = parent_window
         self.complex_id = complex_id
 
@@ -354,8 +435,8 @@ class AddEmployees(QWidget):
         self.complex_name = "—"
 
         self.setWindowTitle(tr("add_employee"))
-        self.resize(600, 820)
-        self.setMinimumSize(520, 720)
+        self.setMinimumSize(200, 200)
+
         self.setLayoutDirection(Qt.RightToLeft)
 
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -364,8 +445,29 @@ class AddEmployees(QWidget):
         self.load_complex_name()
         self.setup_ui()
 
+        self.apply_parent_geometry()
+
         theme_manager.theme_changed.connect(self.on_theme_changed)
         signals.language_changed.connect(self.on_language_changed)
+
+    # =========================================================
+    # GEOMETRY
+    # =========================================================
+
+    def apply_parent_geometry(self):
+        if self.parent_window is None:
+            return
+        try:
+            pg = self.parent_window.frameGeometry()
+            self.setGeometry(pg.x(), pg.y(), pg.width(), pg.height())
+        except Exception as e:
+            print("APPLY GEOMETRY ERROR:", e)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self.apply_parent_geometry)
+        QTimer.singleShot(50, self.apply_parent_geometry)
+        QTimer.singleShot(150, self.apply_parent_geometry)
 
     def on_theme_changed(self, theme_name):
         self.apply_stylesheet()
@@ -491,13 +593,35 @@ class AddEmployees(QWidget):
         form_layout.addWidget(self.phone_input)
         form_layout.addWidget(self.phone_error)
 
-        # ═══ ROLE ═══
+        form_layout.addSpacing(4)
+
+        # ═══ HIERARCHY ROLE ═══
+        hierarchy_label = QLabel("نقش کلی")
+        hierarchy_label.setObjectName("fieldLabel")
+
+        self.hierarchy_role_combo = RoundedComboBox()
+        self.hierarchy_role_combo.setObjectName("formInput")
+        self.hierarchy_role_combo.setFixedHeight(44)
+
+        self.hierarchy_role_combo.addItem("👤  کارمند",  "employee")
+        self.hierarchy_role_combo.addItem("🎯  سرپرست", "supervisor")
+        self.hierarchy_role_combo.addItem("📋  مدیر",   "manager")
+
+        self.hierarchy_role_combo.currentIndexChanged.connect(
+            self.on_hierarchy_role_changed
+        )
+
+        form_layout.addWidget(hierarchy_label)
+        form_layout.addWidget(self.hierarchy_role_combo)
+
+        form_layout.addSpacing(4)
+
+        # ═══ ROLE IN GROUP ═══
         role_label = QLabel(f"{tr('role_in_group')} — {self.complex_name}")
         role_label.setObjectName("fieldLabel")
 
         self.role_input = QLineEdit()
         self.role_input.setObjectName("formInput")
-        self.role_input.setPlaceholderText(tr("profession_ph"))
         self.role_input.setFixedHeight(44)
         self.role_input.textChanged.connect(self.clear_role_error)
 
@@ -519,8 +643,6 @@ class AddEmployees(QWidget):
         self.emp_type_combo = RoundedComboBox()
         self.emp_type_combo.setObjectName("formInput")
         self.emp_type_combo.setFixedHeight(44)
-        self.emp_type_combo.setCursor(Qt.PointingHandCursor)
-        self.emp_type_combo.setLayoutDirection(Qt.RightToLeft)
         self.emp_type_combo.addItem(tr("full_time"), "fullTime")
         self.emp_type_combo.addItem(tr("part_time"), "partTime")
 
@@ -547,8 +669,6 @@ class AddEmployees(QWidget):
         self.salary_type_combo = RoundedComboBox()
         self.salary_type_combo.setObjectName("formInput")
         self.salary_type_combo.setFixedHeight(44)
-        self.salary_type_combo.setCursor(Qt.PointingHandCursor)
-        self.salary_type_combo.setLayoutDirection(Qt.RightToLeft)
         self.salary_type_combo.addItem(tr("monthly"), "monthly")
         self.salary_type_combo.addItem(tr("daily"), "daily")
         self.salary_type_combo.addItem(tr("hourly"), "hourly")
@@ -565,7 +685,9 @@ class AddEmployees(QWidget):
         self.salary_input.setPlaceholderText(tr("amount_ph"))
         self.salary_input.setFixedHeight(44)
         self.salary_input.setLayoutDirection(Qt.LeftToRight)
+        self.salary_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.salary_input.textChanged.connect(self.clear_salary_error)
+        self.salary_input.textChanged.connect(self.format_salary_live)
 
         self.salary_error = QLabel()
         self.salary_error.setObjectName("fieldError")
@@ -642,20 +764,14 @@ class AddEmployees(QWidget):
         time_row.addLayout(end_col, 1)
         form_layout.addLayout(time_row)
 
-        # ═══ CHECKBOXES ═══
+        # ═══ CHECKBOX ═══
         self.overtime_checkbox = QCheckBox(tr("allow_overtime_check"))
         self.overtime_checkbox.setObjectName("formCheckbox")
         self.overtime_checkbox.setChecked(True)
         self.overtime_checkbox.setCursor(Qt.PointingHandCursor)
 
-        self.permission_checkbox = QCheckBox(tr("can_see_employees_check"))
-        self.permission_checkbox.setObjectName("formCheckbox")
-        self.permission_checkbox.setChecked(True)
-        self.permission_checkbox.setCursor(Qt.PointingHandCursor)
-
         form_layout.addSpacing(4)
         form_layout.addWidget(self.overtime_checkbox)
-        form_layout.addWidget(self.permission_checkbox)
 
         form_layout.addStretch()
 
@@ -708,7 +824,63 @@ class AddEmployees(QWidget):
 
         main_layout.addLayout(buttons_layout)
 
+        self.on_hierarchy_role_changed()
+
         self.apply_stylesheet()
+
+    # =========================================================
+    # FORMAT SALARY LIVE
+    # =========================================================
+
+    def format_salary_live(self, text):
+        digits = "".join(ch for ch in text if ch.isdigit())
+        if not digits:
+            return
+        try:
+            num = int(digits)
+            formatted = f"{num:,}"
+            if text != formatted:
+                self.salary_input.blockSignals(True)
+                self.salary_input.setText(formatted)
+                self.salary_input.setCursorPosition(len(formatted))
+                self.salary_input.blockSignals(False)
+        except ValueError:
+            pass
+
+    # =========================================================
+    # HIERARCHY ROLE CHANGE
+    # =========================================================
+
+    def on_hierarchy_role_changed(self):
+        role = self.hierarchy_role_combo.currentData()
+
+        role_titles = {
+            "employee":   "کارمند",
+            "supervisor": "سرپرست",
+            "manager":    "مدیر",
+        }
+        all_prefixes = ["کارمند", "سرپرست", "مدیر"]
+
+        base = role_titles.get(role, "کارمند")
+        current = self.role_input.text() if hasattr(self, "role_input") else ""
+
+        stripped = current.strip()
+        for p in all_prefixes:
+            if stripped.startswith(p):
+                stripped = stripped[len(p):].strip()
+                break
+
+        if stripped:
+            new_text = f"{base} {stripped}"
+        else:
+            new_text = base
+
+        if hasattr(self, "role_input"):
+            if self.role_input.text() != new_text:
+                self.role_input.blockSignals(True)
+                self.role_input.setText(new_text)
+                self.role_input.setCursorPosition(len(new_text))
+                self.role_input.blockSignals(False)
 
     # =========================================================
     # APPLY STYLESHEET
@@ -798,7 +970,6 @@ class AddEmployees(QWidget):
             }}
 
             QLineEdit#formInput,
-            QComboBox#formInput,
             QTimeEdit#formInput {{
                 background: {c['bg_input']};
                 border: 1px solid {c['border']};
@@ -810,33 +981,15 @@ class AddEmployees(QWidget):
             }}
 
             QLineEdit#formInput:hover,
-            QComboBox#formInput:hover,
             QTimeEdit#formInput:hover {{
                 background: {c['bg_card']};
                 border: 1px solid {c['border_hover']};
             }}
 
             QLineEdit#formInput:focus,
-            QComboBox#formInput:focus,
             QTimeEdit#formInput:focus {{
                 background: {c['bg_card']};
                 border: 2px solid {c['accent']};
-            }}
-
-            QComboBox#formInput::drop-down {{
-                width: 32px;
-                border: none;
-                background: transparent;
-            }}
-
-            QComboBox#formInput::down-arrow {{
-                image: none;
-                width: 0px;
-                height: 0px;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 6px solid {c['accent']};
-                margin-left: 12px;
             }}
 
             QTimeEdit#formInput::up-button,
@@ -948,6 +1101,29 @@ class AddEmployees(QWidget):
         return False
 
     # =========================================================
+    # OWNER MEMBER ID
+    # =========================================================
+
+    def get_owner_member_id(self):
+        try:
+            row = self.db.fetch_one(
+                """
+                SELECT memberId FROM complex_members
+                WHERE complexId = %s
+                  AND role IN ('owner', 'both')
+                  AND isActive = '1'
+                ORDER BY memberId ASC
+                LIMIT 1
+                """,
+                (self.complex_id,)
+            )
+            if row:
+                return row["memberId"]
+        except Exception as e:
+            print("GET OWNER MEMBER ID ERROR:", e)
+        return None
+
+    # =========================================================
     # SAVE
     # =========================================================
 
@@ -963,10 +1139,12 @@ class AddEmployees(QWidget):
         employment_type = self.emp_type_combo.currentData()
         salary_type = self.salary_type_combo.currentData()
 
-        can_see = "1" if self.permission_checkbox.isChecked() else "0"
-        allow_ot = "1" if self.overtime_checkbox.isChecked() else "0"
+        hierarchy_role = self.hierarchy_role_combo.currentData() or "employee"
 
-        # ═══ خطاها به فارسی ═══
+        allow_ot = "1" if self.overtime_checkbox.isChecked() else "0"
+        can_see = "1"
+
+        # ═══ NAME ═══
         self.clear_error(self.name_error)
         if not name:
             self.show_error(self.name_error, "لطفاً نام را وارد کنید.")
@@ -978,6 +1156,7 @@ class AddEmployees(QWidget):
             self.name_input.setFocus()
             return
 
+        # ═══ PHONE ═══
         self.clear_error(self.phone_error)
         if not phone:
             self.show_error(self.phone_error, "لطفاً شماره موبایل را وارد کنید.")
@@ -989,17 +1168,14 @@ class AddEmployees(QWidget):
             self.phone_input.setFocus()
             return
 
+        # ═══ ROLE ═══
         self.clear_error(self.role_error)
         if not role:
-            self.show_error(self.role_error, "لطفاً سمت را وارد کنید.")
+            self.show_error(self.role_error, "لطفاً نقش در مجموعه را وارد کنید.")
             self.role_input.setFocus()
             return
 
-        if self.contains_digit(role):
-            self.show_error(self.role_error, "سمت نباید شامل عدد باشد.")
-            self.role_input.setFocus()
-            return
-
+        # ═══ SALARY ═══
         self.clear_error(self.salary_error)
         if not salary_text:
             self.show_error(self.salary_error, "لطفاً حقوق را وارد کنید.")
@@ -1040,7 +1216,7 @@ class AddEmployees(QWidget):
             NiceMessageBox.error(self, tr("error"), "مجتمعی انتخاب نشده.")
             return
 
-        # FIND OR CREATE USER
+        # ═══ FIND OR CREATE USER ═══
         user = self.db.fetch_one(
             """
             SELECT userId FROM users
@@ -1068,7 +1244,7 @@ class AddEmployees(QWidget):
                 NiceMessageBox.error(self, tr("error"), "ساخت کاربر ناموفق بود.")
                 return
 
-        # CHECK EXISTING
+        # ═══ CHECK EXISTING ═══
         existing_member = self.db.fetch_one(
             """
             SELECT memberId FROM complex_members
@@ -1081,20 +1257,20 @@ class AddEmployees(QWidget):
             NiceMessageBox.error(self, tr("error"), "این کاربر قبلاً در این مجتمع عضو است.")
             return
 
-        # INSERT MEMBER
+        # ═══ INSERT MEMBER ═══
         member_id = self.db.execute(
             """
             INSERT INTO complex_members (complexId, userId, role, joinedDate, isActive)
-            VALUES (%s, %s, 'employee', %s, '1')
+            VALUES (%s, %s, %s, %s, '1')
             """,
-            (self.complex_id, user_id, datetime.now())
+            (self.complex_id, user_id, hierarchy_role, datetime.now())
         )
 
         if not member_id:
             NiceMessageBox.error(self, tr("error"), "افزودن عضو ناموفق بود.")
             return
 
-        # INSERT PROFILE
+        # ═══ INSERT PROFILE ═══
         profile_id = self.db.execute(
             """
             INSERT INTO employee_profiles (
@@ -1120,12 +1296,28 @@ class AddEmployees(QWidget):
             NiceMessageBox.error(self, tr("error"), "ذخیره پروفایل ناموفق بود.")
             return
 
-        # REFRESH PARENT
+        # ═══ INSERT HIERARCHY (سرپرست = مالک) ═══
+        supervisor_id = self.get_owner_member_id()
+        level = role_to_level(hierarchy_role)
+
+        ok_hierarchy = set_supervisor_and_level(
+            self.db,
+            self.complex_id,
+            member_id,
+            supervisor_id,
+            level
+        )
+
+        if not ok_hierarchy:
+            print("WARNING: hierarchy row not created for memberId:", member_id)
+
+        # ═══ REFRESH PARENT ═══
         if self.parent_window is not None:
             if hasattr(self.parent_window, "load_employees_from_database"):
                 self.parent_window.load_employees_from_database()
 
         signals.employee_added.emit(self.complex_id)
+        signals.data_changed.emit("jobs")
 
         NiceMessageBox.success(
             self,

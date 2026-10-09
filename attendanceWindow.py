@@ -5,7 +5,8 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QGridLayout, QFrame, QLineEdit, QScrollArea, QScrollBar,
     QBoxLayout, QStackedWidget, QComboBox, QTimeEdit, QDialog,
-    QListWidget, QListWidgetItem, QGraphicsDropShadowEffect, QSpinBox
+    QListWidget, QListWidgetItem, QGraphicsDropShadowEffect, QSpinBox,
+    QApplication
 )
 
 from PySide6.QtCore import (
@@ -17,6 +18,11 @@ from database import Database
 from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
+
+from hierarchy import (
+    LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
+    role_to_level, get_member_level, get_visible_member_ids
+)
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -113,24 +119,24 @@ class RoundedComboBox(QComboBox):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setLayoutDirection(Qt.RightToLeft)
+
+        vbar = RoundScrollBar(Qt.Vertical, self._list)
+        self._list.setVerticalScrollBar(vbar)
 
         c = theme_manager.colors()
 
         self._list.setStyleSheet(f"""
-            QListWidget {{background: transparent;border: none;outline: none;padding: 6px;color: {c['text_main']};font-family: "Vazirmatn";font-size: 13px;}}
-            QListWidget::item {{background: transparent;color: {c['text_main']};border-radius: 10px;padding: 10px 16px;margin: 2px 4px;min-height: 20px;}}
-            QListWidget::item:hover {{background-color: {c['bg_hover']};color: {c['accent']};}}
-            QListWidget::item:selected {{background-color: {c['accent']};color: white;}}
-            QScrollBar:vertical {{width: 8px;background: transparent;border: none;margin: 6px 2px;}}
-            QScrollBar::handle:vertical {{background: {c['accent']};border-radius: 4px;min-height: 24px;}}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{height: 0px;}}
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{background: transparent;}}
+            QListWidget {{ background: transparent; border: none; outline: none; padding: 6px; color: {c['text_main']}; font-family: "Vazirmatn"; font-size: 13px; }}
+            QListWidget::item {{ background: transparent; color: {c['text_main']}; border-radius: 10px; padding: 10px 16px; margin: 2px 4px; min-height: 20px; }}
+            QListWidget::item:hover {{ background-color: {c['bg_hover']}; color: {c['accent']}; }}
+            QListWidget::item:selected {{ background-color: {c['accent']}; color: white; }}
         """)
 
         for i in range(self.count()):
             item = QListWidgetItem(self.itemText(i))
             item.setData(Qt.UserRole, i)
-            item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item.setTextAlignment(Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter)
             item.setSizeHint(QSize(0, 42))
             self._list.addItem(item)
             if i == self.currentIndex():
@@ -139,7 +145,7 @@ class RoundedComboBox(QComboBox):
         self._list.itemClicked.connect(self._on_item_clicked)
         card_layout.addWidget(self._list)
 
-        self._popup.setStyleSheet(f"QFrame#comboCard {{background-color: {c['bg_card']};border: 1px solid {c['border']};border-radius: 18px;}}")
+        self._popup.setStyleSheet(f"QFrame#comboCard {{ background-color: {c['bg_card']}; border: 1px solid {c['border']}; border-radius: 18px; }}")
 
         count = max(self.count(), 1)
         content_h = count * 42 + 32
@@ -693,61 +699,124 @@ class PersianDateButton(QFrame):
 
         self._qdate = QDate.currentDate()
 
-        self.setObjectName("persianDateFrame")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShadow(QFrame.Plain)
+        self.setLineWidth(0)
+        self.setMidLineWidth(0)
+
+        self.setAttribute(Qt.WA_Hover, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
         self.setFixedHeight(42)
         self.setMinimumWidth(220)
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 14, 0)
-        layout.setSpacing(8)
+        self._hover = False
+        self.setStyleSheet("QFrame { background: transparent; border: none; }")
 
-        self.icon_label = QLabel("📅")
-        self.icon_label.setObjectName("dateIconLabel")
-        self.icon_label.setFixedSize(30, 30)
-        self.icon_label.setAlignment(Qt.AlignCenter)
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
 
-        self.date_btn = QPushButton()
-        self.date_btn.setObjectName("persianDateButton")
-        self.date_btn.setCursor(Qt.PointingHandCursor)
+    def leaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
 
-        layout.addWidget(self.icon_label)
-        layout.addWidget(self.date_btn, 1)
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = theme_manager.colors()
 
-        self._refresh_text()
-        self.mousePressEvent = self._frame_clicked
-        self.date_btn.clicked.connect(self._open_dialog)
+        rect = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
 
-    def _frame_clicked(self, event):
-        self._open_dialog()
-        event.accept()
+        if self._hover:
+            painter.setBrush(QColor(c["bg_card"]))
+            painter.setPen(QColor(c["border_hover"]))
+        else:
+            painter.setBrush(QColor(c["bg_input"]))
+            painter.setPen(QColor(c["border"]))
 
-    def _refresh_text(self):
+        painter.drawRoundedRect(rect, 21.0, 21.0)
+
+        icon_size = 30
+        icon_margin = 6
+        icon_x = rect.right() - icon_size - icon_margin
+        icon_y = rect.top() + (rect.height() - icon_size) / 2
+        icon_rect = QRectF(icon_x, icon_y, icon_size, icon_size)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(c["accent_light"]))
+        painter.drawRoundedRect(icon_rect, 10.0, 10.0)
+
+        font = painter.font()
+        font.setFamily("Segoe UI Emoji")
+        font.setPointSize(12)
+        painter.setFont(font)
+        painter.setPen(QColor(c["accent"]))
+        painter.drawText(icon_rect, Qt.AlignCenter, "📅")
+
+        painter.setPen(QColor(c["accent"]) if self._hover else QColor(c["text_main"]))
+        font = painter.font()
+        font.setFamily("Vazirmatn")
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+
         jy, jm, jd = gregorian_to_jalali(
             self._qdate.year(), self._qdate.month(), self._qdate.day()
         )
-        self.date_btn.setText(f"{jy:04d} / {jm:02d} / {jd:02d}")
+        text = f"{jy:04d} / {jm:02d} / {jd:02d}"
+
+        text_rect = rect.adjusted(14.0, 0.0, -(icon_size + icon_margin + 8), 0.0)
+        painter.drawText(text_rect, Qt.AlignRight | Qt.AlignVCenter, text)
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._open_dialog()
+            event.accept()
 
     def date(self):
         return self._qdate
 
     def setDate(self, qdate):
         self._qdate = qdate
-        self._refresh_text()
+        self.update()
 
     def _open_dialog(self):
         self._popup = PersianCalendarPopup(self, self._qdate)
         self._popup.dateSelected.connect(self._on_date_selected)
-        global_pos = self.mapToGlobal(QPoint(0, self.height() + 4))
-        self._popup.move(global_pos)
+
+        popup_w = self._popup.width()
+        popup_h = self._popup.height()
+
+        btn_global = self.mapToGlobal(QPoint(0, self.height() + 4))
+        x = btn_global.x() + self.width() - popup_w
+        y = btn_global.y()
+
+        try:
+            screen = QApplication.primaryScreen()
+            if screen:
+                geo = screen.availableGeometry()
+                if x + popup_w > geo.right():
+                    x = geo.right() - popup_w - 8
+                if x < geo.left():
+                    x = geo.left() + 8
+                if y + popup_h > geo.bottom():
+                    y = self.mapToGlobal(QPoint(0, 0)).y() - popup_h - 4
+                if y < geo.top():
+                    y = geo.top() + 8
+        except Exception:
+            pass
+
+        self._popup.move(x, y)
         self._popup.show()
 
     def _on_date_selected(self, qdate):
-        if qdate == self._qdate:
-            return
         self._qdate = qdate
-        self._refresh_text()
+        self.update()
         self.dateChanged.emit(self._qdate)
 
 # =========================================================
@@ -877,6 +946,12 @@ class AttendanceWindow(QWidget):
         self.complex_id = None
         self.complexes = []
 
+        # ═══ سلسله مراتب ═══
+        self.level = LEVEL_EMPLOYEE
+        self.can_manage_attendance = False
+        self.is_owner = False
+        self.visible_ids = []
+
         self.work_start = QTime(8, 0, 0)
         self.work_end = QTime(16, 0, 0)
 
@@ -909,7 +984,7 @@ class AttendanceWindow(QWidget):
     def on_theme_changed(self, theme_name):
         self.apply_stylesheet()
         self.refresh_my_attendance()
-        if self.is_owner:
+        if self.can_manage_attendance:
             self.refresh_employees_attendance()
 
     def on_language_changed(self, lang):
@@ -930,11 +1005,17 @@ class AttendanceWindow(QWidget):
     def on_employee_changed(self, complex_id):
         if complex_id != self.complex_id:
             return
-        if self.is_owner:
+        # ═══ بازخوانی hierarchy ═══
+        self.recalculate_hierarchy()
+        if self.can_manage_attendance:
             try:
                 self.refresh_employees_attendance()
             except Exception as e:
                 print("REFRESH EMP ATTENDANCE ERROR:", e)
+
+    # =====================================================
+    # LOAD USER DATA
+    # =====================================================
 
     def load_user_data(self):
         try:
@@ -1002,6 +1083,50 @@ class AttendanceWindow(QWidget):
             except Exception:
                 pass
 
+        # ═══ محاسبه سلسله مراتب ═══
+        self.recalculate_hierarchy()
+
+    def recalculate_hierarchy(self):
+        """محاسبه level, is_owner, can_manage, visible_ids"""
+        if not self.complex_id or not self.member_id:
+            self.level = LEVEL_EMPLOYEE
+            self.is_owner = False
+            self.can_manage_attendance = False
+            self.visible_ids = []
+            return
+
+        try:
+            # ═══ level از role ═══
+            self.level = get_member_level(
+                self.db, self.complex_id, self.member_id
+            )
+
+            expected = role_to_level(self.role)
+            if expected < self.level:
+                self.level = expected
+
+            self.is_owner = (self.level == LEVEL_OWNER)
+            self.can_manage_attendance = self.level in (
+                LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR
+            )
+
+            # ═══ visible_ids ═══
+            self.visible_ids = get_visible_member_ids(
+                self.db, self.complex_id, self.member_id, self.level
+            )
+
+            print("ATTENDANCE DEBUG:",
+                  "level =", self.level,
+                  "| can_manage =", self.can_manage_attendance,
+                  "| visible_ids =", self.visible_ids)
+
+        except Exception as e:
+            print("RECALCULATE HIERARCHY ERROR:", e)
+            self.level = LEVEL_EMPLOYEE
+            self.is_owner = False
+            self.can_manage_attendance = False
+            self.visible_ids = [self.member_id] if self.member_id else []
+
     def make_rounded_scroll(self, content_widget):
         scroll = QScrollArea()
         scroll.setObjectName("attendanceScroll")
@@ -1015,6 +1140,10 @@ class AttendanceWindow(QWidget):
 
         scroll.setWidget(content_widget)
         return scroll
+
+    # =====================================================
+    # SETUP UI
+    # =====================================================
 
     def setup_ui(self):
 
@@ -1072,9 +1201,8 @@ class AttendanceWindow(QWidget):
 
         main_layout.addLayout(header)
 
-        self.is_owner = self.role in ("owner", "both")
-
-        if self.is_owner:
+        # ═══ تب‌ها ═══
+        if self.can_manage_attendance:
             tabs = QHBoxLayout()
             tabs.setSpacing(6)
 
@@ -1460,7 +1588,7 @@ class AttendanceWindow(QWidget):
         """)
 
     def switch_tab(self, index):
-        if not self.is_owner:
+        if not self.can_manage_attendance:
             return
         self.stack.setCurrentIndex(index)
 
@@ -1480,7 +1608,7 @@ class AttendanceWindow(QWidget):
             return
         self.set_active_complex(self.complexes[index])
         self.refresh_my_attendance()
-        if self.is_owner:
+        if self.can_manage_attendance:
             self.refresh_employees_attendance()
 
     def build_my_attendance_tab(self):
@@ -2441,36 +2569,77 @@ class AttendanceWindow(QWidget):
             text = f"{h}{tr('hour_short')} {m}{tr('min_short')}" if h > 0 else f"{m}{tr('min_short')}"
         self.overtime_value.setText(text)
 
+    # =====================================================
+    # EMPLOYEES ATTENDANCE (سلسله‌مراتبی)
+    # =====================================================
+
     def refresh_employees_attendance(self):
-        if not self.is_owner or not self.complex_id:
+        if not self.can_manage_attendance or not self.complex_id:
             return
 
         while self.emp_list_layout.count():
             item = self.emp_list_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
+
+        QApplication.processEvents()
 
         selected_qdate = self.date_filter.date()
         selected_str = selected_qdate.toString("yyyy-MM-dd")
 
+        # ═══════════════════════════════════════════════════
+        # ⭐ visible_ids منهای خودم
+        # ═══════════════════════════════════════════════════
+        target_ids = [
+            mid for mid in self.visible_ids
+            if mid != self.member_id
+        ]
+
+        if not target_ids:
+            empty = QFrame()
+            empty.setObjectName("emptyCard")
+            empty.setAttribute(Qt.WA_StyledBackground, True)
+            empty.setMinimumHeight(120)
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(20, 30, 20, 30)
+            t = QLabel("کارمندی برای نمایش وجود ندارد.")
+            t.setObjectName("emptyText")
+            t.setAlignment(Qt.AlignCenter)
+            el.addWidget(t)
+            self.emp_list_layout.addWidget(empty)
+            self.emp_list_layout.addStretch()
+            return
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
         try:
             rows = self.db.fetch_all(
-                """
-                SELECT cm.memberId, u.name, u.phoneNumber, a.attendanceId,
-                       a.workDate, a.checkIn, a.checkOut, a.workedMinutes,
-                       a.overtimeMinutes, a.approvalStatus, a.description,
-                       a.status
+                f"""
+                SELECT cm.memberId, u.name, u.phoneNumber, cm.role,
+                       a.attendanceId, a.workDate, a.checkIn, a.checkOut,
+                       a.workedMinutes, a.overtimeMinutes, a.approvalStatus,
+                       a.description, a.status
                 FROM complex_members cm
                 INNER JOIN users u ON u.userId = cm.userId
                 LEFT JOIN attendance a ON a.memberId = cm.memberId AND a.workDate = %s
                 WHERE cm.complexId = %s
-                  AND cm.role IN ('employee', 'both')
+                  AND cm.memberId IN ({placeholders})
+                  AND cm.role NOT IN ('owner', 'both')
                   AND cm.isActive = '1'
-                ORDER BY u.name ASC
+                ORDER BY
+                    CASE cm.role
+                        WHEN 'manager'    THEN 1
+                        WHEN 'supervisor' THEN 2
+                        WHEN 'employee'   THEN 3
+                        ELSE 4
+                    END,
+                    u.name ASC
                 """,
-                (selected_str, self.complex_id)
+                (selected_str, self.complex_id, *target_ids)
             )
+            print("ATTENDANCE EMP DEBUG: rows =", len(rows) if rows else 0)
         except Exception as e:
             print("REFRESH EMP ATTENDANCE ERROR:", e)
             rows = []
@@ -2518,7 +2687,7 @@ class AttendanceWindow(QWidget):
 
         name_row = QHBoxLayout()
         name_row.setContentsMargins(0, 0, 0, 0)
-        name_row.setSpacing(0)
+        name_row.setSpacing(8)
 
         name_label = QLabel(name_text)
         name_label.setStyleSheet(
@@ -2527,7 +2696,25 @@ class AttendanceWindow(QWidget):
         )
         name_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
+        # badge role
+        role_val = row.get("role") or "employee"
+        role_badge_map = {
+            "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
+            "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
+            "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
+        }
+        badge_info = role_badge_map.get(role_val, role_badge_map["employee"])
+        role_badge = QLabel(badge_info[0])
+        role_badge.setAlignment(Qt.AlignCenter)
+        role_badge.setStyleSheet(
+            f"color: {badge_info[1]};"
+            f"background-color: {badge_info[2]};"
+            f"border: none; border-radius: 10px;"
+            f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+        )
+
         name_row.addWidget(name_label)
+        name_row.addWidget(role_badge)
         name_row.addStretch()
 
         phone_row = QHBoxLayout()
@@ -2705,6 +2892,10 @@ class AttendanceWindow(QWidget):
         outer.addLayout(bottom_row)
 
         return card
+
+    # =====================================================
+    # OWNER / MANAGER ACTIONS
+    # =====================================================
 
     def owner_register_entry(self, row):
         member_id = row.get("memberId")

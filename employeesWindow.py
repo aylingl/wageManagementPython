@@ -3,7 +3,7 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QFrame, QScrollArea, QScrollBar, QDialog, QLineEdit,
-    QComboBox, QTimeEdit, QCheckBox
+    QTimeEdit, QCheckBox, QApplication
 )
 
 from PySide6.QtCore import Qt, QTime, QPoint, QTimer
@@ -15,6 +15,23 @@ from theme import theme_manager
 from i18n import tr, set_language, get_language
 
 from addEmployees import AddEmployees, NiceMessageBox, RoundedComboBox
+from hierarchy import (
+    LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
+    role_to_level, get_visible_member_ids, get_member_level,
+    ensure_hierarchy_row, set_supervisor_and_level
+)
+
+# =========================================================
+# ROLE BADGES
+# =========================================================
+
+ROLE_BADGE_FA = {
+    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
+    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
+    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
+}
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -165,8 +182,16 @@ class EmployeesWindow(QWidget):
 
         self.db = Database()
 
+        self.user_id = None
+        self.member_id = None
+        self.level = LEVEL_EMPLOYEE
+        self.is_owner = False
+        self.visible_ids = []
+
         if self.complex_id is None:
             self.find_first_complex()
+
+        self.load_user_hierarchy()
 
         self.setWindowTitle(tr("employees_title"))
         self.resize(1000, 700)
@@ -210,6 +235,7 @@ class EmployeesWindow(QWidget):
 
     def on_employee_changed(self, complex_id):
         if complex_id == self.complex_id:
+            self.load_user_hierarchy()
             self.load_employees_from_database()
 
     # =====================================================
@@ -239,6 +265,68 @@ class EmployeesWindow(QWidget):
             print("FIND FIRST COMPLEX ERROR:", e)
 
     # =====================================================
+    # LOAD USER HIERARCHY
+    # =====================================================
+
+    def load_user_hierarchy(self):
+        self.user_id = None
+        self.member_id = None
+        self.level = LEVEL_EMPLOYEE
+        self.is_owner = False
+        self.visible_ids = []
+
+        if not self.phone_number or not self.complex_id:
+            return
+
+        try:
+            user = self.db.fetch_one(
+                "SELECT userId FROM users WHERE phoneNumber = %s LIMIT 1",
+                (self.phone_number,)
+            )
+            if not user:
+                return
+            self.user_id = user["userId"]
+
+            member = self.db.fetch_one(
+                """
+                SELECT memberId, role
+                FROM complex_members
+                WHERE complexId = %s AND userId = %s AND isActive = '1'
+                LIMIT 1
+                """,
+                (self.complex_id, self.user_id)
+            )
+            if not member:
+                return
+            self.member_id = member["memberId"]
+            role_value = member.get("role") or "employee"
+
+            self.level = get_member_level(
+                self.db, self.complex_id, self.member_id
+            )
+
+            expected_level = role_to_level(role_value)
+            if expected_level < self.level:
+                self.level = expected_level
+                ensure_hierarchy_row(
+                    self.db, self.complex_id, self.member_id, role_value
+                )
+
+            self.is_owner = (self.level == LEVEL_OWNER)
+
+            self.visible_ids = get_visible_member_ids(
+                self.db, self.complex_id, self.member_id, self.level
+            )
+
+            print("DEBUG: member_id =", self.member_id,
+                  "| level =", self.level,
+                  "| is_owner =", self.is_owner,
+                  "| visible_ids =", self.visible_ids)
+
+        except Exception as e:
+            print("LOAD USER HIERARCHY ERROR:", e)
+
+    # =====================================================
     # UI
     # =====================================================
 
@@ -248,7 +336,6 @@ class EmployeesWindow(QWidget):
         main_layout.setContentsMargins(28, 22, 28, 22)
         main_layout.setSpacing(16)
 
-        # HEADER
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
 
@@ -549,9 +636,51 @@ class EmployeesWindow(QWidget):
             self.refresh_employees()
             return
 
+        if not self.visible_ids:
+            self.load_user_hierarchy()
+
+        # ═══════════════════════════════════════════════════
+        # ⭐ محاسبه target_ids
+        # ═══════════════════════════════════════════════════
+        target_ids = []
+
+        if self.is_owner:
+            # ═══ مالک: همه اعضای مجموعه به جز خودش ═══
+            try:
+                rows = self.db.fetch_all(
+                    """
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s
+                      AND isActive = '1'
+                      AND role NOT IN ('owner', 'both')
+                      AND memberId != %s
+                    """,
+                    (self.complex_id, self.member_id or 0)
+                )
+                target_ids = [r["memberId"] for r in rows] if rows else []
+                print("DEBUG OWNER target_ids:", target_ids)
+            except Exception as e:
+                print("LOAD OWNER TARGET IDS ERROR:", e)
+                target_ids = []
+
+        else:
+            # ═══ مدیر/سرپرست: زیردست‌ها به جز خودش ═══
+            target_ids = [
+                mid for mid in self.visible_ids
+                if mid != self.member_id
+            ]
+            print("DEBUG NON-OWNER target_ids:", target_ids)
+
+        if not target_ids:
+            print("DEBUG: target_ids is empty -> empty state")
+            self.refresh_employees()
+            return
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
         try:
             employees = self.db.fetch_all(
-                """
+                f"""
                 SELECT
                     cm.memberId, cm.userId, cm.role, cm.isActive,
                     u.name, u.phoneNumber,
@@ -563,12 +692,22 @@ class EmployeesWindow(QWidget):
                 INNER JOIN users u ON u.userId = cm.userId
                 LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
                 WHERE cm.complexId = %s
-                  AND cm.role IN ('employee', 'both')
+                  AND cm.memberId IN ({placeholders})
+                  AND cm.role NOT IN ('owner', 'both')
                   AND cm.isActive = '1'
-                ORDER BY cm.memberId DESC
+                ORDER BY
+                    CASE cm.role
+                        WHEN 'manager'    THEN 1
+                        WHEN 'supervisor' THEN 2
+                        WHEN 'employee'   THEN 3
+                        ELSE 4
+                    END,
+                    u.name ASC
                 """,
-                (self.complex_id,)
+                (self.complex_id, *target_ids)
             )
+
+            print("DEBUG QUERY RESULT COUNT:", len(employees) if employees else 0)
 
             for row in employees:
                 employment_type = row.get("employmentType")
@@ -605,6 +744,8 @@ class EmployeesWindow(QWidget):
                 else:
                     work_time_text = "-"
 
+                role_val = row.get("role") or "employee"
+
                 employee = {
                     "memberId": row.get("memberId"),
                     "userId": row.get("userId"),
@@ -628,7 +769,9 @@ class EmployeesWindow(QWidget):
                     "end_time": end_time,
                     "description": row.get("description") or "",
                     "can_see_employees": row.get("canSeeEmployees") or "0",
-                    "allow_overtime": row.get("allowOvertime") or "1"
+                    "allow_overtime": row.get("allowOvertime") or "1",
+                    "role_value": role_val,
+                    "level": role_to_level(role_val),
                 }
 
                 self.employees.append(employee)
@@ -648,7 +791,21 @@ class EmployeesWindow(QWidget):
             item = self.employees_layout.takeAt(0)
             widget = item.widget()
             if widget:
+                widget.setParent(None)
                 widget.deleteLater()
+
+        QApplication.processEvents()
+
+        if not self.employees:
+            empty = QLabel("هنوز کارمندی برای نمایش وجود ندارد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {theme_manager.colors()['text_dim']};"
+                f"font-size: 13px; padding: 40px; background: transparent;"
+            )
+            self.employees_layout.addWidget(empty)
+            self.employees_layout.addStretch()
+            return
 
         for employee in self.employees:
             self.add_employee_card(employee)
@@ -755,9 +912,28 @@ class EmployeesWindow(QWidget):
         info_layout.setSpacing(4)
         info_layout.setAlignment(Qt.AlignRight)
 
+        name_row = QHBoxLayout()
+        name_row.setContentsMargins(0, 0, 0, 0)
+        name_row.setSpacing(8)
+
         name_label = QLabel(employee.get("name", tr("no_name")))
         name_label.setObjectName("employeeName")
         name_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
+
+        role_value = employee.get("role_value", "employee")
+        badge_info = ROLE_BADGE_FA.get(role_value, ROLE_BADGE_FA["employee"])
+        role_badge = QLabel(badge_info[0])
+        role_badge.setAlignment(Qt.AlignCenter)
+        role_badge.setStyleSheet(
+            f"color: {badge_info[1]};"
+            f"background-color: {badge_info[2]};"
+            f"border: none; border-radius: 10px;"
+            f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+        )
+
+        name_row.addWidget(name_label)
+        name_row.addWidget(role_badge)
+        name_row.addStretch()
 
         phone = employee.get("phone", "-")
         phone_row = QLabel(f"{phone}")
@@ -798,7 +974,7 @@ class EmployeesWindow(QWidget):
         days_hours_row.setObjectName("employeeInfo")
         days_hours_row.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
-        info_layout.addWidget(name_label)
+        info_layout.addLayout(name_row)
         info_layout.addWidget(phone_row)
         info_layout.addSpacing(4)
         info_layout.addWidget(divider)
@@ -996,7 +1172,7 @@ class EmployeesWindow(QWidget):
                 INNER JOIN users u ON u.userId = cm.userId
                 LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
                 WHERE cm.complexId = %s
-                  AND cm.role IN ('employee', 'both')
+                  AND cm.role NOT IN ('owner', 'both')
                   AND cm.isActive = '0'
                 ORDER BY cm.memberId DESC
                 """,
@@ -1115,12 +1291,36 @@ class EmployeesWindow(QWidget):
 
             NiceMessageBox.success(self, tr("saved"), "کارمند با موفقیت فعال شد.")
             dialog.accept()
+            self.load_user_hierarchy()
             self.load_employees_from_database()
             signals.employee_added.emit(self.complex_id)
             signals.data_changed.emit("jobs")
         except Exception as e:
             print("ACTIVATE MEMBER ERROR:", e)
             NiceMessageBox.error(self, tr("error"), str(e))
+
+    # =====================================================
+    # GET OWNER MEMBER ID
+    # =====================================================
+
+    def get_owner_member_id(self):
+        try:
+            row = self.db.fetch_one(
+                """
+                SELECT memberId FROM complex_members
+                WHERE complexId = %s
+                  AND role IN ('owner', 'both')
+                  AND isActive = '1'
+                ORDER BY memberId ASC
+                LIMIT 1
+                """,
+                (self.complex_id,)
+            )
+            if row:
+                return row["memberId"]
+        except Exception as e:
+            print("GET OWNER MEMBER ID ERROR:", e)
+        return None
 
     # =====================================================
     # EDIT DIALOG
@@ -1138,7 +1338,8 @@ class EmployeesWindow(QWidget):
                    ep.baseSalary, ep.workDays, ep.workHours,
                    ep.workStartTime, ep.workEndTime,
                    ep.canSeeEmployees, ep.allowOvertime,
-                   u.name, u.phoneNumber
+                   u.name, u.phoneNumber,
+                   cm.role
             FROM employee_profiles ep
             INNER JOIN complex_members cm ON cm.memberId = ep.memberId
             INNER JOIN users u ON u.userId = cm.userId
@@ -1149,10 +1350,7 @@ class EmployeesWindow(QWidget):
         )
 
         if not row:
-            NiceMessageBox.error(
-                self, tr("error"),
-                tr("err_loading_groups")
-            )
+            NiceMessageBox.error(self, tr("error"), tr("err_loading_groups"))
             return
 
         c = theme_manager.colors()
@@ -1162,20 +1360,86 @@ class EmployeesWindow(QWidget):
         dialog.setLayoutDirection(Qt.RightToLeft)
         dialog.setModal(True)
         dialog.setAttribute(Qt.WA_StyledBackground, True)
+        dialog.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        dialog.setMinimumSize(400, 300)
 
-        # ═══ قابل تغییر اندازه + باریک‌تر ═══
-        dialog.setMinimumSize(480, 500)
-        dialog.resize(620, 720)
+        try:
+            pg = self.frameGeometry()
+            dialog.setGeometry(pg.x(), pg.y(), pg.width(), pg.height())
+        except Exception:
+            dialog.resize(self.width(), self.height())
 
         main_layout = QVBoxLayout(dialog)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
+        # ═══ HEADER ═══
+        header_frame = QFrame()
+        header_frame.setAttribute(Qt.WA_StyledBackground, True)
+        header_frame.setStyleSheet(
+            f"QFrame {{ background-color: {c['bg_main']}; border: none; }}"
+        )
+
+        header_outer = QVBoxLayout(header_frame)
+        header_outer.setContentsMargins(28, 22, 28, 10)
+        header_outer.setSpacing(10)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(12)
+
+        back_btn = QPushButton("›")
+        back_btn.setFixedSize(42, 42)
+        back_btn.setCursor(Qt.PointingHandCursor)
+        back_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {c['bg_card']};
+                color: {c['accent']};
+                border: 1px solid {c['border']};
+                border-radius: 21px;
+                font-size: 22px;
+                font-weight: 600;
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background-color: {c['bg_hover']};
+                border-color: {c['border_hover']};
+            }}
+        """)
+        back_btn.clicked.connect(dialog.reject)
+
+        title_v = QVBoxLayout()
+        title_v.setSpacing(3)
+
+        d_title = QLabel(f"{tr('edit_salary_info')} — {employee.get('name') or tr('no_name')}")
+        d_title.setStyleSheet(
+            f"color: {c['text_main']}; font-size: 21px; "
+            f"font-weight: 700; background: transparent;"
+        )
+
+        d_sub = QLabel("ویرایش اطلاعات کارمند")
+        d_sub.setStyleSheet(
+            f"color: {c['text_dim']}; font-size: 11px; background: transparent;"
+        )
+
+        title_v.addWidget(d_title)
+        title_v.addWidget(d_sub)
+
+        header_row.addWidget(back_btn)
+        header_row.addLayout(title_v)
+        header_row.addStretch()
+
+        header_outer.addLayout(header_row)
+        main_layout.addWidget(header_frame)
+
+        # ═══ SCROLL ═══
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollArea::viewport { background: transparent; }")
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea::viewport { background: transparent; }"
+        )
         vbar = RoundScrollBar(Qt.Vertical, scroll)
         scroll.setVerticalScrollBar(vbar)
 
@@ -1183,70 +1447,139 @@ class EmployeesWindow(QWidget):
         content.setStyleSheet(f"background-color: {c['bg_main']};")
 
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(28, 26, 28, 24)
-        layout.setSpacing(10)
+        layout.setContentsMargins(28, 10, 28, 24)
+        layout.setSpacing(6)
 
-        name_old = employee.get("name") or tr("no_name")
+        form_box = QFrame()
+        form_box.setObjectName("formBox")
+        form_box.setAttribute(Qt.WA_StyledBackground, True)
 
-        title = QLabel(f"{tr('edit_salary_info')} — {name_old}")
-        title.setStyleSheet(f"color: {c['text_main']}; font-size: 15px; font-weight: 700; background: transparent;")
-        layout.addWidget(title)
-        layout.addSpacing(4)
+        form_layout = QVBoxLayout(form_box)
+        form_layout.setContentsMargins(24, 20, 24, 20)
+        form_layout.setSpacing(6)
 
+        # ═══ NAME ═══
         name_lbl = QLabel("نام")
-        name_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
-
+        name_lbl.setObjectName("fieldLabel")
         name_input = QLineEdit()
+        name_input.setObjectName("formInput")
         name_input.setText(row.get("name") or "")
         name_input.setFixedHeight(44)
-
         name_err = QLabel()
-        name_err.setStyleSheet("color: #D93025; font-size: 11px; font-weight: 600; background: transparent;")
+        name_err.setObjectName("fieldError")
         name_err.setFixedHeight(16)
         name_err.hide()
+        form_layout.addWidget(name_lbl)
+        form_layout.addWidget(name_input)
+        form_layout.addWidget(name_err)
 
-        layout.addWidget(name_lbl)
-        layout.addWidget(name_input)
-        layout.addWidget(name_err)
-
+        # ═══ PHONE ═══
         phone_lbl = QLabel("شماره موبایل")
-        phone_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
-
+        phone_lbl.setObjectName("fieldLabel")
         phone_input = QLineEdit()
+        phone_input.setObjectName("formInput")
         phone_input.setText(str(row.get("phoneNumber") or ""))
         phone_input.setFixedHeight(44)
         phone_input.setLayoutDirection(Qt.LeftToRight)
         phone_input.setMaxLength(11)
-
         phone_err = QLabel()
-        phone_err.setStyleSheet("color: #D93025; font-size: 11px; font-weight: 600; background: transparent;")
+        phone_err.setObjectName("fieldError")
         phone_err.setFixedHeight(16)
         phone_err.hide()
+        form_layout.addWidget(phone_lbl)
+        form_layout.addWidget(phone_input)
+        form_layout.addWidget(phone_err)
 
-        layout.addWidget(phone_lbl)
-        layout.addWidget(phone_input)
-        layout.addWidget(phone_err)
+        form_layout.addSpacing(4)
 
-        job_lbl = QLabel(tr("role_in_group"))
-        job_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        # ═══ HIERARCHY ROLE ═══
+        role_global_lbl = QLabel("نقش کلی")
+        role_global_lbl.setObjectName("fieldLabel")
 
-        job_input = QLineEdit()
-        job_input.setText(row.get("jobTitle") or "")
-        job_input.setFixedHeight(44)
+        role_global_combo = RoundedComboBox()
+        role_global_combo.setObjectName("formInput")
+        role_global_combo.setFixedHeight(44)
 
-        job_err = QLabel()
-        job_err.setStyleSheet("color: #D93025; font-size: 11px; font-weight: 600; background: transparent;")
-        job_err.setFixedHeight(16)
-        job_err.hide()
+        role_global_combo.addItem("👤  کارمند",  "employee")
+        role_global_combo.addItem("🎯  سرپرست", "supervisor")
+        role_global_combo.addItem("📋  مدیر",   "manager")
 
-        layout.addWidget(job_lbl)
-        layout.addWidget(job_input)
-        layout.addWidget(job_err)
+        current_role_value = row.get("role") or "employee"
+        if current_role_value not in ("employee", "supervisor", "manager"):
+            current_role_value = "employee"
 
+        for i in range(role_global_combo.count()):
+            if role_global_combo.itemData(i) == current_role_value:
+                role_global_combo.setCurrentIndex(i)
+                break
+
+        form_layout.addWidget(role_global_lbl)
+        form_layout.addWidget(role_global_combo)
+
+        form_layout.addSpacing(4)
+
+        # ═══ ROLE IN GROUP ═══
+        role_lbl = QLabel(tr("role_in_group"))
+        role_lbl.setObjectName("fieldLabel")
+
+        role_input = QLineEdit()
+        role_input.setObjectName("formInput")
+        role_input.setFixedHeight(44)
+
+        role_titles = {
+            "employee":   "کارمند",
+            "supervisor": "سرپرست",
+            "manager":    "مدیر",
+        }
+        all_prefixes = ["کارمند", "سرپرست", "مدیر"]
+
+        def strip_prefix(text):
+            stripped = text.strip()
+            for p in all_prefixes:
+                if stripped.startswith(p):
+                    return stripped[len(p):].strip()
+            return stripped
+
+        initial_job_title = row.get("jobTitle") or ""
+        initial_suffix = strip_prefix(initial_job_title)
+        initial_base = role_titles.get(current_role_value, "کارمند")
+
+        if initial_suffix:
+            role_input.setText(f"{initial_base} {initial_suffix}")
+        else:
+            role_input.setText(initial_base)
+
+        role_err = QLabel()
+        role_err.setObjectName("fieldError")
+        role_err.setFixedHeight(16)
+        role_err.hide()
+
+        def on_global_role_changed():
+            new_role = role_global_combo.currentData()
+            base = role_titles.get(new_role, "کارمند")
+            current = role_input.text()
+            suffix = strip_prefix(current)
+            new_text = f"{base} {suffix}".strip() if suffix else base
+            if role_input.text() != new_text:
+                role_input.blockSignals(True)
+                role_input.setText(new_text)
+                role_input.setCursorPosition(len(new_text))
+                role_input.blockSignals(False)
+
+        role_global_combo.currentIndexChanged.connect(on_global_role_changed)
+
+        form_layout.addWidget(role_lbl)
+        form_layout.addWidget(role_input)
+        form_layout.addWidget(role_err)
+
+        form_layout.addSpacing(4)
+
+        # ═══ EMPLOYMENT TYPE ═══
         emp_lbl = QLabel(tr("employment_type"))
-        emp_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        emp_lbl.setObjectName("fieldLabel")
 
         emp_combo = RoundedComboBox()
+        emp_combo.setObjectName("formInput")
         emp_combo.setFixedHeight(44)
         emp_combo.addItem(tr("full_time"), "fullTime")
         emp_combo.addItem(tr("part_time"), "partTime")
@@ -1257,13 +1590,28 @@ class EmployeesWindow(QWidget):
                 emp_combo.setCurrentIndex(i)
                 break
 
-        layout.addWidget(emp_lbl)
-        layout.addWidget(emp_combo)
+        form_layout.addWidget(emp_lbl)
+        form_layout.addWidget(emp_combo)
 
+        # ═══ DIVIDER ═══
+        divider = QFrame()
+        divider.setObjectName("divider")
+        divider.setFixedHeight(1)
+        form_layout.addSpacing(6)
+        form_layout.addWidget(divider)
+        form_layout.addSpacing(6)
+
+        section_title = QLabel(f"💰  {tr('salary_details_section')}")
+        section_title.setObjectName("sectionTitle")
+        form_layout.addWidget(section_title)
+        form_layout.addSpacing(4)
+
+        # ═══ SALARY TYPE ═══
         st_lbl = QLabel(tr("salary_type"))
-        st_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        st_lbl.setObjectName("fieldLabel")
 
         st_combo = RoundedComboBox()
+        st_combo.setObjectName("formInput")
         st_combo.setFixedHeight(44)
         st_combo.addItem(tr("monthly"), "monthly")
         st_combo.addItem(tr("daily"), "daily")
@@ -1275,27 +1623,59 @@ class EmployeesWindow(QWidget):
                 st_combo.setCurrentIndex(i)
                 break
 
-        layout.addWidget(st_lbl)
-        layout.addWidget(st_combo)
+        form_layout.addWidget(st_lbl)
+        form_layout.addWidget(st_combo)
 
+        # ═══ SALARY AMOUNT ═══
         sal_lbl = QLabel(tr("amount_label"))
-        sal_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        sal_lbl.setObjectName("fieldLabel")
 
         sal_input = QLineEdit()
-        sal_input.setText(str(int(float(row.get("baseSalary") or 0))))
+        sal_input.setObjectName("formInput")
+        try:
+            sal_input.setText(f"{int(float(row.get('baseSalary') or 0)):,}")
+        except Exception:
+            sal_input.setText("0")
         sal_input.setFixedHeight(44)
         sal_input.setLayoutDirection(Qt.LeftToRight)
+        sal_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        layout.addWidget(sal_lbl)
-        layout.addWidget(sal_input)
+        def format_salary_live(text):
+            digits = "".join(ch for ch in text if ch.isdigit())
+            if not digits:
+                return
+            try:
+                num = int(digits)
+                formatted = f"{num:,}"
+                if text != formatted:
+                    sal_input.blockSignals(True)
+                    sal_input.setText(formatted)
+                    sal_input.setCursorPosition(len(formatted))
+                    sal_input.blockSignals(False)
+            except ValueError:
+                pass
 
+        sal_input.textChanged.connect(format_salary_live)
+
+        sal_err = QLabel()
+        sal_err.setObjectName("fieldError")
+        sal_err.setFixedHeight(16)
+        sal_err.hide()
+
+        form_layout.addWidget(sal_lbl)
+        form_layout.addWidget(sal_input)
+        form_layout.addWidget(sal_err)
+
+        # ═══ DAYS + HOURS ═══
         dh_row = QHBoxLayout()
         dh_row.setSpacing(10)
 
         d_col = QVBoxLayout()
+        d_col.setSpacing(4)
         d_lbl = QLabel(tr("days_per_month"))
-        d_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        d_lbl.setObjectName("fieldLabel")
         d_input = QLineEdit()
+        d_input.setObjectName("formInput")
         d_input.setText(str(int(float(row.get("workDays") or 26))))
         d_input.setFixedHeight(44)
         d_input.setLayoutDirection(Qt.LeftToRight)
@@ -1303,9 +1683,11 @@ class EmployeesWindow(QWidget):
         d_col.addWidget(d_input)
 
         h_col = QVBoxLayout()
+        h_col.setSpacing(4)
         h_lbl = QLabel(tr("hours_per_day"))
-        h_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        h_lbl.setObjectName("fieldLabel")
         h_input = QLineEdit()
+        h_input.setObjectName("formInput")
         h_input.setText(str(int(float(row.get("workHours") or 8))))
         h_input.setFixedHeight(44)
         h_input.setLayoutDirection(Qt.LeftToRight)
@@ -1314,15 +1696,18 @@ class EmployeesWindow(QWidget):
 
         dh_row.addLayout(d_col, 1)
         dh_row.addLayout(h_col, 1)
-        layout.addLayout(dh_row)
+        form_layout.addLayout(dh_row)
 
+        # ═══ TIMES ═══
         te_row = QHBoxLayout()
         te_row.setSpacing(10)
 
         st_col = QVBoxLayout()
+        st_col.setSpacing(4)
         st_lbl2 = QLabel(tr("start_time"))
-        st_lbl2.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        st_lbl2.setObjectName("fieldLabel")
         start_te = QTimeEdit()
+        start_te.setObjectName("formInput")
         start_te.setDisplayFormat("HH:mm")
         start_te.setFixedHeight(44)
 
@@ -1343,9 +1728,11 @@ class EmployeesWindow(QWidget):
         st_col.addWidget(start_te)
 
         en_col = QVBoxLayout()
+        en_col.setSpacing(4)
         en_lbl = QLabel(tr("end_time"))
-        en_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px; font-weight: 600; background: transparent;")
+        en_lbl.setObjectName("fieldLabel")
         end_te = QTimeEdit()
+        end_te.setObjectName("formInput")
         end_te.setDisplayFormat("HH:mm")
         end_te.setFixedHeight(44)
 
@@ -1367,51 +1754,57 @@ class EmployeesWindow(QWidget):
 
         te_row.addLayout(st_col, 1)
         te_row.addLayout(en_col, 1)
-        layout.addLayout(te_row)
+        form_layout.addLayout(te_row)
 
+        # ═══ CHECKBOX ═══
         ot_check = QCheckBox(tr("allow_overtime_check"))
+        ot_check.setObjectName("formCheckbox")
         ot_check.setCursor(Qt.PointingHandCursor)
         ot_check.setChecked(str(row.get("allowOvertime") or "1") == "1")
 
-        see_check = QCheckBox(tr("can_see_employees_check"))
-        see_check.setCursor(Qt.PointingHandCursor)
-        see_check.setChecked(str(row.get("canSeeEmployees") or "0") == "1")
+        form_layout.addSpacing(4)
+        form_layout.addWidget(ot_check)
+        form_layout.addStretch()
 
-        layout.addSpacing(4)
-        layout.addWidget(ot_check)
-        layout.addWidget(see_check)
-
+        layout.addWidget(form_box)
         layout.addStretch()
 
         scroll.setWidget(content)
         main_layout.addWidget(scroll, 1)
 
+        # ═══ BOTTOM ═══
         bottom = QFrame()
         bottom.setAttribute(Qt.WA_StyledBackground, True)
-        bottom.setStyleSheet(f"background-color: {c['bg_card']}; border-top: 1px solid {c['border']};")
+        bottom.setStyleSheet(
+            f"QFrame {{ background-color: {c['bg_main']}; border: none; }}"
+        )
         bottom_layout = QHBoxLayout(bottom)
-        bottom_layout.setContentsMargins(28, 14, 28, 14)
-        bottom_layout.setSpacing(10)
+        bottom_layout.setContentsMargins(28, 10, 28, 22)
+        bottom_layout.setSpacing(12)
 
         cancel_btn = QPushButton(tr("cancel"))
-        cancel_btn.setFixedHeight(46)
+        cancel_btn.setFixedHeight(50)
         cancel_btn.setCursor(Qt.PointingHandCursor)
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {c['bg_input']};
+                background-color: {c['bg_card']};
                 color: {c['text_dim']};
                 border: 1px solid {c['border']};
                 border-radius: 23px;
-                padding: 0 26px;
-                font-size: 13px;
+                padding: 0 28px;
+                font-size: 14px;
                 font-weight: 600;
             }}
-            QPushButton:hover {{ background-color: {c['bg_hover']}; }}
+            QPushButton:hover {{
+                background-color: {c['bg_hover']};
+                color: {c['accent']};
+                border-color: {c['border_hover']};
+            }}
         """)
         cancel_btn.clicked.connect(dialog.reject)
 
         save_btn = QPushButton(tr("save"))
-        save_btn.setFixedHeight(46)
+        save_btn.setFixedHeight(50)
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1419,11 +1812,13 @@ class EmployeesWindow(QWidget):
                 color: white;
                 border: none;
                 border-radius: 23px;
-                padding: 0 30px;
-                font-size: 13px;
+                padding: 0 28px;
+                font-size: 14px;
                 font-weight: 700;
             }}
-            QPushButton:hover {{ background-color: {c['accent_hover']}; }}
+            QPushButton:hover {{
+                background-color: {c['accent_hover']};
+            }}
         """)
 
         def contains_digit(text):
@@ -1440,67 +1835,59 @@ class EmployeesWindow(QWidget):
         def on_save():
             name_text = name_input.text().strip()
             phone_text = phone_input.text().strip()
-            job_text = job_input.text().strip()
+            job_text = role_input.text().strip()
             sal_text = sal_input.text().strip()
             d_text = d_input.text().strip()
             h_text = h_input.text().strip()
             st_val = st_combo.currentData()
             emp_val = emp_combo.currentData()
+            new_role_value = role_global_combo.currentData() or "employee"
 
             name_err.hide()
             phone_err.hide()
-            job_err.hide()
+            role_err.hide()
+            sal_err.hide()
 
             if not name_text:
                 show_err(name_err, "لطفاً نام را وارد کنید.")
                 name_input.setFocus()
                 return
-
             if contains_digit(name_text):
                 show_err(name_err, "نام نباید شامل عدد باشد.")
                 name_input.setFocus()
                 return
-
             if not phone_text:
                 show_err(phone_err, "لطفاً شماره موبایل را وارد کنید.")
                 phone_input.setFocus()
                 return
-
             if not phone_text.isdigit() or len(phone_text) != 11 or not phone_text.startswith("09"):
                 show_err(phone_err, "شماره باید ۱۱ رقم و با ۰۹ شروع شود.")
                 phone_input.setFocus()
                 return
-
             if not job_text:
-                show_err(job_err, "لطفاً سمت را وارد کنید.")
-                job_input.setFocus()
-                return
-
-            if contains_digit(job_text):
-                show_err(job_err, "سمت نباید شامل عدد باشد.")
-                job_input.setFocus()
+                show_err(role_err, "لطفاً نقش در مجموعه را وارد کنید.")
+                role_input.setFocus()
                 return
 
             try:
                 sal_val = float(sal_text.replace(",", "").replace("٬", ""))
             except ValueError:
-                NiceMessageBox.error(dialog, tr("error"), tr("err_salary_invalid"))
+                show_err(sal_err, "حقوق باید عدد باشد.")
+                sal_input.setFocus()
                 return
-
             if sal_val <= 0:
-                NiceMessageBox.error(dialog, tr("error"), tr("err_salary_zero"))
+                show_err(sal_err, "حقوق باید بزرگ‌تر از صفر باشد.")
+                sal_input.setFocus()
                 return
 
             try:
                 d_val = float(d_text) if d_text else 26
             except ValueError:
                 d_val = 26
-
             try:
                 h_val = float(h_text) if h_text else 8
             except ValueError:
                 h_val = 8
-
             if d_val <= 0:
                 d_val = 26
             if h_val <= 0:
@@ -1508,17 +1895,14 @@ class EmployeesWindow(QWidget):
 
             st_time = start_te.time().toString("HH:mm:ss")
             en_time = end_te.time().toString("HH:mm:ss")
-
             ot_val = "1" if ot_check.isChecked() else "0"
-            see_val = "1" if see_check.isChecked() else "0"
+            see_val = row.get("canSeeEmployees") or "1"
 
             dup = self.db.fetch_one(
                 """
-                SELECT u.userId
-                FROM users u
+                SELECT u.userId FROM users u
                 INNER JOIN complex_members cm ON cm.userId = u.userId
-                WHERE u.phoneNumber = %s
-                  AND cm.memberId != %s
+                WHERE u.phoneNumber = %s AND cm.memberId != %s
                 LIMIT 1
                 """,
                 (phone_text, member_id)
@@ -1528,6 +1912,7 @@ class EmployeesWindow(QWidget):
                 phone_input.setFocus()
                 return
 
+            # ═══ UPDATE user ═══
             self.db.execute(
                 """
                 UPDATE users u
@@ -1538,6 +1923,7 @@ class EmployeesWindow(QWidget):
                 (name_text, phone_text, member_id)
             )
 
+            # ═══ UPDATE profile ═══
             self.db.execute(
                 """
                 UPDATE employee_profiles
@@ -1551,18 +1937,54 @@ class EmployeesWindow(QWidget):
                  st_time, en_time, see_val, ot_val, member_id)
             )
 
+            # ═══ UPDATE role ═══
+            self.db.execute(
+                """
+                UPDATE complex_members SET role = %s
+                WHERE memberId = %s AND complexId = %s
+                """,
+                (new_role_value, member_id, self.complex_id)
+            )
+
+            # ═══ بررسی ذخیره role ═══
+            verify = self.db.fetch_one(
+                "SELECT role FROM complex_members WHERE memberId = %s LIMIT 1",
+                (member_id,)
+            )
+            saved_role = verify.get("role") if verify else None
+
+            print("EDIT: requested role =", new_role_value, "| saved role =", saved_role)
+
+            if saved_role != new_role_value:
+                NiceMessageBox.error(
+                    dialog, "خطا",
+                    "نقش ذخیره نشد. لطفاً migration نقش‌ها را اجرا کن:\n\n"
+                    "migrations/003_role_varchar.sql"
+                )
+                return
+
+            # ═══ UPDATE hierarchy ═══
+            new_level = role_to_level(new_role_value)
+            sup_id = self.get_owner_member_id()
+            set_supervisor_and_level(
+                self.db, self.complex_id, member_id,
+                sup_id, new_level
+            )
+
             dialog.accept()
             signals.employee_updated.emit(self.complex_id)
             signals.data_changed.emit("jobs")
+
             NiceMessageBox.success(
                 self, tr("saved"),
                 tr("salary_updated", name=name_text)
             )
+
+            self.load_user_hierarchy()
             self.load_employees_from_database()
 
         save_btn.clicked.connect(on_save)
 
-        bottom_layout.addStretch()
         bottom_layout.addWidget(cancel_btn)
         bottom_layout.addWidget(save_btn)
 
@@ -1573,8 +1995,29 @@ class EmployeesWindow(QWidget):
                 background-color: {c['bg_main']};
                 font-family: "Vazirmatn";
             }}
-            QLineEdit, QComboBox, QTimeEdit {{
-                background-color: {c['bg_input']};
+            QLabel#fieldLabel {{
+                color: {c['text_dim']}; font-size: 12px;
+                font-weight: 600; background: transparent; padding: 0px;
+            }}
+            QLabel#fieldError {{
+                color: #D93025; font-size: 11px; font-weight: 600;
+                background: transparent; padding: 0px;
+                qproperty-alignment: 'AlignRight | AlignAbsolute | AlignVCenter';
+            }}
+            QLabel#sectionTitle {{
+                color: {c['accent']}; font-size: 13px;
+                font-weight: 700; background: transparent;
+            }}
+            QFrame#formBox {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
+                border-radius: 28px;
+            }}
+            QFrame#divider {{
+                background-color: {c['border']}; border: none;
+            }}
+            QLineEdit#formInput, QTimeEdit#formInput {{
+                background: {c['bg_input']};
                 border: 1px solid {c['border']};
                 border-radius: 22px;
                 padding: 0 18px;
@@ -1582,40 +2025,39 @@ class EmployeesWindow(QWidget):
                 font-size: 13px;
                 min-height: 44px;
             }}
-            QLineEdit:focus, QComboBox:focus, QTimeEdit:focus {{
-                background-color: {c['bg_card']};
+            QLineEdit#formInput:hover, QTimeEdit#formInput:hover {{
+                background: {c['bg_card']};
+                border: 1px solid {c['border_hover']};
+            }}
+            QLineEdit#formInput:focus, QTimeEdit#formInput:focus {{
+                background: {c['bg_card']};
                 border: 2px solid {c['accent']};
             }}
-            QTimeEdit::up-button, QTimeEdit::down-button {{
-                width: 0px;
-                height: 0px;
-                border: none;
-                background: transparent;
+            QTimeEdit#formInput::up-button, QTimeEdit#formInput::down-button {{
+                width: 20px; border: none; background: transparent;
             }}
-            QComboBox::drop-down {{
-                width: 26px;
-                border: none;
-            }}
-            QCheckBox {{
+            QCheckBox#formCheckbox {{
                 background: {c['bg_input']};
                 border: 1px solid {c['border']};
                 border-radius: 14px;
                 padding: 12px 14px;
                 color: {c['text_main']};
-                font-size: 12px;
-                font-weight: 600;
+                font-size: 12px; font-weight: 600;
                 spacing: 12px;
             }}
-            QCheckBox::indicator {{
-                width: 20px;
-                height: 20px;
-                border-radius: 5px;
+            QCheckBox#formCheckbox:hover {{
+                background: {c['bg_card']};
+                border: 1px solid {c['border_hover']};
+            }}
+            QCheckBox#formCheckbox::indicator {{
+                width: 20px; height: 20px; border-radius: 5px;
                 border: 2px solid {c['border_hover']};
                 background: {c['bg_card']};
             }}
-            QCheckBox::indicator:checked {{
+            QCheckBox#formCheckbox::indicator:checked {{
                 background: {c['accent']};
                 border: 2px solid {c['accent']};
+                image: none;
             }}
         """)
 
@@ -1631,6 +2073,4 @@ class EmployeesWindow(QWidget):
             return
 
         self.add_employee_window = AddEmployees(self, complex_id=self.complex_id)
-        self.add_employee_window.setWindowFlags(Qt.Window)
-        self.add_employee_window.setGeometry(self.x(), self.y(), self.width(), self.height())
         self.add_employee_window.show()

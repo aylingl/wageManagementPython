@@ -18,6 +18,11 @@ from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
 
+from hierarchy import (
+    LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
+    role_to_level, get_member_level, get_visible_member_ids
+)
+
 # =========================================================
 # ROUND SCROLL BAR
 # =========================================================
@@ -107,7 +112,7 @@ class RoundedComboBox(QComboBox):
         for i in range(self.count()):
             item = QListWidgetItem(self.itemText(i))
             item.setData(Qt.UserRole, i)
-            item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item.setTextAlignment(Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter)
             item.setSizeHint(QSize(0, 42))
             self._list.addItem(item)
             if i == self.currentIndex():
@@ -484,11 +489,9 @@ class PersianDateButton(QFrame):
         self.icon_label.setObjectName("dateIconLabel")
         self.icon_label.setFixedSize(32, 32)
         self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.date_btn = QPushButton()
         self.date_btn.setObjectName("persianDateButton")
         self.date_btn.setCursor(Qt.PointingHandCursor)
-        self.date_btn.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.icon_label)
         layout.addWidget(self.date_btn, 1)
         self._refresh_text()
@@ -659,7 +662,7 @@ class PersianMonthPopup(QWidget):
         self.close()
 
 # =========================================================
-# PERSIAN MONTH BUTTON (fully custom painted)
+# PERSIAN MONTH BUTTON
 # =========================================================
 
 class PersianMonthButton(QFrame):
@@ -671,20 +674,16 @@ class PersianMonthButton(QFrame):
         jy, jm, jd = gregorian_to_jalali(today.year(), today.month(), today.day())
         self.year = jy
         self.month = jm
-
-        # ═══ غیرفعال کردن رسم پیش‌فرض QFrame ═══
         self.setFrameShape(QFrame.NoFrame)
         self.setFrameShadow(QFrame.Plain)
         self.setLineWidth(0)
         self.setMidLineWidth(0)
-
         self.setAttribute(Qt.WA_Hover, True)
         self.setAttribute(Qt.WA_StyledBackground, False)
         self.setFixedHeight(42)
         self.setFixedWidth(170)
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.NoFocus)
-
         self._hover = False
         self.setStyleSheet("QFrame { background: transparent; border: none; }")
 
@@ -702,54 +701,36 @@ class PersianMonthButton(QFrame):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         c = theme_manager.colors()
-
         rect = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
-
-        # ─── پس‌زمینه + بردر ───
         if self._hover:
             painter.setBrush(QColor(c["bg_card"]))
             painter.setPen(QColor(c["border_hover"]))
         else:
             painter.setBrush(QColor(c["bg_input"]))
             painter.setPen(QColor(c["border"]))
-
         painter.drawRoundedRect(rect, 21.0, 21.0)
-
-        # ─── آیکون: یه مربع گرد سمت راست ───
         icon_size = 28
         icon_margin = 7
         icon_x = rect.right() - icon_size - icon_margin
         icon_y = rect.top() + icon_margin
         icon_rect = QRectF(icon_x, icon_y, icon_size, icon_size)
-
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(c["accent_light"]))
         painter.drawRoundedRect(icon_rect, 10.0, 10.0)
-
-        # ایموجی تقویم
         font = painter.font()
         font.setFamily("Segoe UI Emoji")
         font.setPointSize(12)
         painter.setFont(font)
         painter.setPen(QColor(c["accent"]))
         painter.drawText(icon_rect, Qt.AlignCenter, "📅")
-
-        # ─── متن ماه ───
-        painter.setPen(
-            QColor(c["accent"]) if self._hover else QColor(c["text_main"])
-        )
+        painter.setPen(QColor(c["accent"]) if self._hover else QColor(c["text_main"]))
         font = painter.font()
         font.setFamily("Vazirmatn")
         font.setPointSize(10)
         font.setBold(True)
         painter.setFont(font)
-
         text_rect = rect.adjusted(12.0, 0.0, -(icon_size + icon_margin + 8), 0.0)
-        painter.drawText(
-            text_rect,
-            Qt.AlignRight | Qt.AlignVCenter,
-            f"{MONTH_NAMES[self.month - 1]} {self.year}"
-        )
+        painter.drawText(text_rect, Qt.AlignRight | Qt.AlignVCenter, f"{MONTH_NAMES[self.month - 1]} {self.year}")
         painter.end()
 
     def mousePressEvent(self, event):
@@ -800,6 +781,13 @@ class FinanceWindow(QWidget):
         self.complex_id = None
         self.complexes = []
         self.my_name = "—"
+
+        # ═══ سلسله مراتب ═══
+        self.level = LEVEL_EMPLOYEE
+        self.is_owner = False
+        self.can_manage_finance = False
+        self.visible_ids = []
+
         today = QDate.currentDate()
         jy, jm, jd = gregorian_to_jalali(today.year(), today.month(), today.day())
         self.selected_year = jy
@@ -845,6 +833,7 @@ class FinanceWindow(QWidget):
     def on_employee_changed(self, complex_id):
         if complex_id != self.complex_id:
             return
+        self.recalculate_hierarchy()
         try:
             current = self.stack.currentIndex()
             self.switch_tab(current)
@@ -883,6 +872,47 @@ class FinanceWindow(QWidget):
         self.complex_id = complex_row["complexId"]
         self.member_id = complex_row["memberId"]
         self.role = complex_row["role"]
+        self.recalculate_hierarchy()
+
+    def recalculate_hierarchy(self):
+        """محاسبه level, is_owner, can_manage_finance, visible_ids"""
+        if not self.complex_id or not self.member_id:
+            self.level = LEVEL_EMPLOYEE
+            self.is_owner = False
+            self.can_manage_finance = False
+            self.visible_ids = []
+            return
+
+        try:
+            self.level = get_member_level(self.db, self.complex_id, self.member_id)
+            expected = role_to_level(self.role)
+            if expected < self.level:
+                self.level = expected
+
+            self.is_owner = (self.level == LEVEL_OWNER)
+            self.can_manage_finance = self.level in (
+                LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR
+            )
+
+            self.visible_ids = get_visible_member_ids(
+                self.db, self.complex_id, self.member_id, self.level
+            )
+
+            print("FINANCE DEBUG:",
+                  "level =", self.level,
+                  "| can_manage =", self.can_manage_finance,
+                  "| visible_ids =", self.visible_ids)
+        except Exception as e:
+            print("FINANCE RECALC HIERARCHY ERROR:", e)
+            self.level = LEVEL_EMPLOYEE
+            self.is_owner = False
+            self.can_manage_finance = False
+            self.visible_ids = [self.member_id] if self.member_id else []
+
+    def get_target_ids(self):
+        """لیست memberIdهای مورد نظر (بدون خودم)"""
+        target = [mid for mid in self.visible_ids if mid != self.member_id]
+        return target
 
     def is_salary_locked(self, salary_type, year, month):
         if salary_type != "monthly":
@@ -956,9 +986,8 @@ class FinanceWindow(QWidget):
             self.complex_combo.currentIndexChanged.connect(self.on_complex_changed)
             header.addWidget(self.complex_combo)
         main_layout.addLayout(header)
-        self.is_owner = self.role in ("owner", "both")
         self.tab_btns = []
-        if self.is_owner:
+        if self.can_manage_finance:
             tabs = QHBoxLayout()
             tabs.setSpacing(6)
             tab_labels = [
@@ -1084,7 +1113,7 @@ class FinanceWindow(QWidget):
         if index < 0 or index >= len(self.complexes):
             return
         self.set_active_complex(self.complexes[index])
-        if self.is_owner:
+        if self.can_manage_finance:
             self.switch_tab(self.stack.currentIndex())
         else:
             self.refresh_employee_history()
@@ -1270,10 +1299,6 @@ class FinanceWindow(QWidget):
         self.deduction_filter_month = month
         self.refresh_deductions()
 
-    # ═══════════════════════════════════════════════════════════
-    # TAB کارمزد
-    # ═══════════════════════════════════════════════════════════
-
     def build_jobs_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -1311,19 +1336,46 @@ class FinanceWindow(QWidget):
         self.jobs_filter_month = month
         self.refresh_jobs()
 
+    # ═══════════════════════════════════════════════════════════
+    # REFRESH JOBS (سلسله‌مراتبی)
+    # ═══════════════════════════════════════════════════════════
+
     def refresh_jobs(self):
-        if not self.is_owner or not self.complex_id:
+        if not self.can_manage_finance or not self.complex_id:
             return
 
         while self.jobs_layout.count():
             item = self.jobs_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
 
-        gy, gm, gd = jalali_to_gregorian(
-            self.jobs_filter_year, self.jobs_filter_month, 1
-        )
+        QApplication.processEvents()
+
+        target_ids = self.get_target_ids()
+
+        if not target_ids:
+            empty = QFrame()
+            empty.setObjectName("emptyCard")
+            empty.setAttribute(Qt.WA_StyledBackground, True)
+            empty.setMinimumHeight(200)
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(24, 34, 24, 34)
+            el.setSpacing(10)
+            icon = QLabel("💼")
+            icon.setAlignment(Qt.AlignCenter)
+            icon.setStyleSheet("font-size: 44px; background: transparent;")
+            t1 = QLabel("هیچ کارمندی برای نمایش وجود ندارد")
+            t1.setAlignment(Qt.AlignCenter)
+            t1.setStyleSheet(f"color: {theme_manager.colors()['text_main']};font-size: 14px; font-weight: 800; background: transparent;")
+            el.addWidget(icon)
+            el.addWidget(t1)
+            self.jobs_layout.addWidget(empty)
+            self.jobs_layout.addStretch()
+            return
+
+        gy, gm, gd = jalali_to_gregorian(self.jobs_filter_year, self.jobs_filter_month, 1)
         if self.jobs_filter_month <= 6:
             last_d = 31
         elif self.jobs_filter_month <= 11:
@@ -1332,14 +1384,14 @@ class FinanceWindow(QWidget):
             last_d = 30
         else:
             last_d = 29
-        gy2, gm2, gd2 = jalali_to_gregorian(
-            self.jobs_filter_year, self.jobs_filter_month, last_d
-        )
+        gy2, gm2, gd2 = jalali_to_gregorian(self.jobs_filter_year, self.jobs_filter_month, last_d)
         first_day = date(gy, gm, gd)
         last_day = date(gy2, gm2, gd2)
 
+        placeholders = ",".join(["%s"] * len(target_ids))
+
         approved_rows = self.db.fetch_all(
-            """
+            f"""
             SELECT ej.employeeJobId, ej.memberId, ej.price, ej.quantity,
                    ej.completedDate, ej.startDate, ej.deadline, ej.status,
                    j.jobTitle, u.name AS employee_name,
@@ -1352,16 +1404,17 @@ class FinanceWindow(QWidget):
             INNER JOIN users u ON u.userId = cm.userId
             LEFT JOIN jobs j ON j.jobId = ej.jobId
             WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
               AND ej.status = 'approved'
               AND ej.completedDate IS NOT NULL
               AND DATE(ej.completedDate) BETWEEN %s AND %s
             ORDER BY ej.completedDate DESC
             """,
-            (self.complex_id, first_day, last_day)
+            (self.complex_id, *target_ids, first_day, last_day)
         ) or []
 
         pending_rows = self.db.fetch_all(
-            """
+            f"""
             SELECT ej.employeeJobId, ej.memberId, ej.price, ej.quantity,
                    ej.completedDate, j.jobTitle, u.name AS employee_name
             FROM employee_jobs ej
@@ -1369,10 +1422,11 @@ class FinanceWindow(QWidget):
             INNER JOIN users u ON u.userId = cm.userId
             LEFT JOIN jobs j ON j.jobId = ej.jobId
             WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
               AND ej.status = 'completed'
             ORDER BY ej.completedDate DESC
             """,
-            (self.complex_id,)
+            (self.complex_id, *target_ids)
         ) or []
 
         if not approved_rows and not pending_rows:
@@ -1383,38 +1437,23 @@ class FinanceWindow(QWidget):
             el = QVBoxLayout(empty)
             el.setContentsMargins(24, 34, 24, 34)
             el.setSpacing(10)
-
             icon = QLabel("💼")
             icon.setAlignment(Qt.AlignCenter)
             icon.setStyleSheet("font-size: 44px; background: transparent;")
-
             t1 = QLabel("هیچ کار تأییدشده‌ای در این ماه وجود ندارد")
             t1.setAlignment(Qt.AlignCenter)
-            t1.setStyleSheet(
-                f"color: {theme_manager.colors()['text_main']};"
-                f"font-size: 14px; font-weight: 800; background: transparent;"
-            )
-
-            t2 = QLabel(
-                "کارها بعد از انجام توسط کارمند و تأیید مالک در کارتابل،\n"
-                "در این بخش برای پرداخت نمایش داده می‌شوند."
-            )
+            t1.setStyleSheet(f"color: {theme_manager.colors()['text_main']};font-size: 14px; font-weight: 800; background: transparent;")
+            t2 = QLabel("کارها بعد از انجام توسط کارمند و تأیید در کارتابل،\nدر این بخش برای پرداخت نمایش داده می‌شوند.")
             t2.setAlignment(Qt.AlignCenter)
             t2.setWordWrap(True)
-            t2.setStyleSheet(
-                f"color: {theme_manager.colors()['text_dim']};"
-                f"font-size: 12px; background: transparent;"
-            )
-
+            t2.setStyleSheet(f"color: {theme_manager.colors()['text_dim']};font-size: 12px; background: transparent;")
             el.addWidget(icon)
             el.addWidget(t1)
             el.addWidget(t2)
-
             self.jobs_layout.addWidget(empty)
             self.jobs_layout.addStretch()
             return
 
-        # ─── هشدار کارهای منتظر تأیید — قرمز خیلی ملایم ───
         if pending_rows:
             warn = QLabel(
                 f"⚠️  {len(pending_rows)} کار انجام‌شده منتظر تأیید در کارتابل دارید. "
@@ -1422,13 +1461,9 @@ class FinanceWindow(QWidget):
             )
             warn.setWordWrap(True)
             warn.setStyleSheet(
-                "color: #C97B7B;"
-                "background-color: #FFF5F5;"
-                "border: 1px solid #F5C2C2;"
-                "border-radius: 12px;"
-                "padding: 10px 16px;"
-                "font-size: 12px;"
-                "font-weight: 700;"
+                "color: #C97B7B;background-color: #FFF5F5;"
+                "border: 1px solid #F5C2C2;border-radius: 12px;"
+                "padding: 10px 16px;font-size: 12px;font-weight: 700;"
             )
             self.jobs_layout.addWidget(warn)
 
@@ -1574,42 +1609,28 @@ class FinanceWindow(QWidget):
         d_layout.setSpacing(10)
 
         title = QLabel(f"پرداخت کارمزد — {employee_name}")
-        title.setStyleSheet(
-            f"color: {c['text_main']}; font-size: 16px;"
-            f"font-weight: 700; background: transparent;"
-        )
+        title.setStyleSheet(f"color: {c['text_main']}; font-size: 16px;font-weight: 700; background: transparent;")
         d_layout.addWidget(title)
 
         job_lbl = QLabel(f"کار: {job_title}")
-        job_lbl.setStyleSheet(
-            f"color: {c['accent']}; font-size: 12px;"
-            f"font-weight: 600; background: transparent;"
-        )
+        job_lbl.setStyleSheet(f"color: {c['accent']}; font-size: 12px;font-weight: 600; background: transparent;")
         d_layout.addWidget(job_lbl)
 
         info_lbl = QLabel(
             f"جمع کار: {format_money(job_total)} ت  •  "
             f"پرداخت‌شده: {format_money(already_paid)} ت"
         )
-        info_lbl.setStyleSheet(
-            f"color: {c['text_dim']}; font-size: 11px; background: transparent;"
-        )
+        info_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 11px; background: transparent;")
         d_layout.addWidget(info_lbl)
 
         remain_lbl = QLabel(f"مانده برای پرداخت: {format_money(remain)} ت")
-        remain_lbl.setStyleSheet(
-            f"color: {c['warning']}; font-size: 12px;"
-            f"font-weight: 700; background: transparent;"
-        )
+        remain_lbl.setStyleSheet(f"color: {c['warning']}; font-size: 12px;font-weight: 700; background: transparent;")
         d_layout.addWidget(remain_lbl)
 
         d_layout.addSpacing(6)
 
         amount_lbl = QLabel("مبلغ این پرداخت (تومان)")
-        amount_lbl.setStyleSheet(
-            f"color: {c['text_dim']}; font-size: 12px;"
-            f"font-weight: 600; background: transparent;"
-        )
+        amount_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px;font-weight: 600; background: transparent;")
         d_layout.addWidget(amount_lbl)
 
         amount_input = QLineEdit()
@@ -1652,10 +1673,7 @@ class FinanceWindow(QWidget):
         d_layout.addSpacing(6)
 
         date_lbl = QLabel("تاریخ پرداخت")
-        date_lbl.setStyleSheet(
-            f"color: {c['text_dim']}; font-size: 12px;"
-            f"font-weight: 600; background: transparent;"
-        )
+        date_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 12px;font-weight: 600; background: transparent;")
         d_layout.addWidget(date_lbl)
 
         date_picker = PersianDateButton(initial_qdate=QDate.currentDate())
@@ -1749,12 +1767,8 @@ class FinanceWindow(QWidget):
         btns.addWidget(pay_btn)
         d_layout.addLayout(btns)
 
-        dialog.setStyleSheet(
-            f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}"
-        )
+        dialog.setStyleSheet(f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}")
         dialog.exec()
-
-    # ═══════════════════════════════════════════════════════════
 
     def build_history_tab(self):
         widget = QWidget()
@@ -1814,8 +1828,12 @@ class FinanceWindow(QWidget):
         self.selected_month = month
         self.refresh_employee_history()
 
+    # ═══════════════════════════════════════════════════════════
+    # REFRESH DASHBOARD (سلسله‌مراتبی)
+    # ═══════════════════════════════════════════════════════════
+
     def refresh_dashboard(self):
-        if not self.is_owner or not self.complex_id:
+        if not self.can_manage_finance or not self.complex_id:
             return
         year = self.selected_year
         month = self.selected_month
@@ -1834,46 +1852,91 @@ class FinanceWindow(QWidget):
         today = QDate.currentDate()
         tjy, tjm, tjd = gregorian_to_jalali(today.year(), today.month(), today.day())
         is_current_month = (year == tjy and month == tjm)
+
+        target_ids = self.get_target_ids()
+
+        if not target_ids:
+            self.dash_total_box.findChild(QLabel, "statValue").setText("0")
+            self.dash_paid_box.findChild(QLabel, "statValueGreen").setText("0")
+            self.dash_remain_box.findChild(QLabel, "statValueRed").setText("0")
+            self.dash_emp_box.findChild(QLabel, "statValue").setText("0")
+            return
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
         if is_current_month:
             total = 0
         else:
-            total_row = self.db.fetch_one("""
+            total_row = self.db.fetch_one(f"""
                 SELECT COALESCE(SUM(s.finalAmount), 0) AS total
                 FROM salaries s
                 INNER JOIN complex_members cm ON cm.memberId = s.memberId
-                WHERE cm.complexId = %s AND s.salaryYear = %s AND s.salaryMonth = %s
-                """, (self.complex_id, year, month))
+                WHERE cm.complexId = %s
+                  AND cm.memberId IN ({placeholders})
+                  AND s.salaryYear = %s AND s.salaryMonth = %s
+                """, (self.complex_id, *target_ids, year, month))
             total = float(total_row["total"] or 0) if total_row else 0
-        paid_row = self.db.fetch_one("""
+
+        paid_row = self.db.fetch_one(f"""
             SELECT COALESCE(SUM(p.amount), 0) AS paid
             FROM payments p
             INNER JOIN complex_members cm ON cm.memberId = p.memberId
-            WHERE cm.complexId = %s AND p.paymentType = 'salary'
+            WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
+              AND p.paymentType = 'salary'
               AND DATE(p.paymentDate) BETWEEN %s AND %s
-            """, (self.complex_id, first_day, last_day))
+            """, (self.complex_id, *target_ids, first_day, last_day))
         paid = float(paid_row["paid"] or 0) if paid_row else 0
         remain = max(0, total - paid)
-        emp_result = self.db.fetch_one("""
+        emp_result = self.db.fetch_one(f"""
             SELECT COUNT(*) AS cnt FROM complex_members
-            WHERE complexId = %s AND role IN ('employee', 'both') AND isActive = '1'
-            """, (self.complex_id,))
+            WHERE complexId = %s
+              AND memberId IN ({placeholders})
+              AND isActive = '1'
+            """, (self.complex_id, *target_ids))
         emp_count = emp_result["cnt"] if emp_result else 0
         self.dash_total_box.findChild(QLabel, "statValue").setText(format_money(total))
         self.dash_paid_box.findChild(QLabel, "statValueGreen").setText(format_money(paid))
         self.dash_remain_box.findChild(QLabel, "statValueRed").setText(format_money(remain))
         self.dash_emp_box.findChild(QLabel, "statValue").setText(str(emp_count))
 
+    # ═══════════════════════════════════════════════════════════
+    # REFRESH SALARIES (سلسله‌مراتبی)
+    # ═══════════════════════════════════════════════════════════
+
     def refresh_salaries(self):
-        if not self.is_owner or not self.complex_id:
+        if not self.can_manage_finance or not self.complex_id:
             return
         while self.salaries_layout.count():
             item = self.salaries_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
+        QApplication.processEvents()
+
+        target_ids = self.get_target_ids()
+
+        if not target_ids:
+            empty = QFrame()
+            empty.setObjectName("emptyCard")
+            empty.setAttribute(Qt.WA_StyledBackground, True)
+            empty.setMinimumHeight(120)
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(20, 30, 20, 30)
+            t = QLabel(tr("no_employees_group"))
+            t.setObjectName("emptyText")
+            t.setAlignment(Qt.AlignCenter)
+            el.addWidget(t)
+            self.salaries_layout.addWidget(empty)
+            self.salaries_layout.addStretch()
+            return
+
         year = self.selected_year
         month = self.selected_month
-        rows = self.db.fetch_all("""
+        placeholders = ",".join(["%s"] * len(target_ids))
+
+        rows = self.db.fetch_all(f"""
             SELECT cm.memberId, u.name, u.phoneNumber, ep.jobTitle,
                    ep.salaryType, ep.baseSalary, ep.workDays, ep.workHours,
                    ep.employmentType, ep.allowOvertime,
@@ -1885,9 +1948,12 @@ class FinanceWindow(QWidget):
             LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
             LEFT JOIN salaries s ON s.memberId = cm.memberId
                 AND s.salaryYear = %s AND s.salaryMonth = %s
-            WHERE cm.complexId = %s AND cm.role IN ('employee', 'both') AND cm.isActive = '1'
+            WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
+              AND cm.isActive = '1'
             ORDER BY u.name ASC
-            """, (year, month, self.complex_id))
+            """, (year, month, self.complex_id, *target_ids))
+
         if not rows:
             empty = QFrame()
             empty.setObjectName("emptyCard")
@@ -1902,6 +1968,7 @@ class FinanceWindow(QWidget):
             self.salaries_layout.addWidget(empty)
             self.salaries_layout.addStretch()
             return
+
         for row in rows:
             card = self.create_salary_card(row)
             self.salaries_layout.addWidget(card)
@@ -1960,6 +2027,7 @@ class FinanceWindow(QWidget):
         bonus = float(row.get("bonusAmount") or 0)
         deduction = float(row.get("deductionAmount") or 0)
         loan = float(row.get("loanAmount") or 0)
+
         def add_mini_row(label_text, value_text, kind="normal"):
             rw = QWidget()
             rw.setStyleSheet("background: transparent;")
@@ -1982,6 +2050,7 @@ class FinanceWindow(QWidget):
             rl.addWidget(lb)
             rl.addWidget(vl, 1)
             right_col.addWidget(rw)
+
         has_any = False
         if overtime > 0:
             add_mini_row(f"{tr('overtime')}:", f"+ {format_money(overtime)}", "green")
@@ -2224,18 +2293,33 @@ class FinanceWindow(QWidget):
         dialog.setStyleSheet(f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}")
         dialog.exec()
 
+    # ═══════════════════════════════════════════════════════════
+    # CALCULATE SALARIES (سلسله‌مراتبی)
+    # ═══════════════════════════════════════════════════════════
+
     def calculate_all_salaries(self):
         if not self.complex_id:
             return
         year = self.selected_year
         month = self.selected_month
-        members = self.db.fetch_all("""
+
+        target_ids = self.get_target_ids()
+        if not target_ids:
+            NiceMessageBox.error(self, tr("error"), tr("no_salary_to_calc"))
+            return
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
+        members = self.db.fetch_all(f"""
             SELECT cm.memberId, ep.baseSalary, ep.salaryType, ep.workDays,
                    ep.workHours, ep.employmentType, ep.allowOvertime
             FROM complex_members cm
             LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
-            WHERE cm.complexId = %s AND cm.role IN ('employee', 'both') AND cm.isActive = '1'
-            """, (self.complex_id,))
+            WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
+              AND cm.isActive = '1'
+            """, (self.complex_id, *target_ids))
+
         if not members:
             NiceMessageBox.error(self, tr("error"), tr("no_salary_to_calc"))
             return
@@ -2347,14 +2431,37 @@ class FinanceWindow(QWidget):
                 """, (member_id, year, month, calc_base, overtime_amount, bonus_amount,
                       deduction_amount, loan_amount, final))
 
+    # ═══════════════════════════════════════════════════════════
+    # REFRESH BONUSES (سلسله‌مراتبی)
+    # ═══════════════════════════════════════════════════════════
+
     def refresh_bonuses(self):
-        if not self.is_owner or not self.complex_id:
+        if not self.can_manage_finance or not self.complex_id:
             return
         while self.bonuses_layout.count():
             item = self.bonuses_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
+        QApplication.processEvents()
+
+        target_ids = self.get_target_ids()
+        if not target_ids:
+            empty = QFrame()
+            empty.setObjectName("emptyCard")
+            empty.setAttribute(Qt.WA_StyledBackground, True)
+            empty.setMinimumHeight(120)
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(20, 30, 20, 30)
+            t = QLabel(tr("no_bonus"))
+            t.setObjectName("emptyText")
+            t.setAlignment(Qt.AlignCenter)
+            el.addWidget(t)
+            self.bonuses_layout.addWidget(empty)
+            self.bonuses_layout.addStretch()
+            return
+
         gy, gm, gd = jalali_to_gregorian(self.bonus_filter_year, self.bonus_filter_month, 1)
         if self.bonus_filter_month <= 6:
             last_d = 31
@@ -2367,14 +2474,20 @@ class FinanceWindow(QWidget):
         gy2, gm2, gd2 = jalali_to_gregorian(self.bonus_filter_year, self.bonus_filter_month, last_d)
         first_day = date(gy, gm, gd)
         last_day = date(gy2, gm2, gd2)
-        rows = self.db.fetch_all("""
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
+        rows = self.db.fetch_all(f"""
             SELECT b.bonusId, b.amount, b.title, b.description, b.bonusDate, b.status, u.name
             FROM bonuses b
             INNER JOIN complex_members cm ON cm.memberId = b.memberId
             INNER JOIN users u ON u.userId = cm.userId
-            WHERE cm.complexId = %s AND DATE(b.bonusDate) BETWEEN %s AND %s
+            WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
+              AND DATE(b.bonusDate) BETWEEN %s AND %s
             ORDER BY b.bonusDate DESC, b.bonusId DESC
-            """, (self.complex_id, first_day, last_day))
+            """, (self.complex_id, *target_ids, first_day, last_day))
+
         if not rows:
             empty = QFrame()
             empty.setObjectName("emptyCard")
@@ -2467,12 +2580,22 @@ class FinanceWindow(QWidget):
             QComboBox::drop-down {{ width: 28px; border: none; }}
             QComboBox::down-arrow {{ image: none; width: 0px; height: 0px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid {c['accent']}; margin-right: 10px; }}
         """)
-        members = self.db.fetch_all("""
-            SELECT cm.memberId, u.name FROM complex_members cm
-            INNER JOIN users u ON u.userId = cm.userId
-            WHERE cm.complexId = %s AND cm.role IN ('employee', 'both') AND cm.isActive = '1'
-            ORDER BY u.name ASC
-            """, (self.complex_id,))
+
+        # ═══ فقط زیردست‌ها ═══
+        target_ids = self.get_target_ids()
+        if target_ids:
+            placeholders = ",".join(["%s"] * len(target_ids))
+            members = self.db.fetch_all(f"""
+                SELECT cm.memberId, u.name FROM complex_members cm
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s
+                  AND cm.memberId IN ({placeholders})
+                  AND cm.isActive = '1'
+                ORDER BY u.name ASC
+                """, (self.complex_id, *target_ids))
+        else:
+            members = []
+
         for m in members or []:
             emp_combo.addItem(m["name"] or "—", m["memberId"])
         layout.addWidget(emp_lbl)
@@ -2642,14 +2765,37 @@ class FinanceWindow(QWidget):
         dialog.setStyleSheet(f"QDialog {{ background-color: {c['bg_main']}; font-family: 'Vazirmatn'; }}")
         dialog.exec()
 
+    # ═══════════════════════════════════════════════════════════
+    # REFRESH DEDUCTIONS (سلسله‌مراتبی)
+    # ═══════════════════════════════════════════════════════════
+
     def refresh_deductions(self):
-        if not self.is_owner or not self.complex_id:
+        if not self.can_manage_finance or not self.complex_id:
             return
         while self.deductions_layout.count():
             item = self.deductions_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
+        QApplication.processEvents()
+
+        target_ids = self.get_target_ids()
+        if not target_ids:
+            empty = QFrame()
+            empty.setObjectName("emptyCard")
+            empty.setAttribute(Qt.WA_StyledBackground, True)
+            empty.setMinimumHeight(120)
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(20, 30, 20, 30)
+            t = QLabel(tr("no_deduction"))
+            t.setObjectName("emptyText")
+            t.setAlignment(Qt.AlignCenter)
+            el.addWidget(t)
+            self.deductions_layout.addWidget(empty)
+            self.deductions_layout.addStretch()
+            return
+
         gy, gm, gd = jalali_to_gregorian(self.deduction_filter_year, self.deduction_filter_month, 1)
         if self.deduction_filter_month <= 6:
             last_d = 31
@@ -2662,15 +2808,21 @@ class FinanceWindow(QWidget):
         gy2, gm2, gd2 = jalali_to_gregorian(self.deduction_filter_year, self.deduction_filter_month, last_d)
         first_day = date(gy, gm, gd)
         last_day = date(gy2, gm2, gd2)
-        rows = self.db.fetch_all("""
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
+        rows = self.db.fetch_all(f"""
             SELECT d.deductionId, d.amount, d.title, d.description, d.deductionDate,
                    d.deductionType, d.intentPurpose, d.status, u.name
             FROM deductions d
             INNER JOIN complex_members cm ON cm.memberId = d.memberId
             INNER JOIN users u ON u.userId = cm.userId
-            WHERE cm.complexId = %s AND DATE(d.deductionDate) BETWEEN %s AND %s
+            WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
+              AND DATE(d.deductionDate) BETWEEN %s AND %s
             ORDER BY d.deductionDate DESC, d.deductionId DESC
-            """, (self.complex_id, first_day, last_day))
+            """, (self.complex_id, *target_ids, first_day, last_day))
+
         if not rows:
             empty = QFrame()
             empty.setObjectName("emptyCard")
@@ -2729,22 +2881,49 @@ class FinanceWindow(QWidget):
         layout.addWidget(amount)
         return card
 
+    # ═══════════════════════════════════════════════════════════
+    # REFRESH HISTORY (سلسله‌مراتبی)
+    # ═══════════════════════════════════════════════════════════
+
     def refresh_history(self):
-        if not self.is_owner or not self.complex_id:
+        if not self.can_manage_finance or not self.complex_id:
             return
         while self.history_layout.count():
             item = self.history_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
-        rows = self.db.fetch_all("""
+        QApplication.processEvents()
+
+        target_ids = self.get_target_ids()
+        if not target_ids:
+            empty = QFrame()
+            empty.setObjectName("emptyCard")
+            empty.setAttribute(Qt.WA_StyledBackground, True)
+            empty.setMinimumHeight(120)
+            el = QVBoxLayout(empty)
+            el.setContentsMargins(20, 30, 20, 30)
+            t = QLabel(tr("no_payment"))
+            t.setObjectName("emptyText")
+            t.setAlignment(Qt.AlignCenter)
+            el.addWidget(t)
+            self.history_layout.addWidget(empty)
+            self.history_layout.addStretch()
+            return
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
+        rows = self.db.fetch_all(f"""
             SELECT p.paymentId, p.amount, p.paymentType, p.paymentDate, p.description, u.name
             FROM payments p
             INNER JOIN complex_members cm ON cm.memberId = p.memberId
             INNER JOIN users u ON u.userId = cm.userId
             WHERE cm.complexId = %s
+              AND cm.memberId IN ({placeholders})
             ORDER BY p.paymentDate DESC, p.paymentId DESC LIMIT 100
-            """, (self.complex_id,))
+            """, (self.complex_id, *target_ids))
+
         if not rows:
             empty = QFrame()
             empty.setObjectName("emptyCard")
@@ -2802,12 +2981,19 @@ class FinanceWindow(QWidget):
         layout.addWidget(amount)
         return card
 
+    # ═══════════════════════════════════════════════════════════
+    # EMPLOYEE HISTORY (فقط خودم)
+    # ═══════════════════════════════════════════════════════════
+
     def refresh_employee_history(self):
         while self.emp_history_layout.count():
             item = self.emp_history_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
+        QApplication.processEvents()
+
         my_name = self.my_name
         c = theme_manager.colors()
         profile = self.db.fetch_one("""
@@ -2957,7 +3143,7 @@ class FinanceWindow(QWidget):
                 add_row(f"{tr('remain_to_pay')}:", format_money(remain_amount), "red")
             EPS = 1
             if locked:
-                status_text = tr("month_not_complete") if tr("month_not_complete") != "month_not_complete" else "ماه کامل نشده"
+                status_text = "ماه کامل نشده"
                 status_color = "#526273"
                 status_bg = "#EEF2F6"
             elif total_paid >= (final - EPS) and final > 0:
@@ -2983,13 +3169,13 @@ class FinanceWindow(QWidget):
             s_layout.addSpacing(4)
             s_layout.addWidget(status_lbl)
         else:
-            no_calc = QLabel(tr("no_calc_wait") + "\n" + tr("no_calc_wait_sub"))
+            no_calc = QLabel("هنوز برای این ماه محاسبه‌ای انجام نشده\nمنتظر بمانید تا حقوق این ماه محاسبه شود")
             no_calc.setAlignment(Qt.AlignCenter)
             no_calc.setWordWrap(True)
             no_calc.setStyleSheet(f"color: {c['text_dim']}; background-color: {c['bg_input']}; border: 1px dashed {c['border']}; border-radius: 14px; padding: 20px 16px; font-size: 12px; font-weight: 600;")
             s_layout.addWidget(no_calc)
         s_layout.addSpacing(6)
-        att_title = QLabel(tr("attendance_summary"))
+        att_title = QLabel("🕒  حضور و غیاب این ماه")
         att_title.setStyleSheet(f"color: {c['text_main']}; font-size: 13px; font-weight: 700; background: transparent;")
         att_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         s_layout.addWidget(att_title)
@@ -3002,7 +3188,7 @@ class FinanceWindow(QWidget):
         if overtime_min > 0:
             add_row(f"{tr('overtime')}:", f"{ot_h}{tr('hour_short')} {ot_m}{tr('min_short')}", "green")
         else:
-            add_row(f"{tr('overtime')}:", tr("doesnt_have_short"))
+            add_row(f"{tr('overtime')}:", "ندارد")
         if current_salary or profile:
             detail_btn = QPushButton(tr("view_details"))
             detail_btn.setObjectName("detailBtn")
@@ -3015,7 +3201,7 @@ class FinanceWindow(QWidget):
             s_layout.addSpacing(6)
             s_layout.addWidget(detail_btn)
         self.emp_history_layout.addWidget(summary_card)
-        history_title = QLabel(tr("payment_history_emp"))
+        history_title = QLabel("💳  تاریخچه پرداخت‌ها")
         history_title.setObjectName("sectionTitle")
         history_title.setStyleSheet(f"color: {c['text_main']}; font-size: 14px; font-weight: 700; background: transparent; padding: 8px 4px 0px 4px;")
         self.emp_history_layout.addWidget(history_title)
@@ -3031,7 +3217,7 @@ class FinanceWindow(QWidget):
             empty.setMinimumHeight(100)
             el = QVBoxLayout(empty)
             el.setContentsMargins(20, 30, 20, 30)
-            t = QLabel(tr("no_payment_for_you"))
+            t = QLabel("هنوز پرداختی برای شما ثبت نشده")
             t.setObjectName("emptyText")
             t.setAlignment(Qt.AlignCenter)
             el.addWidget(t)
@@ -3237,7 +3423,7 @@ class FinanceWindow(QWidget):
                 section4["layout"].addWidget(self._create_row(tr("remain_to_pay"), format_money(remain_amt) + " " + tr("toman"), "red"))
             EPS = 1
             if locked:
-                status_text = tr("month_not_complete") if tr("month_not_complete") != "month_not_complete" else "ماه کامل نشده"
+                status_text = "ماه کامل نشده"
                 status_color = "#526273"
                 status_bg = "#EEF2F6"
             elif total_paid >= (final_amt - EPS) and final_amt > 0:

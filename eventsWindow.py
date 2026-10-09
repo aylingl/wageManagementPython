@@ -3,11 +3,12 @@ from datetime import datetime, date
 
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QFrame, QScrollArea, QScrollBar, QGridLayout
+    QFrame, QScrollArea, QScrollBar, QGridLayout,
+    QApplication
 )
 
 from PySide6.QtCore import (
-    Qt, QTimer, QDate, QPoint, QRectF, Signal
+    Qt, QTimer, QDate, QPoint, QRectF, Signal, QSize
 )
 from PySide6.QtGui import (
     QPainter, QColor, QRegion, QPainterPath, QGuiApplication
@@ -345,6 +346,7 @@ class PersianCalendarPopup(QWidget):
             item = self.days_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
 
         self.month_label.setText(
@@ -420,7 +422,7 @@ class PersianCalendarPopup(QWidget):
         self.close()
 
 # =========================================================
-# PERSIAN DATE BUTTON
+# PERSIAN DATE BUTTON (custom painted)
 # =========================================================
 
 class PersianDateButton(QFrame):
@@ -430,91 +432,132 @@ class PersianDateButton(QFrame):
     def __init__(self, parent=None, initial_qdate=None):
         super().__init__(parent)
 
-        self._qdate = (
-            initial_qdate if initial_qdate is not None else QDate.currentDate()
-        )
+        self._qdate = initial_qdate if initial_qdate is not None else QDate.currentDate()
 
-        self.setObjectName("persianDateFrame")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShadow(QFrame.Plain)
+        self.setLineWidth(0)
+        self.setMidLineWidth(0)
+
+        self.setAttribute(Qt.WA_Hover, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
         self.setFixedHeight(42)
-        self.setMinimumWidth(180)
+        self.setMinimumWidth(220)
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 14, 0)
-        layout.setSpacing(8)
+        self._hover = False
+        self.setStyleSheet("QFrame { background: transparent; border: none; }")
 
-        self.icon_label = QLabel("📅")
-        self.icon_label.setObjectName("dateIconLabel")
-        self.icon_label.setFixedSize(30, 30)
-        self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
 
-        self.date_btn = QPushButton()
-        self.date_btn.setObjectName("persianDateButton")
-        self.date_btn.setCursor(Qt.PointingHandCursor)
+    def leaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
 
-        layout.addWidget(self.icon_label)
-        layout.addWidget(self.date_btn, 1)
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = theme_manager.colors()
 
-        self._refresh_text()
-        self.mousePressEvent = self._frame_clicked
-        self.date_btn.clicked.connect(self._open_dialog)
+        rect = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
 
-    def _frame_clicked(self, event):
-        self._open_dialog()
-        event.accept()
+        if self._hover:
+            painter.setBrush(QColor(c["bg_card"]))
+            painter.setPen(QColor(c["border_hover"]))
+        else:
+            painter.setBrush(QColor(c["bg_input"]))
+            painter.setPen(QColor(c["border"]))
 
-    def _refresh_text(self):
+        painter.drawRoundedRect(rect, 21.0, 21.0)
+
+        icon_size = 30
+        icon_margin = 6
+        icon_x = rect.right() - icon_size - icon_margin
+        icon_y = rect.top() + (rect.height() - icon_size) / 2
+        icon_rect = QRectF(icon_x, icon_y, icon_size, icon_size)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(c["accent_light"]))
+        painter.drawRoundedRect(icon_rect, 10.0, 10.0)
+
+        font = painter.font()
+        font.setFamily("Segoe UI Emoji")
+        font.setPointSize(12)
+        painter.setFont(font)
+        painter.setPen(QColor(c["accent"]))
+        painter.drawText(icon_rect, Qt.AlignCenter, "📅")
+
+        painter.setPen(QColor(c["accent"]) if self._hover else QColor(c["text_main"]))
+        font = painter.font()
+        font.setFamily("Vazirmatn")
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+
         jy, jm, jd = gregorian_to_jalali(
             self._qdate.year(), self._qdate.month(), self._qdate.day()
         )
-        self.date_btn.setText(f"{jy:04d} / {jm:02d} / {jd:02d}")
+        text = f"{jy:04d} / {jm:02d} / {jd:02d}"
+
+        text_rect = rect.adjusted(14.0, 0.0, -(icon_size + icon_margin + 8), 0.0)
+        painter.drawText(text_rect, Qt.AlignRight | Qt.AlignVCenter, text)
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._open_dialog()
+            event.accept()
 
     def date(self):
         return self._qdate
 
-    def to_python_date(self):
-        return date(self._qdate.year(), self._qdate.month(), self._qdate.day())
-
     def setDate(self, qdate):
         self._qdate = qdate
-        self._refresh_text()
+        self.update()
 
     def _open_dialog(self):
         self._popup = PersianCalendarPopup(self, self._qdate)
         self._popup.dateSelected.connect(self._on_date_selected)
 
-        global_pos = self.mapToGlobal(QPoint(0, self.height() + 4))
+        popup_w = self._popup.width()
+        popup_h = self._popup.height()
+
+        btn_global = self.mapToGlobal(QPoint(0, self.height() + 4))
+        x = btn_global.x() + self.width() - popup_w
+        y = btn_global.y()
 
         try:
             screen = QGuiApplication.primaryScreen()
             if screen:
-                screen_geo = screen.availableGeometry()
-                if global_pos.x() + self._popup.width() > screen_geo.right():
-                    global_pos.setX(
-                        screen_geo.right() - self._popup.width() - 8
-                    )
-                if global_pos.x() < screen_geo.left():
-                    global_pos.setX(screen_geo.left() + 8)
-                if global_pos.y() + self._popup.height() > screen_geo.bottom():
-                    global_pos.setY(
-                        self.mapToGlobal(QPoint(0, 0)).y()
-                        - self._popup.height() - 4
-                    )
+                geo = screen.availableGeometry()
+                if x + popup_w > geo.right():
+                    x = geo.right() - popup_w - 8
+                if x < geo.left():
+                    x = geo.left() + 8
+                if y + popup_h > geo.bottom():
+                    y = self.mapToGlobal(QPoint(0, 0)).y() - popup_h - 4
+                if y < geo.top():
+                    y = geo.top() + 8
         except Exception:
             pass
 
-        self._popup.move(global_pos)
+        self._popup.move(x, y)
         self._popup.show()
 
     def _on_date_selected(self, qdate):
+        if qdate == self._qdate:
+            return
         self._qdate = qdate
-        self._refresh_text()
+        self.update()
         self.dateChanged.emit(self._qdate)
 
 # =========================================================
-# FILTER POPUP (rounded, for show-records filter)
+# FILTER POPUP (با اسکرول گرد)
 # =========================================================
 
 class FilterPopup(QWidget):
@@ -534,7 +577,7 @@ class FilterPopup(QWidget):
 
         self._radius = 18
         self._margin = 6
-        self.setFixedSize(220, 320)
+        self.setFixedSize(240, 350)
 
         self.current_filter = current_filter
 
@@ -580,17 +623,38 @@ class FilterPopup(QWidget):
     def build_ui(self):
         c = theme_manager.colors()
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            self._margin + 12, self._margin + 12,
-            self._margin + 12, self._margin + 12
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(
+            self._margin + 6, self._margin + 10,
+            self._margin + 6, self._margin + 10
         )
-        layout.setSpacing(6)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea::viewport { background: transparent; border: none; }"
+        )
+
+        round_bar = RoundScrollBar(Qt.Vertical, scroll)
+        scroll.setVerticalScrollBar(round_bar)
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(5)
 
         options = [
             ("all", tr("filter_all")),
             ("payment", tr("filter_payments")),
             ("attendance", tr("filter_attendance")),
+            ("job", "کارها"),
             ("leave", tr("filter_leaves")),
             ("loan", tr("filter_loans")),
             ("other", tr("filter_others")),
@@ -599,7 +663,7 @@ class FilterPopup(QWidget):
         for key, label in options:
             btn = QPushButton(label)
             btn.setObjectName("filterPopupOption")
-            btn.setFixedHeight(42)
+            btn.setFixedHeight(40)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setProperty(
                 "selected",
@@ -611,6 +675,8 @@ class FilterPopup(QWidget):
             layout.addWidget(btn)
 
         layout.addStretch()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
 
         self.setStyleSheet(f"""
             QPushButton#filterPopupOption {{
@@ -665,12 +731,11 @@ class EventsWindow(QWidget):
         self.user_id = None
         self.member_id = None
         self.role = None
+        self.is_owner = False
 
         self.all_events = []
         self.current_filter = "all"
-
-        # ═══ فیلتر تاریخ ═══
-        self.selected_date_filter = None   # None = بدون فیلتر تاریخ
+        self.selected_date_filter = None
 
         self.setWindowTitle(tr("events_title"))
         self.setMinimumSize(500, 400)
@@ -706,6 +771,7 @@ class EventsWindow(QWidget):
                 item = old.takeAt(0)
                 w = item.widget()
                 if w:
+                    w.setParent(None)
                     w.deleteLater()
         self.setup_ui()
         self.load_events()
@@ -743,6 +809,7 @@ class EventsWindow(QWidget):
                 if member:
                     self.member_id = member["memberId"]
                     self.role = member["role"]
+                    self.is_owner = self.role in ("owner", "both")
 
         except Exception as e:
             print("LOAD USER ID ERROR:", e)
@@ -757,7 +824,6 @@ class EventsWindow(QWidget):
         main_layout.setContentsMargins(30, 25, 30, 25)
         main_layout.setSpacing(18)
 
-        # HEADER
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
 
@@ -787,9 +853,6 @@ class EventsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # =========================
-        # FILTER BOX (تاریخ + دراپ‌داون فیلتر)
-        # =========================
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
         filter_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -798,7 +861,6 @@ class EventsWindow(QWidget):
         filter_layout.setContentsMargins(16, 12, 16, 12)
         filter_layout.setSpacing(10)
 
-        # --- تاریخ ---
         date_lbl = QLabel("تاریخ:")
         date_lbl.setObjectName("filterLabel")
         filter_layout.addWidget(date_lbl)
@@ -819,7 +881,6 @@ class EventsWindow(QWidget):
 
         filter_layout.addStretch()
 
-        # --- دراپ‌داون فیلتر ---
         self.filter_label_widget = QLabel(tr("show_records"))
         self.filter_label_widget.setObjectName("filterLabel")
         filter_layout.addWidget(self.filter_label_widget)
@@ -836,7 +897,6 @@ class EventsWindow(QWidget):
 
         main_layout.addWidget(filter_box)
 
-        # RECORDS BOX
         records_box = QFrame()
         records_box.setObjectName("recordsBox")
         records_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -850,7 +910,6 @@ class EventsWindow(QWidget):
 
         records_layout.addWidget(records_title)
 
-        # SCROLL
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
@@ -877,7 +936,7 @@ class EventsWindow(QWidget):
         self.apply_stylesheet()
 
     # =====================================================
-    # FILTER BUTTON TEXT
+    # FILTER POPUP
     # =====================================================
 
     def _filter_label_for(self, key):
@@ -885,6 +944,7 @@ class EventsWindow(QWidget):
             "all": tr("filter_all"),
             "payment": tr("filter_payments"),
             "attendance": tr("filter_attendance"),
+            "job": "کارها",
             "leave": tr("filter_leaves"),
             "loan": tr("filter_loans"),
             "other": tr("filter_others"),
@@ -893,10 +953,6 @@ class EventsWindow(QWidget):
     def _refresh_filter_button_text(self):
         label = self._filter_label_for(self.current_filter)
         self.filter_dropdown_btn.setText(f"{label}   ▾")
-
-    # =====================================================
-    # FILTER POPUP OPEN
-    # =====================================================
 
     def open_filter_popup(self):
         self._popup = FilterPopup(self, self.current_filter)
@@ -909,13 +965,19 @@ class EventsWindow(QWidget):
         try:
             screen = QGuiApplication.primaryScreen()
             if screen:
-                screen_geo = screen.availableGeometry()
-                if global_pos.x() + self._popup.width() > screen_geo.right():
+                geo = screen.availableGeometry()
+                if global_pos.x() + self._popup.width() > geo.right():
                     global_pos.setX(
-                        screen_geo.right() - self._popup.width() - 8
+                        geo.right() - self._popup.width() - 8
                     )
-                if global_pos.x() < screen_geo.left():
-                    global_pos.setX(screen_geo.left() + 8)
+                if global_pos.x() < geo.left():
+                    global_pos.setX(geo.left() + 8)
+                if global_pos.y() + self._popup.height() > geo.bottom():
+                    global_pos.setY(
+                        self.filter_dropdown_btn.mapToGlobal(
+                            QPoint(0, 0)
+                        ).y() - self._popup.height() - 4
+                    )
         except Exception:
             pass
 
@@ -1015,7 +1077,6 @@ class EventsWindow(QWidget):
             padding-right: 4px;
         }}
 
-        /* ═══ دکمه دراپ‌داون فیلتر ═══ */
         QPushButton#filterDropdown {{
             background-color: {c['bg_input']};
             color: {c['text_main']};
@@ -1033,7 +1094,6 @@ class EventsWindow(QWidget):
             color: {c['accent']};
         }}
 
-        /* ═══ دکمه پاک کردن تاریخ ═══ */
         QPushButton#clearDateBtn {{
             background-color: {c['danger_bg']};
             color: {c['danger']};
@@ -1050,41 +1110,6 @@ class EventsWindow(QWidget):
             border-color: {c['danger']};
         }}
 
-        /* ═══ دکمه تقویم (PersianDateButton) ═══ */
-        QFrame#persianDateFrame {{
-            background-color: {c['bg_input']};
-            border: 1px solid {c['border']};
-            border-radius: 21px;
-        }}
-
-        QFrame#persianDateFrame:hover {{
-            background-color: {c['bg_card']};
-            border: 1px solid {c['border_hover']};
-        }}
-
-        QLabel#dateIconLabel {{
-            background-color: {c['accent_light']};
-            border: none;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 700;
-        }}
-
-        QPushButton#persianDateButton {{
-            background-color: transparent;
-            border: none;
-            padding: 0 4px;
-            color: {c['text_main']};
-            font-size: 12px;
-            font-weight: 700;
-            text-align: center;
-        }}
-
-        QPushButton#persianDateButton:hover {{
-            color: {c['accent']};
-        }}
-
-        /* ═══ بقیه ═══ */
         QFrame#recordsBox {{
             background-color: {c['bg_card']};
             border: 1px solid {c['border']};
@@ -1175,12 +1200,12 @@ class EventsWindow(QWidget):
             self.refresh_records()
             return
 
-        is_owner = self.role in ("owner", "both")
+        show_all = self.is_owner
         mid = self.member_id
 
         try:
             # ─── Payments ───
-            if is_owner:
+            if show_all:
                 payments = self.db.fetch_all(
                     """
                     SELECT p.paymentId, p.amount, p.paymentType, p.paymentDate,
@@ -1226,7 +1251,7 @@ class EventsWindow(QWidget):
                 })
 
             # ─── Attendance ───
-            if is_owner:
+            if show_all:
                 attendances = self.db.fetch_all(
                     """
                     SELECT a.attendanceId, a.workDate, a.checkIn, a.checkOut,
@@ -1271,8 +1296,84 @@ class EventsWindow(QWidget):
                     "date": a["workDate"]
                 })
 
+            # ─── Jobs (کارهای واگذارشده) ───
+            if show_all:
+                jobs_rows = self.db.fetch_all(
+                    """
+                    SELECT ej.employeeJobId, ej.assignedDate, ej.startDate,
+                           ej.deadline, ej.quantity, ej.price, ej.status,
+                           ej.description, ej.completedDate,
+                           j.jobTitle,
+                           u.name AS employee_name,
+                           au.name AS assigner_name
+                    FROM employee_jobs ej
+                    INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                    INNER JOIN users u ON u.userId = cm.userId
+                    LEFT JOIN users au ON au.userId = ej.assignedBy
+                    LEFT JOIN jobs j ON j.jobId = ej.jobId
+                    WHERE cm.complexId = %s
+                    ORDER BY ej.assignedDate DESC LIMIT 50
+                    """,
+                    (self.complex_id,)
+                )
+            else:
+                jobs_rows = self.db.fetch_all(
+                    """
+                    SELECT ej.employeeJobId, ej.assignedDate, ej.startDate,
+                           ej.deadline, ej.quantity, ej.price, ej.status,
+                           ej.description, ej.completedDate,
+                           j.jobTitle,
+                           u.name AS employee_name,
+                           au.name AS assigner_name
+                    FROM employee_jobs ej
+                    INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                    INNER JOIN users u ON u.userId = cm.userId
+                    LEFT JOIN users au ON au.userId = ej.assignedBy
+                    LEFT JOIN jobs j ON j.jobId = ej.jobId
+                    WHERE cm.complexId = %s AND ej.memberId = %s
+                    ORDER BY ej.assignedDate DESC LIMIT 50
+                    """,
+                    (self.complex_id, mid)
+                )
+
+            status_map = {
+                "pending": "در انتظار شروع",
+                "inProgress": "در حال انجام",
+                "completed": "منتظر تأیید",
+                "approved": "تأییدشده",
+                "rejected": "رد شده",
+                "cancelled": "لغو شده",
+            }
+
+            for j in jobs_rows or []:
+                st = status_map.get(j.get("status"), j.get("status") or "—")
+                title = j.get("jobTitle") or "—"
+                emp_name = j.get("employee_name") or "—"
+
+                qty = j.get("quantity") or 1
+                price = float(j.get("price") or 0)
+                total = float(qty) * price
+
+                desc_parts = [
+                    f"وضعیت: {st}",
+                    f"مبلغ: {format_money(total)} {tr('toman')}",
+                ]
+                if j.get("startDate"):
+                    desc_parts.append(f"شروع: {j['startDate']}")
+                if j.get("deadline"):
+                    desc_parts.append(f"مهلت: {j['deadline']}")
+                if j.get("description"):
+                    desc_parts.append(j["description"])
+
+                self.all_events.append({
+                    "type": f"کار: {title} — {emp_name}",
+                    "category": "job",
+                    "description": "   •   ".join(desc_parts),
+                    "date": j.get("assignedDate") or j.get("startDate"),
+                })
+
             # ─── Leaves ───
-            if is_owner:
+            if show_all:
                 leaves = self.db.fetch_all(
                     """
                     SELECT l.leaveId, l.startDate, l.endDate, l.leaveType,
@@ -1318,7 +1419,7 @@ class EventsWindow(QWidget):
                 })
 
             # ─── Loans ───
-            if is_owner:
+            if show_all:
                 loans = self.db.fetch_all(
                     """
                     SELECT lo.loanId, lo.totalAmount, lo.installmentCount,
@@ -1355,7 +1456,7 @@ class EventsWindow(QWidget):
                 })
 
             # ─── Bonuses ───
-            if is_owner:
+            if show_all:
                 bonuses = self.db.fetch_all(
                     """
                     SELECT b.bonusId, b.amount, b.title, b.bonusDate, u.name
@@ -1389,7 +1490,7 @@ class EventsWindow(QWidget):
                 })
 
             # ─── Deductions ───
-            if is_owner:
+            if show_all:
                 deductions = self.db.fetch_all(
                     """
                     SELECT d.deductionId, d.amount, d.title, d.deductionDate, u.name
@@ -1448,17 +1549,18 @@ class EventsWindow(QWidget):
             item = self.scroll_layout.takeAt(0)
             widget = item.widget()
             if widget:
+                widget.setParent(None)
                 widget.deleteLater()
+
+        QApplication.processEvents()
 
         filtered = self.all_events
 
-        # فیلتر دسته‌بندی
         if self.current_filter != "all":
             filtered = [
                 e for e in filtered if e["category"] == self.current_filter
             ]
 
-        # فیلتر تاریخ
         if self.selected_date_filter is not None:
             filtered = [
                 e for e in filtered
@@ -1516,6 +1618,7 @@ class EventsWindow(QWidget):
         cat_map = {
             "payment": tr("filter_payments"),
             "attendance": tr("filter_attendance"),
+            "job": "کارها",
             "leave": tr("filter_leaves"),
             "loan": tr("filter_loans"),
             "other": tr("filter_others"),
@@ -1525,6 +1628,15 @@ class EventsWindow(QWidget):
         badge = QLabel(cat_text)
         badge.setObjectName("categoryBadge")
         badge.setAlignment(Qt.AlignCenter)
+
+        if record["category"] == "job":
+            c = theme_manager.colors()
+            badge.setStyleSheet(
+                f"color: {c['success']};"
+                f"background-color: {c['success_bg']};"
+                f"border: none; border-radius: 10px;"
+                f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+            )
 
         card_layout.addWidget(badge)
 

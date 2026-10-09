@@ -18,6 +18,23 @@ from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
 
+from hierarchy import (
+    LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
+    role_to_level, get_member_level, get_visible_member_ids
+)
+
+# =========================================================
+# ROLE BADGES
+# =========================================================
+
+ROLE_BADGE_FA = {
+    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
+    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
+    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
+}
+
 # =========================================================
 # ROUND SCROLL BAR
 # =========================================================
@@ -448,6 +465,7 @@ class PersianCalendarPopup(QWidget):
             item = self.days_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
 
         self.month_label.setText(f"{MONTH_NAMES[self.view_month - 1]} {self.view_year}")
@@ -511,7 +529,7 @@ class PersianCalendarPopup(QWidget):
         self.close()
 
 # =========================================================
-# PERSIAN DATE BUTTON
+# PERSIAN DATE BUTTON (custom painted)
 # =========================================================
 
 class PersianDateButton(QFrame):
@@ -523,42 +541,84 @@ class PersianDateButton(QFrame):
 
         self._qdate = initial_qdate if initial_qdate is not None else QDate.currentDate()
 
-        self.setObjectName("persianDateFrame")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShadow(QFrame.Plain)
+        self.setLineWidth(0)
+        self.setMidLineWidth(0)
+
+        self.setAttribute(Qt.WA_Hover, True)
+        self.setAttribute(Qt.WA_StyledBackground, False)
         self.setFixedHeight(42)
-        self.setMinimumWidth(180)
+        self.setMinimumWidth(220)
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 14, 0)
-        layout.setSpacing(8)
+        self._hover = False
+        self.setStyleSheet("QFrame { background: transparent; border: none; }")
 
-        self.icon_label = QLabel("📅")
-        self.icon_label.setObjectName("dateIconLabel")
-        self.icon_label.setFixedSize(30, 30)
-        self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
 
-        self.date_btn = QPushButton()
-        self.date_btn.setObjectName("persianDateButton")
-        self.date_btn.setCursor(Qt.PointingHandCursor)
+    def leaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
 
-        layout.addWidget(self.icon_label)
-        layout.addWidget(self.date_btn, 1)
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = theme_manager.colors()
 
-        self._refresh_text()
-        self.mousePressEvent = self._frame_clicked
-        self.date_btn.clicked.connect(self._open_dialog)
+        rect = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
 
-    def _frame_clicked(self, event):
-        self._open_dialog()
-        event.accept()
+        if self._hover:
+            painter.setBrush(QColor(c["bg_card"]))
+            painter.setPen(QColor(c["border_hover"]))
+        else:
+            painter.setBrush(QColor(c["bg_input"]))
+            painter.setPen(QColor(c["border"]))
 
-    def _refresh_text(self):
+        painter.drawRoundedRect(rect, 21.0, 21.0)
+
+        icon_size = 30
+        icon_margin = 6
+        icon_x = rect.right() - icon_size - icon_margin
+        icon_y = rect.top() + (rect.height() - icon_size) / 2
+        icon_rect = QRectF(icon_x, icon_y, icon_size, icon_size)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(c["accent_light"]))
+        painter.drawRoundedRect(icon_rect, 10.0, 10.0)
+
+        font = painter.font()
+        font.setFamily("Segoe UI Emoji")
+        font.setPointSize(12)
+        painter.setFont(font)
+        painter.setPen(QColor(c["accent"]))
+        painter.drawText(icon_rect, Qt.AlignCenter, "📅")
+
+        painter.setPen(QColor(c["accent"]) if self._hover else QColor(c["text_main"]))
+        font = painter.font()
+        font.setFamily("Vazirmatn")
+        font.setPointSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+
         jy, jm, jd = gregorian_to_jalali(
             self._qdate.year(), self._qdate.month(), self._qdate.day()
         )
-        self.date_btn.setText(f"{jy:04d} / {jm:02d} / {jd:02d}")
+        text = f"{jy:04d} / {jm:02d} / {jd:02d}"
+
+        text_rect = rect.adjusted(14.0, 0.0, -(icon_size + icon_margin + 8), 0.0)
+        painter.drawText(text_rect, Qt.AlignRight | Qt.AlignVCenter, text)
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._open_dialog()
+            event.accept()
 
     def date(self):
         return self._qdate
@@ -568,30 +628,40 @@ class PersianDateButton(QFrame):
 
     def setDate(self, qdate):
         self._qdate = qdate
-        self._refresh_text()
+        self.update()
 
     def _open_dialog(self):
         self._popup = PersianCalendarPopup(self, self._qdate)
         self._popup.dateSelected.connect(self._on_date_selected)
-        global_pos = self.mapToGlobal(QPoint(0, self.height() + 4))
+
+        popup_w = self._popup.width()
+        popup_h = self._popup.height()
+
+        btn_global = self.mapToGlobal(QPoint(0, self.height() + 4))
+        x = btn_global.x() + self.width() - popup_w
+        y = btn_global.y()
 
         try:
-            screen = QApplication.primaryScreen().availableGeometry()
-            x = global_pos.x()
-            if x + self._popup.width() > screen.right():
-                x = screen.right() - self._popup.width()
-            if x < screen.left():
-                x = screen.left()
-            global_pos.setX(x)
+            screen = QApplication.primaryScreen()
+            if screen:
+                geo = screen.availableGeometry()
+                if x + popup_w > geo.right():
+                    x = geo.right() - popup_w - 8
+                if x < geo.left():
+                    x = geo.left() + 8
+                if y + popup_h > geo.bottom():
+                    y = self.mapToGlobal(QPoint(0, 0)).y() - popup_h - 4
+                if y < geo.top():
+                    y = geo.top() + 8
         except Exception:
             pass
 
-        self._popup.move(global_pos)
+        self._popup.move(x, y)
         self._popup.show()
 
     def _on_date_selected(self, qdate):
         self._qdate = qdate
-        self._refresh_text()
+        self.update()
         self.dateChanged.emit(self._qdate)
 
 # =========================================================
@@ -749,6 +819,14 @@ class ReportsWindow(QWidget):
         self.db = Database()
         self.user_id = None
 
+        # ═══ سلسله مراتب ═══
+        self.member_id = None
+        self.role = "employee"
+        self.level = LEVEL_EMPLOYEE
+        self.is_owner = False
+        self.can_view_team = False
+        self.visible_ids = []
+
         self.date_range = "last_3_months"
 
         self.summary = {
@@ -766,6 +844,7 @@ class ReportsWindow(QWidget):
         self.setObjectName("reportsWindow")
 
         self.load_user_id()
+        self.load_user_hierarchy()
         self.setup_ui()
         self.calculate_reports()
 
@@ -807,6 +886,87 @@ class ReportsWindow(QWidget):
                 self.user_id = user["userId"]
         except Exception as e:
             print("REPORTS LOAD USER ID ERROR:", e)
+
+    def load_user_hierarchy(self):
+        if not self.user_id or not self.complex_id:
+            return
+        try:
+            member = self.db.fetch_one(
+                """
+                SELECT memberId, role
+                FROM complex_members
+                WHERE complexId = %s AND userId = %s AND isActive = '1'
+                LIMIT 1
+                """,
+                (self.complex_id, self.user_id)
+            )
+            if not member:
+                return
+
+            self.member_id = member["memberId"]
+            self.role = member.get("role") or "employee"
+
+            self.level = get_member_level(self.db, self.complex_id, self.member_id)
+            expected = role_to_level(self.role)
+            if expected < self.level:
+                self.level = expected
+
+            self.is_owner = (self.level == LEVEL_OWNER)
+            self.can_view_team = self.level in (
+                LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR
+            )
+
+            self.visible_ids = get_visible_member_ids(
+                self.db, self.complex_id, self.member_id, self.level
+            )
+
+            print("REPORTS HIERARCHY:",
+                  "member_id =", self.member_id,
+                  "| level =", self.level,
+                  "| can_view_team =", self.can_view_team,
+                  "| visible_ids =", self.visible_ids)
+        except Exception as e:
+            print("REPORTS LOAD HIERARCHY ERROR:", e)
+
+    def get_target_ids(self):
+        """
+        لیست memberIdهای مورد نظر برای گزارش
+        (همیشه شامل خودم + زیردست‌ها)
+        """
+        if not self.complex_id or not self.member_id:
+            return []
+
+        result = [self.member_id]  # ═══ همیشه خودم ═══
+
+        # ═══ کارمند → فقط خودش ═══
+        if not self.can_view_team:
+            return result
+
+        # ═══ مالک → همه به جز خودش ═══
+        if self.is_owner:
+            try:
+                rows = self.db.fetch_all(
+                    """
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s AND isActive = '1'
+                      AND role NOT IN ('owner', 'both')
+                    """,
+                    (self.complex_id,)
+                )
+                if rows:
+                    result += [r["memberId"] for r in rows]
+                return result
+            except Exception as e:
+                print("REPORTS TARGET IDS ERROR:", e)
+                return result
+
+        # ═══ مدیر/سرپرست → خودش + زیردست‌ها ═══
+        subordinates = [
+            mid for mid in self.visible_ids
+            if mid != self.member_id
+        ]
+        result += subordinates
+        return result
 
     def _compute_preset_range(self):
         today = date.today()
@@ -853,7 +1013,6 @@ class ReportsWindow(QWidget):
         main_layout.setContentsMargins(24, 20, 24, 20)
         main_layout.setSpacing(12)
 
-        # HEADER
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
 
@@ -888,7 +1047,6 @@ class ReportsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # FILTER BOX
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
         filter_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -903,7 +1061,6 @@ class ReportsWindow(QWidget):
         filter_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         filter_layout.addWidget(filter_title)
 
-        # Rounded container for presets
         presets_container = QFrame()
         presets_container.setObjectName("presetsContainer")
         presets_container.setAttribute(Qt.WA_StyledBackground, True)
@@ -940,7 +1097,6 @@ class ReportsWindow(QWidget):
 
         main_layout.addWidget(filter_box)
 
-        # SCROLL
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -1008,13 +1164,7 @@ class ReportsWindow(QWidget):
             "finance"
         )
         self.create_report_card(
-            reports_grid, 1, 0, "👥",
-            tr("report_employees"),
-            tr("report_employees_desc"),
-            "employees"
-        )
-        self.create_report_card(
-            reports_grid, 1, 1, "✓",
+            reports_grid, 1, 0, "✓",
             tr("report_tasks"),
             tr("report_tasks_desc"),
             "tasks"
@@ -1318,58 +1468,70 @@ class ReportsWindow(QWidget):
 
         """)
 
+    # =====================================================
+    # CALCULATE REPORTS
+    # =====================================================
+
     def calculate_reports(self):
         if not self.complex_id:
             return
 
         start_date, end_date = self.get_date_range_gregorian()
 
+        all_ids = self.get_target_ids()
+
+        if not all_ids:
+            self.emp_value.setText("0")
+            self.hours_value.setText(f"0 {tr('hours_text')}")
+            self.pay_value.setText(f"0 {tr('toman')}")
+            self.tasks_value.setText("0")
+            return
+
+        placeholders = ",".join(["%s"] * len(all_ids))
+
         try:
             emp = self.db.fetch_one(
-                """
+                f"""
                 SELECT COUNT(*) AS cnt FROM complex_members
-                WHERE complexId = %s AND role IN ('employee', 'both') AND isActive = '1'
+                WHERE complexId = %s AND memberId IN ({placeholders}) AND isActive = '1'
                 """,
-                (self.complex_id,)
+                (self.complex_id, *all_ids)
             )
             emp_count = int(emp["cnt"]) if emp else 0
 
             hours_row = self.db.fetch_one(
-                """
+                f"""
                 SELECT COALESCE(SUM(a.workedMinutes), 0) AS total
                 FROM attendance a
-                INNER JOIN complex_members cm ON cm.memberId = a.memberId
-                WHERE cm.complexId = %s
+                WHERE a.memberId IN ({placeholders})
                   AND a.workDate BETWEEN %s AND %s
                   AND a.checkIn IS NOT NULL
                 """,
-                (self.complex_id, start_date, end_date)
+                (*all_ids, start_date, end_date)
             )
             total_minutes = int(hours_row["total"]) if hours_row else 0
             total_hours = total_minutes // 60
 
             pay_row = self.db.fetch_one(
-                """
+                f"""
                 SELECT COALESCE(SUM(p.amount), 0) AS total
                 FROM payments p
-                INNER JOIN complex_members cm ON cm.memberId = p.memberId
-                WHERE cm.complexId = %s
+                WHERE p.memberId IN ({placeholders})
                   AND DATE(p.paymentDate) BETWEEN %s AND %s
                 """,
-                (self.complex_id, start_date, end_date)
+                (*all_ids, start_date, end_date)
             )
             total_payments = float(pay_row["total"]) if pay_row else 0
 
             task_row = self.db.fetch_one(
-                """
+                f"""
                 SELECT COUNT(*) AS cnt
                 FROM employee_jobs ej
-                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
-                WHERE cm.complexId = %s
-                  AND ej.status = 'completed'
+                WHERE ej.memberId IN ({placeholders})
+                  AND ej.status = 'approved'
                   AND DATE(ej.assignedDate) BETWEEN %s AND %s
                 """,
-                (self.complex_id, start_date, end_date)
+                (*all_ids, start_date, end_date)
             )
             tasks_done = int(task_row["cnt"]) if task_row else 0
 
@@ -1546,7 +1708,6 @@ class ReportsWindow(QWidget):
         title_map = {
             "attendance": tr("report_attendance"),
             "finance": tr("report_finance"),
-            "employees": tr("report_employees"),
             "tasks": tr("report_tasks"),
         }
         report_title = title_map.get(report_type, tr("reports_title"))
@@ -1556,7 +1717,6 @@ class ReportsWindow(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Header
         header = QFrame()
         header.setObjectName("dialogHeader")
         header.setAttribute(Qt.WA_StyledBackground, True)
@@ -1574,7 +1734,6 @@ class ReportsWindow(QWidget):
         h_layout.addWidget(h_title)
         main_layout.addWidget(header)
 
-        # Date picker box
         date_box = QFrame()
         date_box.setObjectName("datePickerBox")
         date_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -1636,7 +1795,6 @@ class ReportsWindow(QWidget):
         wrap_layout.addWidget(date_box)
         main_layout.addWidget(wrap)
 
-        # Scroll
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -1668,8 +1826,6 @@ class ReportsWindow(QWidget):
                 self.build_attendance_report(content_layout, sd, ed)
             elif report_type == "finance":
                 self.build_finance_report(content_layout, sd, ed)
-            elif report_type == "employees":
-                self.build_employees_report(content_layout)
             elif report_type == "tasks":
                 self.build_tasks_report(content_layout, sd, ed)
 
@@ -1679,7 +1835,6 @@ class ReportsWindow(QWidget):
         refresh_content()
         scroll.setWidget(content)
 
-        # Bottom
         bottom = QFrame()
         bottom.setObjectName("dialogBottom")
         bottom.setAttribute(Qt.WA_StyledBackground, True)
@@ -1721,19 +1876,39 @@ class ReportsWindow(QWidget):
     def build_attendance_report(self, layout, start_date, end_date):
         c = theme_manager.colors()
 
+        all_ids = self.get_target_ids()
+        if not all_ids:
+            empty = QLabel("کسی برای نمایش گزارش وجود ندارد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 13px; "
+                f"padding: 40px; background: transparent;"
+            )
+            layout.addWidget(empty)
+            return
+
+        placeholders = ",".join(["%s"] * len(all_ids))
+
         try:
             employees = self.db.fetch_all(
-                """
-                SELECT cm.memberId, u.name, u.phoneNumber
+                f"""
+                SELECT cm.memberId, cm.role, u.name, u.phoneNumber
                 FROM complex_members cm
                 INNER JOIN users u ON u.userId = cm.userId
                 WHERE cm.complexId = %s
-                  AND cm.role IN ('employee', 'both')
+                  AND cm.memberId IN ({placeholders})
                   AND cm.isActive = '1'
-                ORDER BY u.name ASC
+                ORDER BY
+                    CASE cm.role
+                        WHEN 'manager'    THEN 1
+                        WHEN 'supervisor' THEN 2
+                        WHEN 'employee'   THEN 3
+                        ELSE 4
+                    END,
+                    u.name ASC
                 """,
-                (self.complex_id,)
-            )
+                (self.complex_id, *all_ids)
+            ) or []
         except Exception as e:
             print("BUILD ATTENDANCE REPORT ERROR:", e)
             employees = []
@@ -1786,6 +1961,8 @@ class ReportsWindow(QWidget):
             ot_h = ot // 60
             ot_m = ot % 60
 
+            is_me = (emp.get("memberId") == self.member_id)
+
             card = QFrame()
             card.setObjectName("employeeStatCard")
             card.setAttribute(Qt.WA_StyledBackground, True)
@@ -1814,7 +1991,7 @@ class ReportsWindow(QWidget):
 
             name_row = QHBoxLayout()
             name_row.setContentsMargins(0, 0, 0, 0)
-            name_row.setSpacing(0)
+            name_row.setSpacing(8)
 
             name_lbl = QLabel(name_text)
             name_lbl.setStyleSheet(
@@ -1823,7 +2000,33 @@ class ReportsWindow(QWidget):
             )
             name_lbl.setLayoutDirection(Qt.RightToLeft)
             name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            role_val = emp.get("role") or "employee"
+            badge_info = ROLE_BADGE_FA.get(role_val, ROLE_BADGE_FA["employee"])
+            role_badge = QLabel(badge_info[0])
+            role_badge.setAlignment(Qt.AlignCenter)
+            role_badge.setStyleSheet(
+                f"color: {badge_info[1]};"
+                f"background-color: {badge_info[2]};"
+                f"border: none; border-radius: 10px;"
+                f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+            )
+
             name_row.addWidget(name_lbl)
+            name_row.addWidget(role_badge)
+
+            if is_me:
+                me_badge = QLabel("(من)")
+                me_badge.setAlignment(Qt.AlignCenter)
+                me_badge.setStyleSheet(
+                    f"color: {c['accent']};"
+                    f"background-color: {c['accent_light']};"
+                    f"border: 1px solid {c['accent']};"
+                    f"border-radius: 10px;"
+                    f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+                )
+                name_row.addWidget(me_badge)
+
             name_row.addStretch()
 
             phone_row = QHBoxLayout()
@@ -2190,19 +2393,39 @@ class ReportsWindow(QWidget):
     def build_finance_report(self, layout, start_date, end_date):
         c = theme_manager.colors()
 
+        all_ids = self.get_target_ids()
+        if not all_ids:
+            empty = QLabel("کسی برای نمایش گزارش وجود ندارد.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setStyleSheet(
+                f"color: {c['text_dim']}; font-size: 13px; "
+                f"padding: 40px; background: transparent;"
+            )
+            layout.addWidget(empty)
+            return
+
+        placeholders = ",".join(["%s"] * len(all_ids))
+
         try:
             employees = self.db.fetch_all(
-                """
-                SELECT cm.memberId, u.name, u.phoneNumber
+                f"""
+                SELECT cm.memberId, cm.role, u.name, u.phoneNumber
                 FROM complex_members cm
                 INNER JOIN users u ON u.userId = cm.userId
                 WHERE cm.complexId = %s
-                  AND cm.role IN ('employee', 'both')
+                  AND cm.memberId IN ({placeholders})
                   AND cm.isActive = '1'
-                ORDER BY u.name ASC
+                ORDER BY
+                    CASE cm.role
+                        WHEN 'manager'    THEN 1
+                        WHEN 'supervisor' THEN 2
+                        WHEN 'employee'   THEN 3
+                        ELSE 4
+                    END,
+                    u.name ASC
                 """,
-                (self.complex_id,)
-            )
+                (self.complex_id, *all_ids)
+            ) or []
         except Exception as e:
             print("BUILD FINANCE REPORT ERROR:", e)
             employees = []
@@ -2245,6 +2468,8 @@ class ReportsWindow(QWidget):
             count = int(stats["cnt"] or 0) if stats else 0
             total = float(stats["total"] or 0) if stats else 0
 
+            is_me = (emp.get("memberId") == self.member_id)
+
             card = QFrame()
             card.setObjectName("employeeStatCard")
             card.setAttribute(Qt.WA_StyledBackground, True)
@@ -2273,7 +2498,7 @@ class ReportsWindow(QWidget):
 
             name_row = QHBoxLayout()
             name_row.setContentsMargins(0, 0, 0, 0)
-            name_row.setSpacing(0)
+            name_row.setSpacing(8)
 
             name_lbl = QLabel(name_text)
             name_lbl.setStyleSheet(
@@ -2282,7 +2507,33 @@ class ReportsWindow(QWidget):
             )
             name_lbl.setLayoutDirection(Qt.RightToLeft)
             name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            role_val = emp.get("role") or "employee"
+            badge_info = ROLE_BADGE_FA.get(role_val, ROLE_BADGE_FA["employee"])
+            role_badge = QLabel(badge_info[0])
+            role_badge.setAlignment(Qt.AlignCenter)
+            role_badge.setStyleSheet(
+                f"color: {badge_info[1]};"
+                f"background-color: {badge_info[2]};"
+                f"border: none; border-radius: 10px;"
+                f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+            )
+
             name_row.addWidget(name_lbl)
+            name_row.addWidget(role_badge)
+
+            if is_me:
+                me_badge = QLabel("(من)")
+                me_badge.setAlignment(Qt.AlignCenter)
+                me_badge.setStyleSheet(
+                    f"color: {c['accent']};"
+                    f"background-color: {c['accent_light']};"
+                    f"border: 1px solid {c['accent']};"
+                    f"border-radius: 10px;"
+                    f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+                )
+                name_row.addWidget(me_badge)
+
             name_row.addStretch()
 
             phone_row = QHBoxLayout()
@@ -2537,35 +2788,17 @@ class ReportsWindow(QWidget):
         dialog.exec()
 
     # =====================================================
-    # BUILD EMPLOYEES REPORT
+    # BUILD TASKS REPORT
     # =====================================================
 
-    def build_employees_report(self, layout):
+    def build_tasks_report(self, layout, start_date, end_date):
         c = theme_manager.colors()
 
-        try:
-            employees = self.db.fetch_all(
-                """
-                SELECT u.name, u.phoneNumber, cm.role,
-                       ep.jobTitle, ep.employmentType, ep.salaryType,
-                       ep.baseSalary, ep.workDays, ep.workHours,
-                       ep.workStartTime, ep.workEndTime
-                FROM complex_members cm
-                INNER JOIN users u ON u.userId = cm.userId
-                LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
-                WHERE cm.complexId = %s
-                  AND cm.role IN ('employee', 'both')
-                  AND cm.isActive = '1'
-                ORDER BY u.name ASC
-                """,
-                (self.complex_id,)
-            )
-        except Exception as e:
-            print("BUILD EMPLOYEES REPORT ERROR:", e)
-            employees = []
+        # ═══ target_ids (خودم + زیردست‌ها) ═══
+        target_ids = self.get_target_ids()
 
-        if not employees:
-            empty = QLabel("کارمندی یافت نشد.")
+        if not target_ids:
+            empty = QLabel("کسی برای نمایش گزارش وجود ندارد.")
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -2574,125 +2807,25 @@ class ReportsWindow(QWidget):
             layout.addWidget(empty)
             return
 
-        for emp in employees:
-            card = QFrame()
-            card.setObjectName("detailRow")
-            card.setAttribute(Qt.WA_StyledBackground, True)
-            card.setMinimumHeight(110)
-
-            rl = QHBoxLayout(card)
-            rl.setContentsMargins(18, 14, 18, 14)
-            rl.setSpacing(16)
-
-            name_text = emp.get("name") or "—"
-            initial = name_text.strip()[0] if name_text.strip() else "?"
-
-            avatar = QLabel(initial)
-            avatar.setFixedSize(48, 48)
-            avatar.setAlignment(Qt.AlignCenter)
-            avatar.setStyleSheet(
-                f"background-color: {c['accent_light']}; "
-                f"color: {c['accent']}; "
-                f"border-radius: 24px; "
-                f"font-size: 18px; font-weight: 800;"
-            )
-
-            info_col = QVBoxLayout()
-            info_col.setSpacing(3)
-
-            name_row = QHBoxLayout()
-            name_row.setContentsMargins(0, 0, 0, 0)
-            name_row.setSpacing(0)
-
-            name_lbl = QLabel(name_text)
-            name_lbl.setStyleSheet(
-                f"color: {c['text_main']}; font-size: 14px; "
-                f"font-weight: 700; background: transparent;"
-            )
-            name_lbl.setLayoutDirection(Qt.RightToLeft)
-            name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            name_row.addWidget(name_lbl)
-            name_row.addStretch()
-
-            phone_row = QHBoxLayout()
-            phone_row.setContentsMargins(0, 0, 0, 0)
-            phone_row.setSpacing(0)
-
-            phone_lbl = QLabel(emp.get("phoneNumber") or "—")
-            phone_lbl.setStyleSheet(
-                f"color: {c['text_dim']}; font-size: 11px; "
-                f"background: transparent;"
-            )
-            phone_lbl.setLayoutDirection(Qt.RightToLeft)
-            phone_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            phone_row.addWidget(phone_lbl)
-            phone_row.addStretch()
-
-            job_row = QHBoxLayout()
-            job_row.setContentsMargins(0, 0, 0, 0)
-            job_row.setSpacing(0)
-
-            job_lbl = QLabel(emp.get("jobTitle") or "—")
-            job_lbl.setStyleSheet(
-                f"color: {c['accent']}; font-size: 11px; "
-                f"font-weight: 700; background: transparent;"
-            )
-            job_lbl.setLayoutDirection(Qt.RightToLeft)
-            job_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            job_row.addWidget(job_lbl)
-            job_row.addStretch()
-
-            info_col.addLayout(name_row)
-            info_col.addLayout(phone_row)
-            info_col.addLayout(job_row)
-
-            stats_col = QHBoxLayout()
-            stats_col.setSpacing(10)
-
-            base = float(emp.get("baseSalary") or 0)
-            days = float(emp.get("workDays") or 26)
-            hours = float(emp.get("workHours") or 8)
-
-            stats_col.addWidget(create_stat_box(
-                "حقوق پایه", f"{format_money(base)}", "green", 140
-            ))
-            stats_col.addWidget(create_stat_box(
-                "روز کارکرد", f"{days:g} روز", "blue", 110
-            ))
-            stats_col.addWidget(create_stat_box(
-                "ساعت روزانه", f"{hours:g} ساعت", "blue", 110
-            ))
-
-            rl.addWidget(avatar)
-            rl.addLayout(info_col, 2)
-            rl.addLayout(stats_col, 5)
-
-            layout.addWidget(card)
-
-    # =====================================================
-    # BUILD TASKS REPORT
-    # =====================================================
-
-    def build_tasks_report(self, layout, start_date, end_date):
-        c = theme_manager.colors()
+        placeholders = ",".join(["%s"] * len(target_ids))
 
         try:
             stats = self.db.fetch_one(
-                """
+                f"""
                 SELECT
                     COUNT(*) AS total,
                     SUM(CASE WHEN ej.status = 'pending' THEN 1 ELSE 0 END) AS pending,
                     SUM(CASE WHEN ej.status = 'inProgress' THEN 1 ELSE 0 END) AS in_progress,
                     SUM(CASE WHEN ej.status = 'completed' THEN 1 ELSE 0 END) AS completed,
+                    SUM(CASE WHEN ej.status = 'approved' THEN 1 ELSE 0 END) AS approved,
                     SUM(CASE WHEN ej.status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
                     SUM(CASE WHEN ej.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-                    COALESCE(SUM(CASE WHEN ej.status = 'completed' THEN ej.price ELSE 0 END), 0) AS total_paid
+                    COALESCE(SUM(CASE WHEN ej.status = 'approved' THEN ej.price * COALESCE(ej.quantity, 1) ELSE 0 END), 0) AS total_paid
                 FROM employee_jobs ej
-                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
-                WHERE cm.complexId = %s
+                WHERE ej.memberId IN ({placeholders})
                   AND DATE(ej.assignedDate) BETWEEN %s AND %s
                 """,
-                (self.complex_id, start_date, end_date)
+                (*target_ids, start_date, end_date)
             )
         except Exception as e:
             print("TASKS STATS ERROR:", e)
@@ -2702,6 +2835,7 @@ class ReportsWindow(QWidget):
         pending = int(stats["pending"] or 0) if stats else 0
         in_progress = int(stats["in_progress"] or 0) if stats else 0
         completed = int(stats["completed"] or 0) if stats else 0
+        approved = int(stats["approved"] or 0) if stats else 0
         rejected = int(stats["rejected"] or 0) if stats else 0
         cancelled = int(stats["cancelled"] or 0) if stats else 0
         total_paid = float(stats["total_paid"] or 0) if stats else 0
@@ -2722,24 +2856,28 @@ class ReportsWindow(QWidget):
             0, 2
         )
         summary_grid.addWidget(
-            self._create_summary_stat("تکمیل شده", str(completed), "summaryStatBoxGreen"),
+            self._create_summary_stat("منتظر تأیید", str(completed), "summaryStatBoxOrange"),
             0, 3
         )
         summary_grid.addWidget(
-            self._create_summary_stat("رد شده", str(rejected), "summaryStatBoxRed"),
+            self._create_summary_stat("تأییدشده", str(approved), "summaryStatBoxGreen"),
             1, 0
         )
         summary_grid.addWidget(
-            self._create_summary_stat("لغو شده", str(cancelled), "summaryStatBox"),
+            self._create_summary_stat("رد شده", str(rejected), "summaryStatBoxRed"),
             1, 1
         )
         summary_grid.addWidget(
+            self._create_summary_stat("لغو شده", str(cancelled), "summaryStatBox"),
+            1, 2
+        )
+        summary_grid.addWidget(
             self._create_summary_stat(
-                "جمع پرداخت‌شده",
+                "جمع کارمزد تأییدشده",
                 f"{format_money(total_paid)} ت",
                 "summaryStatBoxGreen"
             ),
-            1, 2, 1, 2
+            1, 3
         )
 
         layout.addLayout(summary_grid)
@@ -2756,21 +2894,21 @@ class ReportsWindow(QWidget):
 
         try:
             per_emp = self.db.fetch_all(
-                """
-                SELECT u.name,
+                f"""
+                SELECT u.name, cm.role,
                        COUNT(ej.employeeJobId) AS total,
-                       SUM(CASE WHEN ej.status = 'completed' THEN 1 ELSE 0 END) AS done,
+                       SUM(CASE WHEN ej.status = 'approved' THEN 1 ELSE 0 END) AS done,
                        SUM(CASE WHEN ej.status = 'inProgress' THEN 1 ELSE 0 END) AS in_prog,
-                       COALESCE(SUM(CASE WHEN ej.status = 'completed' THEN ej.price ELSE 0 END), 0) AS earned
+                       COALESCE(SUM(CASE WHEN ej.status = 'approved' THEN ej.price * COALESCE(ej.quantity, 1) ELSE 0 END), 0) AS earned
                 FROM employee_jobs ej
                 INNER JOIN complex_members cm ON cm.memberId = ej.memberId
                 INNER JOIN users u ON u.userId = cm.userId
-                WHERE cm.complexId = %s
+                WHERE ej.memberId IN ({placeholders})
                   AND DATE(ej.assignedDate) BETWEEN %s AND %s
-                GROUP BY u.userId, u.name
+                GROUP BY u.userId, u.name, cm.role
                 ORDER BY done DESC, u.name ASC
                 """,
-                (self.complex_id, start_date, end_date)
+                (*target_ids, start_date, end_date)
             )
         except Exception as e:
             print("PER EMP TASKS ERROR:", e)
@@ -2818,7 +2956,7 @@ class ReportsWindow(QWidget):
                 stats_col.setSpacing(10)
 
                 stats_col.addWidget(create_stat_box("کل", str(tot), "blue", 90))
-                stats_col.addWidget(create_stat_box("تکمیل", str(done), "green", 90))
+                stats_col.addWidget(create_stat_box("تأییدشده", str(done), "green", 90))
                 stats_col.addWidget(create_stat_box("در حال انجام", str(in_prog), "orange", 100))
                 stats_col.addWidget(create_stat_box("درآمد", f"{format_money(earned)}", "green", 150))
 
@@ -2841,19 +2979,19 @@ class ReportsWindow(QWidget):
 
         try:
             tasks = self.db.fetch_all(
-                """
-                SELECT u.name, j.jobTitle, ej.status, ej.price,
+                f"""
+                SELECT u.name, j.jobTitle, ej.status, ej.price, ej.quantity,
                        ej.assignedDate, ej.completedDate, ej.description
                 FROM employee_jobs ej
                 INNER JOIN complex_members cm ON cm.memberId = ej.memberId
                 INNER JOIN users u ON u.userId = cm.userId
                 LEFT JOIN jobs j ON j.jobId = ej.jobId
-                WHERE cm.complexId = %s
+                WHERE ej.memberId IN ({placeholders})
                   AND DATE(ej.assignedDate) BETWEEN %s AND %s
                 ORDER BY ej.assignedDate DESC
                 LIMIT 200
                 """,
-                (self.complex_id, start_date, end_date)
+                (*target_ids, start_date, end_date)
             )
         except Exception as e:
             print("TASKS DETAIL ERROR:", e)
@@ -2872,7 +3010,8 @@ class ReportsWindow(QWidget):
         status_map = {
             "pending": ("در انتظار", "statusBadgeOrange", "#B87900"),
             "inProgress": ("در حال انجام", "statusBadgeOrange", "#B87900"),
-            "completed": ("تکمیل", "statusBadgeGreen", c['success']),
+            "completed": ("منتظر تأیید", "statusBadgeOrange", "#B87900"),
+            "approved": ("تأییدشده", "statusBadgeGreen", c['success']),
             "rejected": ("رد شده", "statusBadgeRed", "#D93025"),
             "cancelled": ("لغو شده", "statusBadgeRed", "#D93025"),
         }
@@ -2931,7 +3070,11 @@ class ReportsWindow(QWidget):
             title_lbl.setLayoutDirection(Qt.RightToLeft)
             title_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-            price_lbl = QLabel(f"{format_money(t.get('price') or 0)} ت")
+            qty = float(t.get("quantity") or 1)
+            price = float(t.get("price") or 0)
+            total_price = qty * price
+
+            price_lbl = QLabel(f"{format_money(total_price)} ت")
             price_lbl.setStyleSheet(
                 f"color: {c['success']}; font-size: 12px; "
                 f"font-weight: 700; background: transparent;"

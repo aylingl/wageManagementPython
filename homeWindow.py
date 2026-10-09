@@ -253,6 +253,7 @@ class HomeWindow(QWidget):
 
         self.current_group = "—"
         self.current_role_key = "user_role"
+        self.current_role_value = "employee"
 
         self.groups = []
 
@@ -350,7 +351,7 @@ class HomeWindow(QWidget):
         self.update_services()
 
     # =====================================================
-    # LOAD USER INFORMATION (با چند fallback برای شماره)
+    # LOAD USER INFORMATION
     # =====================================================
 
     def load_user_information(self):
@@ -370,7 +371,6 @@ class HomeWindow(QWidget):
                 )
             else:
                 if self.phone_number:
-                    # ═══ ۱) با فرمت دقیق ═══
                     user = self.db.fetch_one(
                         """
                         SELECT userId, name, imageBase64
@@ -381,7 +381,6 @@ class HomeWindow(QWidget):
                         (self.phone_number,)
                     )
 
-                    # ═══ ۲) با ۱۰ رقم آخر ═══
                     if not user:
                         user = self.db.fetch_one(
                             """
@@ -393,7 +392,6 @@ class HomeWindow(QWidget):
                             (self.phone_number,)
                         )
 
-                    # ═══ ۳) با ۹ رقم آخر (بدون صفر) ═══
                     if not user:
                         user = self.db.fetch_one(
                             """
@@ -410,7 +408,6 @@ class HomeWindow(QWidget):
                 return
 
             self.user_id = user["userId"]
-            print("HOME: user_id =", self.user_id)
 
             theme_manager.load_for_user(self.user_id)
             self.load_user_language()
@@ -422,14 +419,13 @@ class HomeWindow(QWidget):
                 self.avatar = user["imageBase64"]
 
             self.groups = self.load_groups_from_database()
-            print("HOME: groups found =", len(self.groups))
 
             if self.groups:
                 first_group = self.groups[0]
                 self.current_group = first_group["name"] or "—"
                 rv = first_group.get("role", "employee")
+                self.current_role_value = rv
                 self.current_role_key = self.get_role_key(rv)
-                print("HOME: role =", self.current_role_key)
 
         except Exception as e:
             print("Error loading home information:", e)
@@ -493,10 +489,14 @@ class HomeWindow(QWidget):
     def get_role_key(self, role_value):
         if role_value == "owner":
             return "owner_role"
-        elif role_value == "employee":
-            return "employee_role"
         elif role_value == "both":
             return "both_role"
+        elif role_value == "manager":
+            return "manager_role"
+        elif role_value == "supervisor":
+            return "supervisor_role"
+        elif role_value == "employee":
+            return "employee_role"
         else:
             return "user_role"
 
@@ -516,10 +516,12 @@ class HomeWindow(QWidget):
                     first_group = self.groups[0]
                     self.current_group = first_group["name"] or "—"
                     rv = first_group.get("role", "employee")
+                    self.current_role_value = rv
                     self.current_role_key = self.get_role_key(rv)
             else:
                 self.current_group = "—"
                 self.current_role_key = "user_role"
+                self.current_role_value = "employee"
 
             self.update_group_text()
             self.update_services()
@@ -579,7 +581,6 @@ class HomeWindow(QWidget):
         profile_text.addWidget(profile_title)
         profile_text.addWidget(username_label)
 
-        # ═══ دکمه خروج با آیکون واقعی ═══
         self.logout_button = QPushButton("[←")
         self.logout_button.setObjectName("logoutButton")
         self.logout_button.setFixedSize(34, 34)
@@ -1091,6 +1092,7 @@ class HomeWindow(QWidget):
                     def select_group(event, selected_group=group):
                         self.current_group = selected_group["name"] or "—"
                         rv = selected_group.get("role", "employee")
+                        self.current_role_value = rv
                         self.current_role_key = self.get_role_key(rv)
                         self.update_group_text()
                         self.update_services()
@@ -1156,31 +1158,54 @@ class HomeWindow(QWidget):
             item = self.scroll_layout.takeAt(0)
             widget = item.widget()
             if widget:
+                widget.setParent(None)
                 widget.deleteLater()
 
+        # ═══════════════════════════════════════════════════
+        # حضور و غیاب — همه
+        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("🕒", tr("attendance"), self.open_attendance)
         )
 
+        # ═══════════════════════════════════════════════════
+        # امور مالی — همه
+        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("💰", tr("finance"), self.open_finance)
         )
 
-        # ═══ کارتابل برای همه (مالک و کارمند) ═══
+        # ═══════════════════════════════════════════════════
+        # کارتابل — همه
+        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("📥", tr("cartable"), self.open_cartable)
         )
 
-        # ═══ کارمندان فقط برای مالک ═══
-        if self.current_role_key in ("owner_role", "both_role"):
+        # ═══════════════════════════════════════════════════
+        # کارمندان — مالک + مدیر + سرپرست (نه کارمند)
+        # ═══════════════════════════════════════════════════
+        if self.current_role_key in (
+            "owner_role",
+            "both_role",
+            "manager_role",
+            "supervisor_role"
+        ):
             self.scroll_layout.addWidget(
                 self.create_service_card("👥", tr("employees"), self.open_employees)
             )
 
+        # ═══════════════════════════════════════════════════
+        # رویدادها — همه
+        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("📅", tr("events"), self.open_events)
         )
 
+        # ═══════════════════════════════════════════════════
+        # گزارش‌ها — همه (هرکسی گزارش خودشو می‌بینه)
+        # بالاترها (مالک، مدیر، سرپرست) گزارش تیمی هم می‌بینن
+        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("📊", tr("reports"), self.open_reports)
         )

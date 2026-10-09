@@ -5,20 +5,37 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QFrame, QScrollArea, QScrollBar, QDialog, QLineEdit,
     QListWidget, QListWidgetItem, QGraphicsDropShadowEffect, QGridLayout,
-    QApplication
+    QApplication, QComboBox, QStackedWidget
 )
 
 from PySide6.QtCore import (
     Qt, QTimer, QDate, QPoint, QSize, Signal, QRectF
 )
 from PySide6.QtGui import (
-    QPainter, QColor, QRegion, QPainterPath, QGuiApplication
+    QPainter, QColor, QRegion, QPainterPath, QGuiApplication, QPolygon
 )
 
 from database import Database
 from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
+
+from hierarchy import (
+    LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
+    role_to_level, get_member_level, get_visible_member_ids
+)
+
+# =========================================================
+# ROLE BADGES
+# =========================================================
+
+ROLE_BADGE_FA = {
+    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
+    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
+    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
+}
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -34,28 +51,35 @@ class RoundScrollBar(QScrollBar):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         c = theme_manager.colors()
+
         track_width = 6
         track_x = (self.width() - track_width) / 2
         track_top = 6
         track_height = self.height() - 12
+
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(c["bg_input"]))
         painter.drawRoundedRect(int(track_x), int(track_top), track_width, int(track_height), track_width/2, track_width/2)
+
         minimum = self.minimum()
         maximum = self.maximum()
         page_step = self.pageStep()
+
         if maximum <= minimum:
             return
+
         groove_height = self.height() - 12
         total_range = maximum - minimum + page_step
         handle_height = max(42, int(groove_height * page_step / total_range))
         handle_height = min(handle_height, groove_height)
         available_space = groove_height - handle_height
+
         if maximum == minimum:
             handle_y = 6
         else:
             value_ratio = (self.value() - minimum) / (maximum - minimum)
             handle_y = 6 + available_space * value_ratio
+
         handle_width = 8
         handle_x = (self.width() - handle_width) / 2
         painter.setBrush(QColor(c["accent"]))
@@ -65,91 +89,14 @@ class RoundScrollBar(QScrollBar):
 # ROUNDED COMBO BOX
 # =========================================================
 
-class RoundedComboBox(QWidget):
-    currentIndexChanged = Signal(int)
-
+class RoundedComboBox(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._items = []
-        self._current_index = -1
         self._popup = None
         self._list = None
-        self._placeholder = "انتخاب کنید"
+        self.setLayoutDirection(Qt.RightToLeft)
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(44)
-        self.setMinimumWidth(180)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-
-    def addItem(self, text, data=None):
-        self._items.append((text, data))
-        if self._current_index == -1:
-            self._current_index = 0
-        self.update()
-
-    def clear(self):
-        self._items = []
-        self._current_index = -1
-        self.update()
-
-    def count(self):
-        return len(self._items)
-
-    def currentData(self):
-        if 0 <= self._current_index < len(self._items):
-            return self._items[self._current_index][1]
-        return None
-
-    def currentText(self):
-        if 0 <= self._current_index < len(self._items):
-            return self._items[self._current_index][0]
-        return ""
-
-    def setCurrentIndex(self, idx):
-        if 0 <= idx < len(self._items):
-            self._current_index = idx
-            self.update()
-            self.currentIndexChanged.emit(idx)
-
-    def setPlaceholderText(self, text):
-        self._placeholder = text
-        self.update()
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        c = theme_manager.colors()
-
-        rect = self.rect().adjusted(1, 1, -1, -1)
-        painter.setPen(QColor(c["border"]))
-        painter.setBrush(QColor(c["bg_input"]))
-        painter.drawRoundedRect(rect, 22, 22)
-
-        painter.setPen(QColor(c["text_main"]))
-        font = painter.font()
-        font.setFamily("Vazirmatn")
-        font.setPointSize(10)
-        font.setBold(True)
-        painter.setFont(font)
-
-        text = self.currentText() if self._current_index != -1 else self._placeholder
-        text_rect = rect.adjusted(20, 0, -40, 0)
-        painter.drawText(text_rect, Qt.AlignRight | Qt.AlignVCenter, text)
-
-        arrow_rect = rect.adjusted(rect.width() - 34, 0, -12, 0)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(c["accent"]))
-        cx = arrow_rect.center().x()
-        cy = arrow_rect.center().y()
-        painter.drawPolygon(
-            QPoint(cx - 5, cy - 2),
-            QPoint(cx + 5, cy - 2),
-            QPoint(cx, cy + 4)
-        )
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.showPopup()
-            event.accept()
 
     def showPopup(self):
         if self._popup is not None:
@@ -157,10 +104,9 @@ class RoundedComboBox(QWidget):
             return
 
         self._popup = QFrame(None)
-        self._popup.setWindowFlags(
-            Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
-        )
+        self._popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self._popup.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._popup.setLayoutDirection(Qt.RightToLeft)
 
         outer = QVBoxLayout(self._popup)
         outer.setContentsMargins(10, 10, 10, 10)
@@ -169,9 +115,9 @@ class RoundedComboBox(QWidget):
         card = QFrame()
         card.setObjectName("comboCard")
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(28)
+        shadow.setBlurRadius(24)
         shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 6)
+        shadow.setOffset(0, 5)
         card.setGraphicsEffect(shadow)
         outer.addWidget(card)
 
@@ -184,45 +130,35 @@ class RoundedComboBox(QWidget):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setLayoutDirection(Qt.RightToLeft)
 
         c = theme_manager.colors()
         self._list.setStyleSheet(f"""
-            QListWidget {{background: transparent;border: none;outline: none;
-                padding: 6px;color: {c['text_main']};
-                font-family: "Vazirmatn";font-size: 12px;}}
-            QListWidget::item {{background: transparent;color: {c['text_main']};
-                border-radius: 10px;padding: 10px 14px;margin: 2px 4px;
-                min-height: 20px;}}
-            QListWidget::item:hover {{background-color: {c['bg_hover']};
-                color: {c['accent']};}}
-            QListWidget::item:selected {{background-color: {c['accent']};
-                color: white;}}
-            QScrollBar:vertical {{width: 8px;background: transparent;
-                border: none;margin: 6px 2px;}}
-            QScrollBar::handle:vertical {{background: {c['accent']};
-                border-radius: 4px;min-height: 24px;}}
+            QListWidget {{background: transparent;border: none;outline: none;padding: 6px;color: {c['text_main']};font-family: "Vazirmatn";font-size: 12px;}}
+            QListWidget::item {{background: transparent;color: {c['text_main']};border-radius: 10px;padding: 10px 14px;margin: 2px 4px;min-height: 20px;}}
+            QListWidget::item:hover {{background-color: {c['bg_hover']};color: {c['accent']};}}
+            QListWidget::item:selected {{background-color: {c['accent']};color: white;}}
+            QScrollBar:vertical {{width: 8px;background: transparent;border: none;margin: 6px 2px;}}
+            QScrollBar::handle:vertical {{background: {c['accent']};border-radius: 4px;min-height: 24px;}}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{height: 0px;}}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{background: transparent;}}
         """)
 
-        for i, (text, data) in enumerate(self._items):
-            item = QListWidgetItem(text)
+        for i in range(self.count()):
+            item = QListWidgetItem(self.itemText(i))
             item.setData(Qt.UserRole, i)
-            item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item.setTextAlignment(Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter)
             item.setSizeHint(QSize(0, 42))
             self._list.addItem(item)
-            if i == self._current_index:
+            if i == self.currentIndex():
                 self._list.setCurrentItem(item)
 
         self._list.itemClicked.connect(self._on_item_clicked)
         card_layout.addWidget(self._list)
 
-        self._popup.setStyleSheet(
-            f"QFrame#comboCard {{background-color: {c['bg_card']};"
-            f"border: 1px solid {c['border']};border-radius: 18px;}}"
-        )
+        self._popup.setStyleSheet(f"QFrame#comboCard {{background-color: {c['bg_card']};border: 1px solid {c['border']};border-radius: 16px;}}")
 
-        count = max(len(self._items), 1)
+        count = max(self.count(), 1)
         content_h = count * 42 + 32
         popup_w = max(self.width(), 200)
         popup_h = min(content_h, 260)
@@ -250,12 +186,16 @@ class RoundedComboBox(QWidget):
 # JALALI HELPERS
 # =========================================================
 
+WEEKDAY_SHORT = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
+MONTH_NAMES = [
+    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
+]
+
 def gregorian_to_jalali(gy, gm, gd):
     g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
     gy2 = gy + 1 if gm > 2 else gy
-    days = (355666 + (365 * gy) + ((gy2 + 3) // 4)
-            - ((gy2 + 99) // 100) + ((gy2 + 399) // 400)
-            + gd + g_d_m[gm - 1])
+    days = 355666 + (365*gy) + ((gy2+3)//4) - ((gy2+99)//100) + ((gy2+399)//400) + gd + g_d_m[gm-1]
     jy = -1595 + (33 * (days // 12053))
     days %= 12053
     jy += 4 * (days // 1461)
@@ -273,9 +213,7 @@ def gregorian_to_jalali(gy, gm, gd):
 
 def jalali_to_gregorian(jy, jm, jd):
     jy += 1595
-    days = (-355668 + (365 * jy) + ((jy // 33) * 8)
-            + (((jy % 33) + 3) // 4) + jd
-            + ((jm - 1) * 31 if jm < 7 else ((jm - 7) * 30) + 186))
+    days = -355668 + (365*jy) + ((jy//33)*8) + (((jy%33)+3)//4) + jd + ((jm-1)*31 if jm<7 else ((jm-7)*30)+186)
     gy = 400 * (days // 146097)
     days %= 146097
     if days > 36524:
@@ -290,13 +228,13 @@ def jalali_to_gregorian(jy, jm, jd):
         gy += (days - 1) // 365
         days = (days - 1) % 365
     gd = days + 1
-    is_leap = (gy % 4 == 0 and gy % 100 != 0) or (gy % 400 == 0)
+    is_leap = (gy%4==0 and gy%100!=0) or (gy%400==0)
     sal_a = [0, 31, 29 if is_leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     gm = 0
     while gm < 13 and gd > sal_a[gm]:
         gd -= sal_a[gm]
         gm += 1
-    return gy, gm, gm, gd if False else (gy, gm, gd)
+    return gy, gm, gd
 
 def is_jalali_leap(jy):
     try:
@@ -306,25 +244,25 @@ def is_jalali_leap(jy):
     except Exception:
         return False
 
-MONTH_NAMES = [
-    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
-    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"
-]
-WEEKDAY_SHORT = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
-
-def jalali_string(d):
-    if isinstance(d, datetime):
-        qdate = QDate(d.year, d.month, d.day)
-    elif isinstance(d, date):
-        qdate = QDate(d.year, d.month, d.day)
-    else:
-        return str(d) if d else "—"
+def jalali_string(qdate):
     jy, jm, jd = gregorian_to_jalali(qdate.year(), qdate.month(), qdate.day())
     return f"{jy:04d}/{jm:02d}/{jd:02d}"
 
+def jalali_full_date_str(d):
+    try:
+        if isinstance(d, datetime):
+            qd = QDate(d.year, d.month, d.day)
+        elif isinstance(d, date):
+            qd = QDate(d.year, d.month, d.day)
+        else:
+            return str(d) if d else "—"
+        return jalali_string(qd)
+    except Exception:
+        return str(d) if d else "—"
+
 def format_money(amount):
     try:
-        return f"{amount:,.0f}"
+        return f"{int(round(float(amount))):,}"
     except Exception:
         return "0"
 
@@ -339,27 +277,21 @@ class PersianCalendarPopup(QWidget):
         super().__init__(parent)
         if current_qdate is None:
             current_qdate = QDate.currentDate()
-
         self.selected_qdate = current_qdate
-        jy, jm, jd = gregorian_to_jalali(
-            current_qdate.year(), current_qdate.month(), current_qdate.day()
-        )
+        jy, jm, jd = gregorian_to_jalali(current_qdate.year(), current_qdate.month(), current_qdate.day())
         self.view_year = jy
         self.view_month = jm
         self.selected_jy = jy
         self.selected_jm = jm
         self.selected_jd = jd
-
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.setAutoFillBackground(False)
         self.setLayoutDirection(Qt.RightToLeft)
-
         self._radius = 18
         self._margin = 6
-        self.setFixedSize(300, 350)
-
+        self.setFixedSize(300, 360)
         self.build_ui()
         self.refresh_grid()
 
@@ -371,8 +303,9 @@ class PersianCalendarPopup(QWidget):
         m = self._margin
         rect = self.rect().adjusted(m, m, -m, -m)
         for i in range(6, 0, -1):
+            shadow_color = QColor(0, 0, 0, 4 + (6 - i) * 2)
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(0, 0, 0, 4 + (6 - i) * 2))
+            painter.setBrush(shadow_color)
             painter.drawRoundedRect(rect.adjusted(-i, -i + 2, i, i + 2), r + i, r + i)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(c["bg_card"]))
@@ -385,16 +318,14 @@ class PersianCalendarPopup(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()),
-                            self._radius + self._margin,
-                            self._radius + self._margin)
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        path.addRoundedRect(QRectF(self.rect()), self._radius + self._margin, self._radius + self._margin)
+        polygon = path.toFillPolygon().toPolygon()
+        self.setMask(QRegion(polygon))
 
     def build_ui(self):
         c = theme_manager.colors()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(self._margin + 14, self._margin + 14,
-                                   self._margin + 14, self._margin + 14)
+        layout.setContentsMargins(self._margin + 14, self._margin + 14, self._margin + 14, self._margin + 14)
         layout.setSpacing(8)
 
         header = QHBoxLayout()
@@ -438,23 +369,14 @@ class PersianCalendarPopup(QWidget):
         layout.addLayout(self.days_layout, 1)
 
         self.setStyleSheet(f"""
-            QLabel#calMonthLabel {{color: {c['text_main']};font-size: 13px;
-                font-weight: 700;background: transparent;}}
-            QPushButton#calNavBtn {{background-color: {c['accent_light']};
-                color: {c['accent']};border: 1px solid {c['border_hover']};
-                border-radius: 10px;font-size: 16px;font-weight: 700;padding: 0px;}}
+            QLabel#calMonthLabel {{color: {c['text_main']};font-size: 13px;font-weight: 700;background: transparent;}}
+            QPushButton#calNavBtn {{background-color: {c['accent_light']};color: {c['accent']};border: 1px solid {c['border_hover']};border-radius: 10px;font-size: 16px;font-weight: 700;padding: 0px;}}
             QPushButton#calNavBtn:hover {{background-color: {c['bg_hover']};}}
-            QLabel#calWeekday {{color: {c['text_dim']};font-size: 10px;
-                font-weight: 700;background: transparent;}}
-            QPushButton#calDayBtn {{background-color: transparent;
-                color: {c['text_main']};border: none;border-radius: 8px;
-                font-size: 11px;font-weight: 600;min-height: 28px;}}
-            QPushButton#calDayBtn:hover {{background-color: {c['bg_hover']};
-                color: {c['accent']};}}
-            QPushButton#calDayBtn[today="true"] {{border: 2px solid {c['accent']};
-                color: {c['accent']};}}
-            QPushButton#calDayBtn[selected="true"] {{background-color: {c['accent']};
-                color: white;border: none;}}
+            QLabel#calWeekday {{color: {c['text_dim']};font-size: 10px;font-weight: 700;background: transparent;}}
+            QPushButton#calDayBtn {{background-color: transparent;color: {c['text_main']};border: none;border-radius: 8px;font-size: 11px;font-weight: 600;min-height: 28px;}}
+            QPushButton#calDayBtn:hover {{background-color: {c['bg_hover']};color: {c['accent']};}}
+            QPushButton#calDayBtn[today="true"] {{border: 2px solid {c['accent']};color: {c['accent']};}}
+            QPushButton#calDayBtn[selected="true"] {{background-color: {c['accent']};color: white;border: none;}}
         """)
 
     def refresh_grid(self):
@@ -462,9 +384,7 @@ class PersianCalendarPopup(QWidget):
             item = self.days_layout.takeAt(0)
             w = item.widget()
             if w:
-                w.setParent(None)
                 w.deleteLater()
-
         self.month_label.setText(f"{MONTH_NAMES[self.view_month - 1]} {self.view_year}")
 
         if self.view_month <= 6:
@@ -479,11 +399,8 @@ class PersianCalendarPopup(QWidget):
         gy, gm, gd = jalali_to_gregorian(self.view_year, self.view_month, 1)
         first_qdate = QDate(gy, gm, gd)
         persian_weekday = (first_qdate.dayOfWeek() + 1) % 7
-
         today_qdate = QDate.currentDate()
-        tjy, tjm, tjd = gregorian_to_jalali(
-            today_qdate.year(), today_qdate.month(), today_qdate.day()
-        )
+        tjy, tjm, tjd = gregorian_to_jalali(today_qdate.year(), today_qdate.month(), today_qdate.day())
 
         row = 0
         col = persian_weekday
@@ -492,9 +409,7 @@ class PersianCalendarPopup(QWidget):
             btn.setObjectName("calDayBtn")
             btn.setCursor(Qt.PointingHandCursor)
             is_today = (self.view_year == tjy and self.view_month == tjm and day == tjd)
-            is_selected = (self.view_year == self.selected_jy
-                           and self.view_month == self.selected_jm
-                           and day == self.selected_jd)
+            is_selected = (self.view_year == self.selected_jy and self.view_month == self.selected_jm and day == self.selected_jd)
             btn.setProperty("today", "true" if is_today else "false")
             btn.setProperty("selected", "true" if is_selected else "false")
             btn.clicked.connect(lambda checked=False, d=day: self.pick_day(d))
@@ -522,9 +437,7 @@ class PersianCalendarPopup(QWidget):
         self.selected_jy = self.view_year
         self.selected_jm = self.view_month
         self.selected_jd = day
-        gy, gm, gd = jalali_to_gregorian(
-            self.selected_jy, self.selected_jm, self.selected_jd
-        )
+        gy, gm, gd = jalali_to_gregorian(self.selected_jy, self.selected_jm, self.selected_jd)
         self.selected_qdate = QDate(gy, gm, gd)
         self.dateSelected.emit(self.selected_qdate)
         self.close()
@@ -538,12 +451,11 @@ class PersianDateButton(QFrame):
 
     def __init__(self, parent=None, initial_qdate=None):
         super().__init__(parent)
-        self._qdate = initial_qdate if initial_qdate is not None else QDate.currentDate()
-
+        self._qdate = initial_qdate or QDate.currentDate()
         self.setObjectName("persianDateFrame")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setFixedHeight(44)
-        self.setMinimumWidth(180)
+        self.setFixedHeight(46)
+        self.setMinimumWidth(200)
         self.setCursor(Qt.PointingHandCursor)
 
         layout = QHBoxLayout(self)
@@ -552,9 +464,8 @@ class PersianDateButton(QFrame):
 
         self.icon_label = QLabel("📅")
         self.icon_label.setObjectName("dateIconLabel")
-        self.icon_label.setFixedSize(30, 30)
+        self.icon_label.setFixedSize(32, 32)
         self.icon_label.setAlignment(Qt.AlignCenter)
-        self.icon_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         self.date_btn = QPushButton()
         self.date_btn.setObjectName("persianDateButton")
@@ -572,9 +483,7 @@ class PersianDateButton(QFrame):
         event.accept()
 
     def _refresh_text(self):
-        jy, jm, jd = gregorian_to_jalali(
-            self._qdate.year(), self._qdate.month(), self._qdate.day()
-        )
+        jy, jm, jd = gregorian_to_jalali(self._qdate.year(), self._qdate.month(), self._qdate.day())
         self.date_btn.setText(f"{jy:04d} / {jm:02d} / {jd:02d}")
 
     def date(self):
@@ -590,28 +499,138 @@ class PersianDateButton(QFrame):
     def _open_dialog(self):
         self._popup = PersianCalendarPopup(self, self._qdate)
         self._popup.dateSelected.connect(self._on_date_selected)
-        global_pos = self.mapToGlobal(QPoint(0, self.height() + 4))
+        popup_w = self._popup.width()
+        btn_global = self.mapToGlobal(QPoint(0, self.height() + 4))
+        x = btn_global.x() + self.width() - popup_w
+        y = btn_global.y()
         try:
-            screen = QGuiApplication.primaryScreen()
-            if screen:
-                geo = screen.availableGeometry()
-                if global_pos.x() + self._popup.width() > geo.right():
-                    global_pos.setX(geo.right() - self._popup.width() - 8)
-                if global_pos.x() < geo.left():
-                    global_pos.setX(geo.left() + 8)
-                if global_pos.y() + self._popup.height() > geo.bottom():
-                    global_pos.setY(
-                        self.mapToGlobal(QPoint(0, 0)).y() - self._popup.height() - 4
-                    )
+            screen = QApplication.primaryScreen().availableGeometry()
+            if x + popup_w > screen.right():
+                x = screen.right() - popup_w
+            if x < screen.left():
+                x = screen.left()
         except Exception:
             pass
-        self._popup.move(global_pos)
+        self._popup.move(x, y)
         self._popup.show()
 
     def _on_date_selected(self, qdate):
+        if qdate == self._qdate:
+            return
         self._qdate = qdate
         self._refresh_text()
         self.dateChanged.emit(self._qdate)
+
+# =========================================================
+# NICE MESSAGE BOX
+# =========================================================
+
+class NiceMessageDialog(QDialog):
+    def __init__(self, parent, title, text, kind="info", yes_no=False):
+        super().__init__(parent)
+        self.setModal(True)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setFixedSize(380, 260)
+
+        self.result_value = False
+        c = theme_manager.colors()
+
+        if kind == "success":
+            icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
+        elif kind == "error":
+            icon_char, color, bg = "✕", "#D93025", "#FEE2E2"
+        elif kind == "warning":
+            icon_char, color, bg = "!", "#F59E0B", "#FEF3C7"
+        elif kind == "question":
+            icon_char, color, bg = "?", "#1961C7", "#DBEAFE"
+        else:
+            icon_char, color, bg = "i", "#1961C7", "#DBEAFE"
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        card = QFrame()
+        card.setStyleSheet(f"background-color: {c['bg_card']};border-radius: 22px;border: 1px solid {c['border']};")
+        outer.addWidget(card)
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(26, 24, 26, 22)
+        layout.setSpacing(12)
+
+        icon_label = QLabel(icon_char)
+        icon_label.setFixedSize(56, 56)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet(f"background-color: {bg};color: {color};border-radius: 28px;font-size: 26px;font-weight: 700;")
+
+        icon_row = QHBoxLayout()
+        icon_row.addStretch()
+        icon_row.addWidget(icon_label)
+        icon_row.addStretch()
+        layout.addLayout(icon_row)
+
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet(f"color: {c['text_main']};font-size: 16px;font-weight: 700;background: transparent;border: none;")
+        layout.addWidget(title_label)
+
+        text_label = QLabel(text)
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setWordWrap(True)
+        text_label.setStyleSheet(f"color: {c['text_dim']};font-size: 12px;background: transparent;border: none;")
+        layout.addWidget(text_label)
+        layout.addStretch()
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.addStretch()
+
+        if yes_no:
+            no_btn = QPushButton(tr("no"))
+            no_btn.setFixedHeight(42)
+            no_btn.setMinimumWidth(110)
+            no_btn.setCursor(Qt.PointingHandCursor)
+            no_btn.setStyleSheet(f"background-color: {c['bg_input']};color: {c['text_dim']};border: 1px solid {c['border']};border-radius: 12px;font-size: 13px;font-weight: 600;padding: 0 20px;")
+            no_btn.clicked.connect(self.reject)
+            btn_row.addWidget(no_btn)
+
+        yes_btn = QPushButton(tr("yes") if yes_no else tr("ok"))
+        yes_btn.setFixedHeight(42)
+        yes_btn.setMinimumWidth(120)
+        yes_btn.setCursor(Qt.PointingHandCursor)
+        yes_btn.setStyleSheet(f"background-color: {color};color: white;border: none;border-radius: 12px;font-size: 13px;font-weight: 700;padding: 0 24px;")
+
+        def on_yes():
+            self.result_value = True
+            self.accept()
+
+        yes_btn.clicked.connect(on_yes)
+        btn_row.addWidget(yes_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+class NiceMessageBox:
+    @staticmethod
+    def info(parent, title, text):
+        NiceMessageDialog(parent, title, text, "info").exec()
+
+    @staticmethod
+    def success(parent, title, text):
+        NiceMessageDialog(parent, title, text, "success").exec()
+
+    @staticmethod
+    def error(parent, title, text):
+        NiceMessageDialog(parent, title, text, "error").exec()
+
+    @staticmethod
+    def warning(parent, title, text):
+        NiceMessageDialog(parent, title, text, "warning").exec()
+
+    @staticmethod
+    def ask(parent, title, text):
+        d = NiceMessageDialog(parent, title, text, "question", yes_no=True)
+        d.exec()
+        return d.result_value
 
 # =========================================================
 # FILTER POPUP
@@ -656,16 +675,13 @@ class FilterPopup(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()),
-                            self._radius + self._margin,
-                            self._radius + self._margin)
+        path.addRoundedRect(QRectF(self.rect()), self._radius + self._margin, self._radius + self._margin)
         self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
     def build_ui(self):
         c = theme_manager.colors()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(self._margin + 12, self._margin + 12,
-                                   self._margin + 12, self._margin + 12)
+        layout.setContentsMargins(self._margin + 12, self._margin + 12, self._margin + 12, self._margin + 12)
         layout.setSpacing(5)
 
         options = [
@@ -715,141 +731,10 @@ class FilterPopup(QWidget):
         self.close()
 
 # =========================================================
-# NICE MESSAGE BOX
-# =========================================================
-
-class NiceMessageDialog(QDialog):
-    def __init__(self, parent, title, text, kind="info", yes_no=False):
-        super().__init__(parent)
-        self.setModal(True)
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(380, 260)
-
-        self.result_value = False
-        c = theme_manager.colors()
-
-        if kind == "success":
-            icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
-        elif kind == "error":
-            icon_char, color, bg = "✕", "#D93025", "#FEE2E2"
-        elif kind == "warning":
-            icon_char, color, bg = "!", "#F59E0B", "#FEF3C7"
-        elif kind == "question":
-            icon_char, color, bg = "?", "#1961C7", "#DBEAFE"
-        else:
-            icon_char, color, bg = "i", "#1961C7", "#DBEAFE"
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        card = QFrame()
-        card.setStyleSheet(
-            f"background-color: {c['bg_card']};"
-            f"border-radius: 22px;border: 1px solid {c['border']};"
-        )
-        outer.addWidget(card)
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(26, 24, 26, 22)
-        layout.setSpacing(12)
-
-        icon_label = QLabel(icon_char)
-        icon_label.setFixedSize(56, 56)
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet(
-            f"background-color: {bg};color: {color};"
-            f"border-radius: 28px;font-size: 26px;font-weight: 700;"
-        )
-        icon_row = QHBoxLayout()
-        icon_row.addStretch()
-        icon_row.addWidget(icon_label)
-        icon_row.addStretch()
-        layout.addLayout(icon_row)
-
-        title_label = QLabel(title)
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet(
-            f"color: {c['text_main']};font-size: 16px;"
-            f"font-weight: 700;background: transparent;border: none;"
-        )
-        layout.addWidget(title_label)
-
-        text_label = QLabel(text)
-        text_label.setAlignment(Qt.AlignCenter)
-        text_label.setWordWrap(True)
-        text_label.setStyleSheet(
-            f"color: {c['text_dim']};font-size: 12px;"
-            f"background: transparent;border: none;"
-        )
-        layout.addWidget(text_label)
-        layout.addStretch()
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-        btn_row.addStretch()
-
-        if yes_no:
-            no_btn = QPushButton(tr("no"))
-            no_btn.setFixedHeight(42)
-            no_btn.setMinimumWidth(110)
-            no_btn.setCursor(Qt.PointingHandCursor)
-            no_btn.setStyleSheet(
-                f"background-color: {c['bg_input']};color: {c['text_dim']};"
-                f"border: 1px solid {c['border']};border-radius: 12px;"
-                f"font-size: 13px;font-weight: 600;padding: 0 20px;"
-            )
-            no_btn.clicked.connect(self.reject)
-            btn_row.addWidget(no_btn)
-
-        yes_btn = QPushButton(tr("yes") if yes_no else tr("ok"))
-        yes_btn.setFixedHeight(42)
-        yes_btn.setMinimumWidth(120)
-        yes_btn.setCursor(Qt.PointingHandCursor)
-        yes_btn.setStyleSheet(
-            f"background-color: {color};color: white;"
-            f"border: none;border-radius: 12px;font-size: 13px;"
-            f"font-weight: 700;padding: 0 24px;"
-        )
-
-        def on_yes():
-            self.result_value = True
-            self.accept()
-
-        yes_btn.clicked.connect(on_yes)
-        btn_row.addWidget(yes_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
-class NiceMessageBox:
-    @staticmethod
-    def info(parent, title, text):
-        NiceMessageDialog(parent, title, text, "info").exec()
-
-    @staticmethod
-    def success(parent, title, text):
-        NiceMessageDialog(parent, title, text, "success").exec()
-
-    @staticmethod
-    def error(parent, title, text):
-        NiceMessageDialog(parent, title, text, "error").exec()
-
-    @staticmethod
-    def warning(parent, title, text):
-        NiceMessageDialog(parent, title, text, "warning").exec()
-
-    @staticmethod
-    def ask(parent, title, text):
-        d = NiceMessageDialog(parent, title, text, "question", yes_no=True)
-        d.exec()
-        return d.result_value
-
-# =========================================================
-# JOB DIALOG (Add / Edit)
+# JOB DIALOG
 # =========================================================
 
 class JobDialog(QDialog):
-    """دیالوگ تعریف/ویرایش کار"""
 
     def __init__(self, parent, db, complex_id, owner_id, members, edit_data=None):
         super().__init__(parent)
@@ -866,8 +751,18 @@ class JobDialog(QDialog):
         self.setLayoutDirection(Qt.RightToLeft)
         self.setModal(True)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setMinimumSize(520, 700)
-        self.resize(560, 740)
+
+        target_h = 620
+        if parent is not None:
+            try:
+                ph = parent.height()
+                if ph and ph > 400:
+                    target_h = min(ph, 700)
+            except Exception:
+                pass
+
+        self.setMinimumSize(500, 480)
+        self.resize(560, target_h)
 
         self.setup_ui()
         self.apply_stylesheet()
@@ -882,10 +777,7 @@ class JobDialog(QDialog):
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll.setStyleSheet(
-            "QScrollArea {background: transparent;border: none;}"
-            "QScrollArea::viewport {background: transparent;}"
-        )
+        scroll.setStyleSheet("QScrollArea {background: transparent;border: none;}QScrollArea::viewport {background: transparent;}")
         vbar = RoundScrollBar(Qt.Vertical, scroll)
         scroll.setVerticalScrollBar(vbar)
 
@@ -898,10 +790,7 @@ class JobDialog(QDialog):
         c = theme_manager.colors()
 
         title = QLabel("ویرایش کار" if self.is_edit else "تعریف کار جدید")
-        title.setStyleSheet(
-            f"color: {c['text_main']};font-size: 17px;"
-            f"font-weight: 800;background: transparent;"
-        )
+        title.setStyleSheet(f"color: {c['text_main']};font-size: 17px;font-weight: 800;background: transparent;")
         layout.addWidget(title)
         layout.addSpacing(6)
 
@@ -920,9 +809,11 @@ class JobDialog(QDialog):
         layout.addWidget(title_lbl)
 
         self.title_input = QLineEdit()
-        self.title_input.setObjectName("formInput")
+        self.title_input.setObjectName("formInputRight")
         self.title_input.setPlaceholderText("مثلاً: نصب کولر، رنگ‌آمیزی دیوار")
         self.title_input.setFixedHeight(44)
+        self.title_input.setLayoutDirection(Qt.LeftToRight)
+        self.title_input.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.title_input.textChanged.connect(self._clear_title_error)
         layout.addWidget(self.title_input)
 
@@ -939,9 +830,11 @@ class JobDialog(QDialog):
         layout.addWidget(desc_lbl)
 
         self.desc_input = QLineEdit()
-        self.desc_input.setObjectName("formInput")
+        self.desc_input.setObjectName("formInputRight")
         self.desc_input.setPlaceholderText("توضیحات بیشتر درباره کار")
         self.desc_input.setFixedHeight(44)
+        self.desc_input.setLayoutDirection(Qt.LeftToRight)
+        self.desc_input.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(self.desc_input)
         layout.addSpacing(4)
 
@@ -954,10 +847,12 @@ class JobDialog(QDialog):
         price_lbl.setObjectName("fieldLabel")
         self.price_input = QLineEdit()
         self.price_input.setObjectName("formInput")
-        self.price_input.setPlaceholderText("مثلاً: 500000")
+        self.price_input.setPlaceholderText("مثلاً: 500,000")
         self.price_input.setFixedHeight(44)
         self.price_input.setLayoutDirection(Qt.LeftToRight)
+        self.price_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.price_input.textChanged.connect(self._clear_price_error)
+        self.price_input.textChanged.connect(self._format_price)
         price_col.addWidget(price_lbl)
         price_col.addWidget(self.price_input)
 
@@ -970,6 +865,7 @@ class JobDialog(QDialog):
         self.qty_input.setPlaceholderText("مثلاً: 5")
         self.qty_input.setFixedHeight(44)
         self.qty_input.setLayoutDirection(Qt.LeftToRight)
+        self.qty_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.qty_input.setText("1")
         qty_col.addWidget(qty_lbl)
         qty_col.addWidget(self.qty_input)
@@ -1052,10 +948,25 @@ class JobDialog(QDialog):
         self.price_error.clear()
         self.price_error.hide()
 
+    def _format_price(self, text):
+        digits = "".join(ch for ch in text if ch.isdigit())
+        if not digits:
+            return
+        try:
+            num = int(digits)
+            formatted = f"{num:,}"
+            if text != formatted:
+                self.price_input.blockSignals(True)
+                self.price_input.setText(formatted)
+                self.price_input.setCursorPosition(len(formatted))
+                self.price_input.blockSignals(False)
+        except ValueError:
+            pass
+
     def _prefill(self):
         d = self.edit_data
-        for i, (text, data) in enumerate(self.emp_combo._items):
-            if data == d.get("member_id"):
+        for i in range(self.emp_combo.count()):
+            if self.emp_combo.itemData(i) == d.get("member_id"):
                 self.emp_combo.setCurrentIndex(i)
                 break
 
@@ -1222,90 +1133,24 @@ class JobDialog(QDialog):
     def apply_stylesheet(self):
         c = theme_manager.colors()
         self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {c['bg_main']};
-                font-family: "Vazirmatn";
-            }}
-            QLabel#fieldLabel {{
-                color: {c['text_dim']};
-                font-size: 11px;
-                font-weight: 700;
-                background: transparent;
-                padding: 2px 0px;
-            }}
-            QLabel#fieldError {{
-                color: {c['danger']};
-                font-size: 11px;
-                font-weight: 700;
-                background: transparent;
-                padding: 0px 4px;
-            }}
-            QLineEdit#formInput {{
-                background-color: {c['bg_input']};
-                border: 1px solid {c['border']};
-                border-radius: 22px;
-                padding: 0 18px;
-                color: {c['text_main']};
-                font-size: 12px;
-                min-height: 44px;
-            }}
-            QLineEdit#formInput:focus {{
-                background-color: {c['bg_card']};
-                border: 2px solid {c['accent']};
-            }}
-            QFrame#persianDateFrame {{
-                background-color: {c['bg_input']};
-                border: 1px solid {c['border']};
-                border-radius: 22px;
-            }}
-            QFrame#persianDateFrame:hover {{
-                background-color: {c['bg_card']};
-                border: 1px solid {c['border_hover']};
-            }}
-            QLabel#dateIconLabel {{
-                background-color: {c['accent_light']};
-                border: none;
-                border-radius: 10px;
-                font-size: 15px;
-                font-weight: 700;
-            }}
-            QPushButton#persianDateButton {{
-                background-color: transparent;
-                border: none;
-                padding: 0 4px;
-                color: {c['text_main']};
-                font-size: 12px;
-                font-weight: 700;
-                text-align: center;
-            }}
-            QFrame#bottomBar {{
-                background-color: {c['bg_card']};
-                border-top: 1px solid {c['border']};
-            }}
-            QPushButton#cancelBtn {{
-                background-color: {c['bg_input']};
-                color: {c['text_dim']};
-                border: 1px solid {c['border']};
-                border-radius: 23px;
-                padding: 0 26px;
-                font-size: 13px;
-                font-weight: 600;
-            }}
-            QPushButton#cancelBtn:hover {{
-                background-color: {c['bg_hover']};
-            }}
-            QPushButton#saveBtn {{
-                background-color: {c['accent']};
-                color: white;
-                border: none;
-                border-radius: 23px;
-                padding: 0 30px;
-                font-size: 13px;
-                font-weight: 700;
-            }}
-            QPushButton#saveBtn:hover {{
-                background-color: {c['accent_hover']};
-            }}
+            QDialog {{background-color: {c['bg_main']};font-family: "Vazirmatn";}}
+            QLabel#fieldLabel {{color: {c['text_dim']};font-size: 11px;font-weight: 700;background: transparent;padding: 2px 0px;}}
+            QLabel#fieldError {{color: {c['danger']};font-size: 11px;font-weight: 700;background: transparent;padding: 0px 4px;}}
+            QLineEdit#formInput {{background-color: {c['bg_input']};border: 1px solid {c['border']};border-radius: 22px;padding: 0 18px;color: {c['text_main']};font-size: 12px;min-height: 44px;}}
+            QLineEdit#formInput:focus {{background-color: {c['bg_card']};border: 2px solid {c['accent']};}}
+            QLineEdit#formInputRight {{background-color: {c['bg_input']};border: 1px solid {c['border']};border-radius: 22px;padding: 0 18px;color: {c['text_main']};font-size: 12px;min-height: 44px;}}
+            QLineEdit#formInputRight:focus {{background-color: {c['bg_card']};border: 2px solid {c['accent']};}}
+            QFrame#bottomBar {{background-color: {c['bg_card']};border-top: 1px solid {c['border']};}}
+            QPushButton#cancelBtn {{background-color: {c['bg_input']};color: {c['text_dim']};border: 1px solid {c['border']};border-radius: 23px;padding: 0 26px;font-size: 13px;font-weight: 600;}}
+            QPushButton#cancelBtn:hover {{background-color: {c['bg_hover']};}}
+            QPushButton#saveBtn {{background-color: {c['accent']};color: white;border: none;border-radius: 23px;padding: 0 30px;font-size: 13px;font-weight: 700;}}
+            QPushButton#saveBtn:hover {{background-color: {c['accent_hover']};}}
+            QFrame#persianDateFrame {{background-color: {c['bg_input']};border: 1px solid {c['border']};border-radius: 21px;}}
+            QFrame#persianDateFrame:hover {{background-color: {c['bg_card']};border: 1px solid {c['border_hover']};}}
+            QLabel#dateIconLabel {{background-color: {c['accent_light']};border: none;border-radius: 10px;font-size: 15px;font-weight: 700;}}
+            QPushButton#persianDateButton {{background-color: transparent;border: none;padding: 0 4px;color: {c['text_main']};font-size: 12px;font-weight: 700;text-align: center;}}
+            QComboBox {{background-color: {c['bg_input']};border: 1px solid {c['border']};border-radius: 22px;padding: 0 18px;color: {c['text_main']};font-size: 13px;min-height: 44px;}}
+            QComboBox::drop-down {{border: none;width: 30px;}}
         """)
 
 # =========================================================
@@ -1335,8 +1180,13 @@ class CartableWindow(QWidget):
 
         self.user_id = None
         self.member_id = None
-        self.role = None
+        self.role = "employee"
+
+        self.level = LEVEL_EMPLOYEE
         self.is_owner = False
+        self.can_manage_tasks = False
+        self.visible_ids = []
+
         self.members = []
         self.all_items = []
         self.current_filter = "all"
@@ -1380,12 +1230,17 @@ class CartableWindow(QWidget):
 
     def on_employee_changed(self, complex_id):
         if complex_id == self.complex_id:
+            self.load_user_data()
             self.load_members()
             self.load_items()
 
     def on_data_changed(self, kind):
         if kind in ("all", "jobs", "attendance", "finance"):
             self.load_items()
+
+    # =====================================================
+    # LOAD USER DATA
+    # =====================================================
 
     def load_user_data(self):
         if not self.phone_number:
@@ -1411,30 +1266,95 @@ class CartableWindow(QWidget):
                 )
                 if member:
                     self.member_id = member["memberId"]
-                    self.role = member["role"]
-                    self.is_owner = self.role in ("owner", "both")
+                    self.role = member["role"] or "employee"
+
+                    self.level = get_member_level(
+                        self.db, self.complex_id, self.member_id
+                    )
+                    expected = role_to_level(self.role)
+                    if expected < self.level:
+                        self.level = expected
+
+                    self.is_owner = (self.level == LEVEL_OWNER)
+                    self.can_manage_tasks = self.level in (
+                        LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR
+                    )
+
+                    self.visible_ids = get_visible_member_ids(
+                        self.db, self.complex_id, self.member_id, self.level
+                    )
+
+                    print("CARTABLE DEBUG:",
+                          "member_id =", self.member_id,
+                          "| level =", self.level,
+                          "| can_manage =", self.can_manage_tasks,
+                          "| visible_ids =", self.visible_ids)
 
             self.load_members()
 
         except Exception as e:
             print("CARTABLE LOAD USER ERROR:", e)
 
+    def get_target_ids(self):
+        if not self.complex_id or not self.member_id:
+            return []
+
+        result = [self.member_id]
+
+        if not self.can_manage_tasks:
+            return result
+
+        if self.is_owner:
+            try:
+                rows = self.db.fetch_all(
+                    """
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s AND isActive = '1'
+                      AND role NOT IN ('owner', 'both')
+                    """,
+                    (self.complex_id,)
+                )
+                if rows:
+                    result += [r["memberId"] for r in rows]
+                return result
+            except Exception as e:
+                print("CARTABLE TARGET IDS ERROR:", e)
+                return result
+
+        subordinates = [
+            mid for mid in self.visible_ids
+            if mid != self.member_id
+        ]
+        result += subordinates
+        return result
+
     def load_members(self):
         self.members = []
-        if not self.complex_id:
+
+        if not self.complex_id or not self.can_manage_tasks:
             return
+
+        target_ids = [
+            mid for mid in self.visible_ids
+            if mid != self.member_id
+        ]
+
+        if not target_ids:
+            return
+
         try:
+            placeholders = ",".join(["%s"] * len(target_ids))
             rows = self.db.fetch_all(
-                """
+                f"""
                 SELECT cm.memberId, u.name
                 FROM complex_members cm
                 INNER JOIN users u ON u.userId = cm.userId
                 WHERE cm.complexId = %s
-                  AND cm.role IN ('employee', 'both')
+                  AND cm.memberId IN ({placeholders})
                   AND cm.isActive = '1'
                 ORDER BY u.name ASC
                 """,
-                (self.complex_id,)
+                (self.complex_id, *target_ids)
             )
             for r in rows or []:
                 self.members.append({
@@ -1444,12 +1364,17 @@ class CartableWindow(QWidget):
         except Exception as e:
             print("LOAD MEMBERS ERROR:", e)
 
+    # =====================================================
+    # UI
+    # =====================================================
+
     def setup_ui(self):
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(24, 20, 24, 20)
         main_layout.setSpacing(14)
 
+        # ═══ HEADER ═══
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
 
@@ -1477,7 +1402,7 @@ class CartableWindow(QWidget):
         header_layout.addLayout(title_layout)
         header_layout.addStretch()
 
-        if self.is_owner:
+        if self.can_manage_tasks:
             add_btn = QPushButton("＋  تعریف کار جدید")
             add_btn.setObjectName("addJobBtn")
             add_btn.setFixedHeight(42)
@@ -1488,6 +1413,32 @@ class CartableWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
+        # ═══ TABS (فقط برای مدیر/سرپرست/مالک) ═══
+        if self.can_manage_tasks:
+            tabs = QHBoxLayout()
+            tabs.setSpacing(6)
+
+            self.emp_tab_btn = QPushButton("👥  کارهای اعضا")
+            self.emp_tab_btn.setObjectName("tabButton")
+            self.emp_tab_btn.setFixedHeight(40)
+            self.emp_tab_btn.setCursor(Qt.PointingHandCursor)
+            self.emp_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
+            self.emp_tab_btn.clicked.connect(lambda: self.switch_tab(0))
+
+            self.my_tab_btn = QPushButton("👤  کارهای من")
+            self.my_tab_btn.setObjectName("tabButton")
+            self.my_tab_btn.setFixedHeight(40)
+            self.my_tab_btn.setCursor(Qt.PointingHandCursor)
+            self.my_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
+            self.my_tab_btn.clicked.connect(lambda: self.switch_tab(1))
+
+            tabs.addWidget(self.emp_tab_btn)
+            tabs.addWidget(self.my_tab_btn)
+            tabs.addStretch()
+
+            main_layout.addLayout(tabs)
+
+        # ═══ FILTER BOX ═══
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
         filter_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -1518,6 +1469,7 @@ class CartableWindow(QWidget):
 
         main_layout.addWidget(filter_box)
 
+        # ═══ RECORDS BOX ═══
         records_box = QFrame()
         records_box.setObjectName("recordsBox")
         records_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -1549,6 +1501,28 @@ class CartableWindow(QWidget):
         main_layout.addWidget(records_box, 1)
 
         self.apply_stylesheet()
+
+        # ═══ نمایش تب پیش‌فرض ═══
+        if self.can_manage_tasks:
+            self.current_tab = 0  # کارهای اعضا
+            self.switch_tab(0)
+        else:
+            self.current_tab = 1  # کارهای من
+            # هیچ تبی وجود نداره، همه چیز کارهای خودشه
+
+    def switch_tab(self, index):
+        if not self.can_manage_tasks:
+            return
+
+        self.current_tab = index
+
+        for i, btn in enumerate([self.emp_tab_btn, self.my_tab_btn]):
+            btn.setProperty("selected", i == index)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.update()
+
+        self.refresh_records()
 
     def _filter_label_for(self, key):
         return {
@@ -1594,26 +1568,22 @@ class CartableWindow(QWidget):
         c = theme_manager.colors()
 
         self.setStyleSheet(f"""
-
         QWidget#cartableWindow {{
             background-color: {c['bg_main']};
             font-family: Vazirmatn;
             color: {c['text_main']};
         }}
-
         QLabel#cartableTitle {{
             color: {c['text_main']};
             font-size: 20px;
             font-weight: 700;
             background: transparent;
         }}
-
         QLabel#cartableSubtitle {{
             color: {c['text_dim']};
             font-size: 11px;
             background: transparent;
         }}
-
         QPushButton#backButton {{
             background-color: {c['bg_card']};
             color: {c['accent']};
@@ -1623,12 +1593,10 @@ class CartableWindow(QWidget):
             font-weight: 600;
             padding: 0px;
         }}
-
         QPushButton#backButton:hover {{
             background-color: {c['bg_hover']};
             border-color: {c['border_hover']};
         }}
-
         QPushButton#addJobBtn {{
             background-color: {c['accent']};
             color: white;
@@ -1638,17 +1606,29 @@ class CartableWindow(QWidget):
             font-size: 12px;
             font-weight: 700;
         }}
-
         QPushButton#addJobBtn:hover {{
             background-color: {c['accent_hover']};
         }}
-
+        QPushButton#tabButton {{
+            background-color: {c['bg_card']};
+            color: {c['text_dim']};
+            border: 1px solid {c['border']};
+            border-radius: 20px;
+            padding: 0 24px;
+            font-size: 13px;
+            font-weight: 600;
+        }}
+        QPushButton#tabButton:hover {{ background-color: {c['bg_hover']}; }}
+        QPushButton#tabButton[selected="true"] {{
+            background-color: {c['accent']};
+            color: white;
+            border: 1px solid {c['accent']};
+        }}
         QFrame#filterBox {{
             background-color: {c['bg_card']};
             border: 1px solid {c['border']};
             border-radius: 18px;
         }}
-
         QLabel#filterLabel {{
             color: {c['text_dim']};
             font-size: 12px;
@@ -1656,7 +1636,6 @@ class CartableWindow(QWidget):
             background: transparent;
             padding-right: 4px;
         }}
-
         QPushButton#filterDropdown {{
             background-color: {c['bg_input']};
             color: {c['text_main']};
@@ -1667,81 +1646,67 @@ class CartableWindow(QWidget):
             font-weight: 700;
             text-align: right;
         }}
-
         QPushButton#filterDropdown:hover {{
             background-color: {c['bg_hover']};
             border-color: {c['border_hover']};
             color: {c['accent']};
         }}
-
         QLabel#countLabel {{
             color: {c['text_dim']};
             font-size: 11px;
             font-weight: 600;
             background: transparent;
         }}
-
         QFrame#recordsBox {{
             background-color: {c['bg_card']};
             border: 1px solid {c['border']};
             border-radius: 18px;
         }}
-
         QWidget#scrollContent {{
             background: transparent;
         }}
-
         QScrollArea {{
             background: transparent;
             border: none;
         }}
-
         QScrollArea::viewport {{
             background: transparent;
         }}
-
         QFrame#itemCard {{
             background-color: {c['bg_card']};
             border: 1px solid {c['border']};
             border-radius: 16px;
         }}
-
         QFrame#itemCard:hover {{
             background-color: {c['bg_hover']};
             border-color: {c['accent']};
         }}
-
         QFrame#itemCard QLabel {{
             background: transparent;
             border: none;
         }}
-
         QLabel#itemTitle {{
             color: {c['text_main']};
             font-size: 13px;
             font-weight: 700;
             background: transparent;
         }}
-
         QLabel#itemName {{
             color: {c['accent']};
             font-size: 11px;
             font-weight: 600;
             background: transparent;
         }}
-
         QLabel#itemInfo {{
             color: {c['text_dim']};
             font-size: 10px;
             background: transparent;
         }}
-
         QLabel#itemDesc {{
             color: {c['text_dim']};
             font-size: 11px;
             background: transparent;
         }}
-
         QLabel#statusPending {{
             color: {c['warning']};
             background-color: {c['warning_bg']};
@@ -1751,7 +1716,6 @@ class CartableWindow(QWidget):
             font-size: 10px;
             font-weight: 700;
         }}
-
         QLabel#statusInProgress {{
             color: {c['accent']};
             background-color: {c['accent_light']};
@@ -1761,7 +1725,6 @@ class CartableWindow(QWidget):
             font-size: 10px;
             font-weight: 700;
         }}
-
         QLabel#statusCompleted {{
             color: #B87900;
             background-color: #FFF4DD;
@@ -1771,7 +1734,6 @@ class CartableWindow(QWidget):
             font-size: 10px;
             font-weight: 700;
         }}
-
         QLabel#statusApproved {{
             color: #16A34A;
             background-color: {c['success_bg']};
@@ -1781,7 +1743,6 @@ class CartableWindow(QWidget):
             font-size: 10px;
             font-weight: 700;
         }}
-
         QLabel#statusRejected {{
             color: {c['danger']};
             background-color: {c['danger_bg']};
@@ -1791,7 +1752,6 @@ class CartableWindow(QWidget):
             font-size: 10px;
             font-weight: 700;
         }}
-
         QLabel#statusCancelled {{
             color: {c['text_dim']};
             background-color: {c['bg_input']};
@@ -1801,7 +1761,6 @@ class CartableWindow(QWidget):
             font-size: 10px;
             font-weight: 700;
         }}
-
         QPushButton#editBtn {{
             background-color: {c['accent_light']};
             color: {c['accent']};
@@ -1812,11 +1771,9 @@ class CartableWindow(QWidget):
             font-weight: 700;
             min-height: 28px;
         }}
-
         QPushButton#editBtn:hover {{
             background-color: {c['bg_hover']};
         }}
-
         QPushButton#approveBtn {{
             background-color: {c['success_bg']};
             color: #16A34A;
@@ -1827,11 +1784,9 @@ class CartableWindow(QWidget):
             font-weight: 700;
             min-height: 28px;
         }}
-
         QPushButton#approveBtn:hover {{
             background-color: {c['bg_hover']};
         }}
-
         QPushButton#rejectBtn {{
             background-color: {c['danger_bg']};
             color: {c['danger']};
@@ -1842,11 +1797,9 @@ class CartableWindow(QWidget):
             font-weight: 700;
             min-height: 28px;
         }}
-
         QPushButton#rejectBtn:hover {{
             background-color: {c['bg_hover']};
         }}
-
         QPushButton#startBtn {{
             background-color: {c['accent']};
             color: white;
@@ -1857,17 +1810,14 @@ class CartableWindow(QWidget):
             font-weight: 700;
             min-height: 30px;
         }}
-
         QPushButton#startBtn:hover {{
             background-color: {c['accent_hover']};
         }}
-
         QPushButton#startBtn:disabled {{
             background-color: {c['bg_input']};
             color: {c['text_dim']};
             border: 1px solid {c['border']};
         }}
-
         QPushButton#doneBtn {{
             background-color: {c['success_bg']};
             color: #16A34A;
@@ -1878,17 +1828,14 @@ class CartableWindow(QWidget):
             font-weight: 700;
             min-height: 30px;
         }}
-
         QPushButton#doneBtn:hover {{
             background-color: #D6F0DD;
         }}
-
         QPushButton#doneBtn:disabled {{
             background-color: {c['bg_input']};
             color: {c['text_dim']};
             border: 1px dashed {c['border']};
         }}
-
         QPushButton#employeeDeleteBtn {{
             background-color: {c['danger_bg']};
             color: {c['danger']};
@@ -1899,12 +1846,10 @@ class CartableWindow(QWidget):
             font-weight: 700;
             min-height: 28px;
         }}
-
         QPushButton#employeeDeleteBtn:hover {{
             background-color: {c['danger']};
             color: white;
         }}
-
         QPushButton#ownerDeleteBtn {{
             background-color: transparent;
             color: {c['danger']};
@@ -1915,20 +1860,21 @@ class CartableWindow(QWidget):
             font-weight: 700;
             min-height: 28px;
         }}
-
         QPushButton#ownerDeleteBtn:hover {{
             background-color: {c['danger_bg']};
             border-style: solid;
         }}
-
         QLabel#emptyLabel {{
             color: {c['text_dim']};
             font-size: 13px;
             padding: 40px;
             background: transparent;
         }}
-
         """)
+
+    # =====================================================
+    # LOAD ITEMS
+    # =====================================================
 
     def load_items(self):
         self.all_items = []
@@ -1937,47 +1883,36 @@ class CartableWindow(QWidget):
             self.refresh_records()
             return
 
+        target_ids = self.get_target_ids()
+
+        if not target_ids:
+            self.refresh_records()
+            return
+
+        placeholders = ",".join(["%s"] * len(target_ids))
+
         try:
-            if self.is_owner:
-                rows = self.db.fetch_all(
-                    """
-                    SELECT ej.employeeJobId, ej.jobId, ej.memberId, ej.assignedBy,
-                           ej.assignedDate, ej.startDate, ej.deadline, ej.quantity,
-                           ej.price, ej.status, ej.description, ej.completedDate,
-                           u.name AS employee_name,
-                           au.name AS assigner_name,
-                           j.jobTitle
-                    FROM employee_jobs ej
-                    INNER JOIN complex_members cm ON cm.memberId = ej.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    LEFT JOIN users au ON au.userId = ej.assignedBy
-                    LEFT JOIN jobs j ON j.jobId = ej.jobId
-                    WHERE cm.complexId = %s
-                    ORDER BY ej.assignedDate DESC
-                    LIMIT 200
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                rows = self.db.fetch_all(
-                    """
-                    SELECT ej.employeeJobId, ej.jobId, ej.memberId, ej.assignedBy,
-                           ej.assignedDate, ej.startDate, ej.deadline, ej.quantity,
-                           ej.price, ej.status, ej.description, ej.completedDate,
-                           u.name AS employee_name,
-                           au.name AS assigner_name,
-                           j.jobTitle
-                    FROM employee_jobs ej
-                    INNER JOIN complex_members cm ON cm.memberId = ej.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    LEFT JOIN users au ON au.userId = ej.assignedBy
-                    LEFT JOIN jobs j ON j.jobId = ej.jobId
-                    WHERE cm.complexId = %s AND ej.memberId = %s
-                    ORDER BY ej.assignedDate DESC
-                    LIMIT 200
-                    """,
-                    (self.complex_id, self.member_id)
-                )
+            rows = self.db.fetch_all(
+                f"""
+                SELECT ej.employeeJobId, ej.jobId, ej.memberId, ej.assignedBy,
+                       ej.assignedDate, ej.startDate, ej.deadline, ej.quantity,
+                       ej.price, ej.status, ej.description, ej.completedDate,
+                       u.name AS employee_name,
+                       au.name AS assigner_name,
+                       j.jobTitle,
+                       cm.role AS employee_role
+                FROM employee_jobs ej
+                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                LEFT JOIN users au ON au.userId = ej.assignedBy
+                LEFT JOIN jobs j ON j.jobId = ej.jobId
+                WHERE cm.complexId = %s
+                  AND ej.memberId IN ({placeholders})
+                ORDER BY ej.assignedDate DESC
+                LIMIT 200
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             for r in rows or []:
                 self.all_items.append({
@@ -1986,6 +1921,7 @@ class CartableWindow(QWidget):
                     "member_id": r.get("memberId"),
                     "title": r.get("jobTitle") or tr("job_no_desc"),
                     "employee_name": r.get("employee_name") or "—",
+                    "employee_role": r.get("employee_role") or "employee",
                     "assigner_name": r.get("assigner_name") or "—",
                     "assigned_date": r.get("assignedDate"),
                     "start_date": r.get("startDate"),
@@ -2003,7 +1939,6 @@ class CartableWindow(QWidget):
         self.refresh_records()
 
     def refresh_records(self):
-        # ═══ پاک‌سازی فوری برای جلوگیری از artifact ═══
         while self.scroll_layout.count():
             item = self.scroll_layout.takeAt(0)
             w = item.widget()
@@ -2011,18 +1946,42 @@ class CartableWindow(QWidget):
                 w.setParent(None)
                 w.deleteLater()
 
-        # پردازش رویدادها برای اطمینان از پاک شدن
         QApplication.processEvents()
 
+        # ═══ فیلتر: کارهای من یا کارهای اعضا ═══
+        base_items = self.all_items
+
+        if self.can_manage_tasks:
+            if self.current_tab == 0:
+                # کارهای اعضا → بدون خودم
+                base_items = [
+                    i for i in base_items
+                    if i.get("member_id") != self.member_id
+                ]
+            else:
+                # کارهای من
+                base_items = [
+                    i for i in base_items
+                    if i.get("member_id") == self.member_id
+                ]
+
+        # ═══ فیلتر وضعیت ═══
         if self.current_filter == "all":
-            filtered = self.all_items
+            filtered = base_items
         else:
-            filtered = [i for i in self.all_items if i["status"] == self.current_filter]
+            filtered = [i for i in base_items if i["status"] == self.current_filter]
 
         self.count_label.setText(f"{len(filtered)} کار")
 
         if not filtered:
-            empty = QLabel(tr("no_cartable_items"))
+            if self.can_manage_tasks and self.current_tab == 1:
+                empty_text = "شما هیچ کاری ندارید."
+            elif self.can_manage_tasks and self.current_tab == 0:
+                empty_text = "کارمندی کاری ندارد."
+            else:
+                empty_text = tr("no_cartable_items")
+
+            empty = QLabel(empty_text)
             empty.setObjectName("emptyLabel")
             empty.setAlignment(Qt.AlignCenter)
             self.scroll_layout.addWidget(empty)
@@ -2033,6 +1992,10 @@ class CartableWindow(QWidget):
             self.scroll_layout.addWidget(self.create_item_card(it))
 
         self.scroll_layout.addStretch()
+
+    # =====================================================
+    # ITEM CARD
+    # =====================================================
 
     def create_item_card(self, item):
 
@@ -2051,12 +2014,30 @@ class CartableWindow(QWidget):
         title.setObjectName("itemTitle")
         title.setWordWrap(True)
 
+        emp_row = QHBoxLayout()
+        emp_row.setContentsMargins(0, 0, 0, 0)
+        emp_row.setSpacing(8)
+
         emp = QLabel(f"{tr('job_assigned_to')}: {item['employee_name']}")
         emp.setObjectName("itemName")
+        emp_row.addWidget(emp)
+
+        role_val = item.get("employee_role", "employee")
+        badge_info = ROLE_BADGE_FA.get(role_val, ROLE_BADGE_FA["employee"])
+        role_badge = QLabel(badge_info[0])
+        role_badge.setAlignment(Qt.AlignCenter)
+        role_badge.setStyleSheet(
+            f"color: {badge_info[1]};"
+            f"background-color: {badge_info[2]};"
+            f"border: none; border-radius: 10px;"
+            f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
+        )
+        emp_row.addWidget(role_badge)
+        emp_row.addStretch()
 
         info1 = QLabel(
-            f"{tr('job_start_date')}: {jalali_string(item['start_date'])}   •   "
-            f"{tr('job_deadline')}: {jalali_string(item['deadline'])}"
+            f"{tr('job_start_date')}: {jalali_full_date_str(item['start_date'])}   •   "
+            f"{tr('job_deadline')}: {jalali_full_date_str(item['deadline'])}"
         )
         info1.setObjectName("itemInfo")
 
@@ -2069,7 +2050,7 @@ class CartableWindow(QWidget):
         info2.setObjectName("itemInfo")
 
         text_col.addWidget(title)
-        text_col.addWidget(emp)
+        text_col.addLayout(emp_row)
         text_col.addWidget(info1)
         text_col.addWidget(info2)
 
@@ -2111,10 +2092,53 @@ class CartableWindow(QWidget):
 
         right_col.addWidget(badge)
 
-        # ═══════════════════════════════════════════════
-        # مالک
-        # ═══════════════════════════════════════════════
-        if self.is_owner:
+        is_mine = (item.get("member_id") == self.member_id)
+
+        # ═══════════════════════════════════════════════════
+        # مال خودمه → دکمه‌های کارمندی (شروع/نهایی/لغو)
+        # ═══════════════════════════════════════════════════
+        if is_mine:
+            start_btn = QPushButton("▶  شروع کار")
+            start_btn.setObjectName("startBtn")
+            start_btn.setCursor(Qt.PointingHandCursor)
+            start_btn.setFixedHeight(34)
+            start_btn.clicked.connect(
+                lambda checked=False, i=item: self.start_item(i)
+            )
+
+            done_btn = QPushButton("✓  ثبت نهایی")
+            done_btn.setObjectName("doneBtn")
+            done_btn.setCursor(Qt.PointingHandCursor)
+            done_btn.setFixedHeight(34)
+            done_btn.clicked.connect(
+                lambda checked=False, i=item: self.complete_item(i)
+            )
+
+            if status == "pending":
+                start_btn.setEnabled(True)
+                done_btn.setEnabled(False)
+                right_col.addWidget(start_btn)
+                right_col.addWidget(done_btn)
+            elif status == "inProgress":
+                start_btn.setEnabled(False)
+                done_btn.setEnabled(True)
+                right_col.addWidget(start_btn)
+                right_col.addWidget(done_btn)
+
+            if status in ("pending", "inProgress"):
+                del_btn = QPushButton("🗑 لغو کار")
+                del_btn.setObjectName("employeeDeleteBtn")
+                del_btn.setCursor(Qt.PointingHandCursor)
+                del_btn.setFixedHeight(34)
+                del_btn.clicked.connect(
+                    lambda checked=False, i=item: self.employee_delete_item(i)
+                )
+                right_col.addWidget(del_btn)
+
+        # ═══════════════════════════════════════════════════
+        # مدیرم و مال خودم نیست → دکمه‌های مدیریتی
+        # ═══════════════════════════════════════════════════
+        elif self.can_manage_tasks:
             edit_btn = QPushButton("✎ ویرایش")
             edit_btn.setObjectName("editBtn")
             edit_btn.setCursor(Qt.PointingHandCursor)
@@ -2149,90 +2173,43 @@ class CartableWindow(QWidget):
                 )
                 right_col.addWidget(del_btn)
 
-        # ═══════════════════════════════════════════════
-        # کارمند — دو دکمه با ورک‌فلو
-        # ═══════════════════════════════════════════════
-        else:
-            # دکمه شروع کار
-            start_btn = QPushButton("▶  شروع کار")
-            start_btn.setObjectName("startBtn")
-            start_btn.setCursor(Qt.PointingHandCursor)
-            start_btn.setFixedHeight(34)
-            start_btn.clicked.connect(
-                lambda checked=False, i=item: self.start_item(i)
-            )
-
-            # دکمه ثبت نهایی (انجام شد)
-            done_btn = QPushButton("✓  ثبت نهایی")
-            done_btn.setObjectName("doneBtn")
-            done_btn.setCursor(Qt.PointingHandCursor)
-            done_btn.setFixedHeight(34)
-            done_btn.clicked.connect(
-                lambda checked=False, i=item: self.complete_item(i)
-            )
-
-            # منطق فعال/غیرفعال بودن
-            if status == "pending":
-                # فقط شروع فعال، ثبت نهایی غیرفعال
-                start_btn.setEnabled(True)
-                done_btn.setEnabled(False)
-                start_btn.show()
-                done_btn.show()
-                right_col.addWidget(start_btn)
-                right_col.addWidget(done_btn)
-
-            elif status == "inProgress":
-                # شروع غیرفعال، ثبت نهایی فعال
-                start_btn.setEnabled(False)
-                done_btn.setEnabled(True)
-                start_btn.show()
-                done_btn.show()
-                right_col.addWidget(start_btn)
-                right_col.addWidget(done_btn)
-
-            # کارمند می‌تونه کار خودش رو لغو کنه
-            if status in ("pending", "inProgress"):
-                del_btn = QPushButton("🗑 لغو کار")
-                del_btn.setObjectName("employeeDeleteBtn")
-                del_btn.setCursor(Qt.PointingHandCursor)
-                del_btn.setFixedHeight(34)
-                del_btn.clicked.connect(
-                    lambda checked=False, i=item: self.employee_delete_item(i)
-                )
-                right_col.addWidget(del_btn)
-
         right_col.addStretch()
         layout.addLayout(right_col)
 
         return card
 
     # =====================================================
-    # OWNER: ADD / EDIT
+    # OWNER/MANAGER ACTIONS
     # =====================================================
 
     def open_add_job_dialog(self):
-        if not self.is_owner:
+        if not self.can_manage_tasks:
             return
         if not self.members:
             NiceMessageBox.warning(
                 self, "هشدار",
-                "کارمندی برای این مجموعه تعریف نشده است."
+                "کسی برای تخصیص کار وجود ندارد."
             )
             return
 
         dialog = JobDialog(
             self, self.db, self.complex_id, self.user_id, self.members
         )
+        try:
+            dialog.resize(self.width(), self.height())
+            dialog.move(self.pos())
+        except Exception:
+            pass
         if dialog.exec() == QDialog.Accepted:
             self.load_items()
 
     def open_edit_job_dialog(self, item):
-        if not self.is_owner:
+        if not self.can_manage_tasks:
             return
         if not self.members:
             NiceMessageBox.warning(
                 self, "هشدار",
-                "کارمندی برای این مجموعه تعریف نشده است."
+                "کسی برای تخصیص کار وجود ندارد."
             )
             return
 
@@ -2252,12 +2229,13 @@ class CartableWindow(QWidget):
             self, self.db, self.complex_id, self.user_id, self.members,
             edit_data=edit_data
         )
+        try:
+            dialog.resize(self.width(), self.height())
+            dialog.move(self.pos())
+        except Exception:
+            pass
         if dialog.exec() == QDialog.Accepted:
             self.load_items()
-
-    # =====================================================
-    # OWNER: APPROVE / REJECT
-    # =====================================================
 
     def approve_item(self, item):
         item_id = item["id"]
@@ -2319,10 +2297,6 @@ class CartableWindow(QWidget):
             print("REJECT ERROR:", e)
             NiceMessageBox.error(self, tr("error"), "رد انجام نشد.")
 
-    # =====================================================
-    # OWNER: DELETE
-    # =====================================================
-
     def owner_delete_item(self, item):
         item_id = item["id"]
         title = item.get("title") or "—"
@@ -2357,7 +2331,7 @@ class CartableWindow(QWidget):
             NiceMessageBox.error(self, tr("error"), "حذف انجام نشد.")
 
     # =====================================================
-    # EMPLOYEE: START / COMPLETE / DELETE
+    # EMPLOYEE ACTIONS
     # =====================================================
 
     def start_item(self, item):
@@ -2409,7 +2383,7 @@ class CartableWindow(QWidget):
         confirmed = NiceMessageBox.ask(
             self, "لغو کار",
             f"آیا از لغو کار «{title}» مطمئن هستید؟\n"
-            f"بعد از لغو، مالک می‌تواند کار را حذف کند."
+            f"بعد از لغو، مدیر می‌تواند کار را حذف کند."
         )
         if not confirmed:
             return
