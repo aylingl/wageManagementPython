@@ -6,11 +6,55 @@ from datetime import datetime
 from database import Database, get_app_directory
 
 def get_migrations_directory():
+    """
+    مسیر پوشه migrations رو برمی‌گردونه.
+
+    حالت EXE:
+      ۱. اول کنار exe رو چک می‌کنه
+      ۲. اگه نبود یا خالی بود، از داخل bundle خود exe (_MEIPASS) می‌خونه
+      ۳. اگه اونم نبود، کنار exe می‌سازه
+
+    حالت پایتون معمولی:
+      از پوشه‌ی فایل migrationRunner.py
+    """
     if getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base, "migrations")
+        # ═══ حالت EXE ═══
+        exe_dir = os.path.dirname(sys.executable)
+        migrations_exe = os.path.join(exe_dir, "migrations")
+
+        # اگه کنار exe هست و خالی نیست → استفاده کن
+        if os.path.exists(migrations_exe):
+            try:
+                if len(os.listdir(migrations_exe)) > 0:
+                    print("MIGRATION DIR (exe side):", migrations_exe)
+                    return migrations_exe
+            except Exception:
+                pass
+
+        # از داخل bundle خود exe بخون
+        if hasattr(sys, '_MEIPASS'):
+            bundled = os.path.join(sys._MEIPASS, "migrations")
+            if os.path.exists(bundled):
+                try:
+                    if len(os.listdir(bundled)) > 0:
+                        print("MIGRATION DIR (bundle):", bundled)
+                        return bundled
+                except Exception:
+                    pass
+
+        # آخرین راه: کنار exe بساز (خالی)
+        try:
+            os.makedirs(migrations_exe, exist_ok=True)
+        except Exception:
+            pass
+        print("MIGRATION DIR (empty, exe side):", migrations_exe)
+        return migrations_exe
+
+    # ═══ حالت پایتون معمولی ═══
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "migrations")
+    print("MIGRATION DIR (python):", path)
+    return path
 
 def ensure_migrations_table(db):
     sql = """
@@ -23,7 +67,8 @@ def ensure_migrations_table(db):
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_persian_ci
     """
     result = db.execute(sql)
-    print("MIGRATION: ensure schema_migrations ->", "OK" if result is not None else "FAILED")
+    print("MIGRATION: ensure schema_migrations ->",
+          "OK" if result is not None else "FAILED")
     return result is not None
 
 def get_applied_migrations(db):
@@ -38,12 +83,16 @@ def get_all_migration_files():
     migrations_dir = get_migrations_directory()
 
     if not os.path.exists(migrations_dir):
-        os.makedirs(migrations_dir, exist_ok=True)
+        try:
+            os.makedirs(migrations_dir, exist_ok=True)
+        except Exception:
+            pass
         print("MIGRATION: created migrations dir:", migrations_dir)
         return []
 
     files = glob.glob(os.path.join(migrations_dir, "*.sql"))
-    print("MIGRATION: found files:", [os.path.basename(f) for f in files])
+    print("MIGRATION: found files:",
+          [os.path.basename(f) for f in files])
 
     def sort_key(path):
         name = os.path.basename(path).lower()

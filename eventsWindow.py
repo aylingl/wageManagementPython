@@ -4,7 +4,7 @@ from datetime import datetime, date
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QFrame, QScrollArea, QScrollBar, QGridLayout,
-    QApplication
+    QApplication, QStackedWidget
 )
 
 from PySide6.QtCore import (
@@ -18,6 +18,23 @@ from database import Database
 from theme import theme_manager
 from signals import signals
 from i18n import tr, set_language, get_language
+
+from hierarchy import (
+    LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
+    role_to_level, get_member_level, get_visible_member_ids
+)
+
+# =========================================================
+# ROLE BADGES
+# =========================================================
+
+ROLE_BADGE_FA = {
+    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
+    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
+    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
+    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
+}
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -422,7 +439,7 @@ class PersianCalendarPopup(QWidget):
         self.close()
 
 # =========================================================
-# PERSIAN DATE BUTTON (custom painted)
+# PERSIAN DATE BUTTON
 # =========================================================
 
 class PersianDateButton(QFrame):
@@ -557,7 +574,7 @@ class PersianDateButton(QFrame):
         self.dateChanged.emit(self._qdate)
 
 # =========================================================
-# FILTER POPUP (با اسکرول گرد)
+# FILTER POPUP
 # =========================================================
 
 class FilterPopup(QWidget):
@@ -730,12 +747,18 @@ class EventsWindow(QWidget):
 
         self.user_id = None
         self.member_id = None
-        self.role = None
+        self.role = "employee"
+
+        # ═══ سلسله مراتب ═══
+        self.level = LEVEL_EMPLOYEE
         self.is_owner = False
+        self.can_view_team = False
+        self.visible_ids = []
 
         self.all_events = []
         self.current_filter = "all"
         self.selected_date_filter = None
+        self.current_tab = 0
 
         self.setWindowTitle(tr("events_title"))
         self.setMinimumSize(500, 400)
@@ -744,13 +767,15 @@ class EventsWindow(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("eventsWindow")
 
-        self.load_user_id()
+        self.load_user_hierarchy()
         self.setup_ui()
         self.load_events()
 
         theme_manager.theme_changed.connect(self.on_theme_changed)
         signals.language_changed.connect(self.on_language_changed)
         signals.data_changed.connect(self.on_data_changed)
+        signals.employee_added.connect(self.on_employee_changed)
+        signals.employee_updated.connect(self.on_employee_changed)
 
     # =====================================================
     # THEME / LANGUAGE / DATA
@@ -779,11 +804,16 @@ class EventsWindow(QWidget):
     def on_data_changed(self, kind):
         self.load_events()
 
+    def on_employee_changed(self, complex_id):
+        if complex_id == self.complex_id:
+            self.load_user_hierarchy()
+            self.load_events()
+
     # =====================================================
-    # LOAD USER ID + ROLE
+    # LOAD USER HIERARCHY
     # =====================================================
 
-    def load_user_id(self):
+    def load_user_hierarchy(self):
         if not self.phone_number:
             return
         try:
@@ -808,11 +838,66 @@ class EventsWindow(QWidget):
                 )
                 if member:
                     self.member_id = member["memberId"]
-                    self.role = member["role"]
-                    self.is_owner = self.role in ("owner", "both")
+                    self.role = member["role"] or "employee"
+
+                    self.level = get_member_level(
+                        self.db, self.complex_id, self.member_id
+                    )
+                    expected = role_to_level(self.role)
+                    if expected < self.level:
+                        self.level = expected
+
+                    self.is_owner = (self.level == LEVEL_OWNER)
+                    self.can_view_team = self.level in (
+                        LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR
+                    )
+
+                    self.visible_ids = get_visible_member_ids(
+                        self.db, self.complex_id, self.member_id, self.level
+                    )
+
+                    print("EVENTS DEBUG:",
+                          "member_id =", self.member_id,
+                          "| level =", self.level,
+                          "| can_view_team =", self.can_view_team,
+                          "| visible_ids =", self.visible_ids)
 
         except Exception as e:
-            print("LOAD USER ID ERROR:", e)
+            print("LOAD USER HIERARCHY ERROR:", e)
+
+    def get_target_ids(self):
+        """لیست memberIdهای مورد نظر (خودم + زیردست‌ها)"""
+        if not self.complex_id or not self.member_id:
+            return []
+
+        result = [self.member_id]
+
+        if not self.can_view_team:
+            return result
+
+        if self.is_owner:
+            try:
+                rows = self.db.fetch_all(
+                    """
+                    SELECT memberId FROM complex_members
+                    WHERE complexId = %s AND isActive = '1'
+                      AND role NOT IN ('owner', 'both')
+                    """,
+                    (self.complex_id,)
+                )
+                if rows:
+                    result += [r["memberId"] for r in rows]
+                return result
+            except Exception as e:
+                print("EVENTS TARGET IDS ERROR:", e)
+                return result
+
+        subordinates = [
+            mid for mid in self.visible_ids
+            if mid != self.member_id
+        ]
+        result += subordinates
+        return result
 
     # =====================================================
     # UI
@@ -822,8 +907,9 @@ class EventsWindow(QWidget):
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(30, 25, 30, 25)
-        main_layout.setSpacing(18)
+        main_layout.setSpacing(14)
 
+        # ═══ HEADER ═══
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
 
@@ -853,6 +939,32 @@ class EventsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
+        # ═══ TABS ═══
+        if self.can_view_team:
+            tabs = QHBoxLayout()
+            tabs.setSpacing(6)
+
+            self.emp_tab_btn = QPushButton("👥  رویدادهای اعضا")
+            self.emp_tab_btn.setObjectName("tabButton")
+            self.emp_tab_btn.setFixedHeight(40)
+            self.emp_tab_btn.setCursor(Qt.PointingHandCursor)
+            self.emp_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
+            self.emp_tab_btn.clicked.connect(lambda: self.switch_tab(0))
+
+            self.my_tab_btn = QPushButton("👤  رویدادهای من")
+            self.my_tab_btn.setObjectName("tabButton")
+            self.my_tab_btn.setFixedHeight(40)
+            self.my_tab_btn.setCursor(Qt.PointingHandCursor)
+            self.my_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
+            self.my_tab_btn.clicked.connect(lambda: self.switch_tab(1))
+
+            tabs.addWidget(self.emp_tab_btn)
+            tabs.addWidget(self.my_tab_btn)
+            tabs.addStretch()
+
+            main_layout.addLayout(tabs)
+
+        # ═══ FILTER BOX ═══
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
         filter_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -897,6 +1009,7 @@ class EventsWindow(QWidget):
 
         main_layout.addWidget(filter_box)
 
+        # ═══ RECORDS BOX ═══
         records_box = QFrame()
         records_box.setObjectName("recordsBox")
         records_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -935,8 +1048,28 @@ class EventsWindow(QWidget):
 
         self.apply_stylesheet()
 
+        # ═══ تب پیش‌فرض ═══
+        if self.can_view_team:
+            self.switch_tab(0)
+        else:
+            self.current_tab = 1
+
+    def switch_tab(self, index):
+        if not self.can_view_team:
+            return
+
+        self.current_tab = index
+
+        for i, btn in enumerate([self.emp_tab_btn, self.my_tab_btn]):
+            btn.setProperty("selected", i == index)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.update()
+
+        self.refresh_records()
+
     # =====================================================
-    # FILTER POPUP
+    # FILTER
     # =====================================================
 
     def _filter_label_for(self, key):
@@ -1060,6 +1193,22 @@ class EventsWindow(QWidget):
         QPushButton#backButton:hover {{
             background-color: {c['bg_hover']};
             border-color: {c['border_hover']};
+        }}
+
+        QPushButton#tabButton {{
+            background-color: {c['bg_card']};
+            color: {c['text_dim']};
+            border: 1px solid {c['border']};
+            border-radius: 20px;
+            padding: 0 24px;
+            font-size: 13px;
+            font-weight: 600;
+        }}
+        QPushButton#tabButton:hover {{ background-color: {c['bg_hover']}; }}
+        QPushButton#tabButton[selected="true"] {{
+            background-color: {c['accent']};
+            color: white;
+            border: 1px solid {c['accent']};
         }}
 
         QFrame#filterBox {{
@@ -1190,7 +1339,7 @@ class EventsWindow(QWidget):
         """)
 
     # =====================================================
-    # LOAD EVENTS FROM DATABASE
+    # LOAD EVENTS (سلسله‌مراتبی)
     # =====================================================
 
     def load_events(self):
@@ -1200,37 +1349,28 @@ class EventsWindow(QWidget):
             self.refresh_records()
             return
 
-        show_all = self.is_owner
-        mid = self.member_id
+        target_ids = self.get_target_ids()
+
+        if not target_ids:
+            self.refresh_records()
+            return
+
+        placeholders = ",".join(["%s"] * len(target_ids))
 
         try:
-            # ─── Payments ───
-            if show_all:
-                payments = self.db.fetch_all(
-                    """
-                    SELECT p.paymentId, p.amount, p.paymentType, p.paymentDate,
-                           p.description, u.name
-                    FROM payments p
-                    INNER JOIN complex_members cm ON cm.memberId = p.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                    ORDER BY p.paymentDate DESC LIMIT 50
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                payments = self.db.fetch_all(
-                    """
-                    SELECT p.paymentId, p.amount, p.paymentType, p.paymentDate,
-                           p.description, u.name
-                    FROM payments p
-                    INNER JOIN complex_members cm ON cm.memberId = p.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s AND p.memberId = %s
-                    ORDER BY p.paymentDate DESC LIMIT 50
-                    """,
-                    (self.complex_id, mid)
-                )
+            # ═══ Payments ═══
+            payments = self.db.fetch_all(
+                f"""
+                SELECT p.paymentId, p.memberId, p.amount, p.paymentType,
+                       p.paymentDate, p.description, u.name
+                FROM payments p
+                INNER JOIN complex_members cm ON cm.memberId = p.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s AND p.memberId IN ({placeholders})
+                ORDER BY p.paymentDate DESC LIMIT 50
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             payment_type_map = {
                 "salary": tr("payment_salary"),
@@ -1247,38 +1387,25 @@ class EventsWindow(QWidget):
                     "type": f"{ptype} — {p.get('name') or '—'}",
                     "category": "payment",
                     "description": desc,
-                    "date": p["paymentDate"]
+                    "date": p["paymentDate"],
+                    "member_id": p.get("memberId"),
                 })
 
-            # ─── Attendance ───
-            if show_all:
-                attendances = self.db.fetch_all(
-                    """
-                    SELECT a.attendanceId, a.workDate, a.checkIn, a.checkOut,
-                           a.approvalStatus, u.name
-                    FROM attendance a
-                    INNER JOIN complex_members cm ON cm.memberId = a.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                      AND a.approvalStatus IN ('approved', 'rejected')
-                    ORDER BY a.workDate DESC LIMIT 50
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                attendances = self.db.fetch_all(
-                    """
-                    SELECT a.attendanceId, a.workDate, a.checkIn, a.checkOut,
-                           a.approvalStatus, u.name
-                    FROM attendance a
-                    INNER JOIN complex_members cm ON cm.memberId = a.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s AND a.memberId = %s
-                      AND a.approvalStatus IN ('approved', 'rejected')
-                    ORDER BY a.workDate DESC LIMIT 50
-                    """,
-                    (self.complex_id, mid)
-                )
+            # ═══ Attendance ═══
+            attendances = self.db.fetch_all(
+                f"""
+                SELECT a.attendanceId, a.memberId, a.workDate, a.checkIn,
+                       a.checkOut, a.approvalStatus, u.name
+                FROM attendance a
+                INNER JOIN complex_members cm ON cm.memberId = a.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s
+                  AND a.memberId IN ({placeholders})
+                  AND a.approvalStatus IN ('approved', 'rejected')
+                ORDER BY a.workDate DESC LIMIT 50
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             for a in attendances or []:
                 if a["approvalStatus"] == "approved":
@@ -1293,48 +1420,29 @@ class EventsWindow(QWidget):
                     "type": f"{status_text} — {a.get('name') or '—'}",
                     "category": "attendance",
                     "description": f"{tr('date')}: {date_str}",
-                    "date": a["workDate"]
+                    "date": a["workDate"],
+                    "member_id": a.get("memberId"),
                 })
 
-            # ─── Jobs (کارهای واگذارشده) ───
-            if show_all:
-                jobs_rows = self.db.fetch_all(
-                    """
-                    SELECT ej.employeeJobId, ej.assignedDate, ej.startDate,
-                           ej.deadline, ej.quantity, ej.price, ej.status,
-                           ej.description, ej.completedDate,
-                           j.jobTitle,
-                           u.name AS employee_name,
-                           au.name AS assigner_name
-                    FROM employee_jobs ej
-                    INNER JOIN complex_members cm ON cm.memberId = ej.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    LEFT JOIN users au ON au.userId = ej.assignedBy
-                    LEFT JOIN jobs j ON j.jobId = ej.jobId
-                    WHERE cm.complexId = %s
-                    ORDER BY ej.assignedDate DESC LIMIT 50
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                jobs_rows = self.db.fetch_all(
-                    """
-                    SELECT ej.employeeJobId, ej.assignedDate, ej.startDate,
-                           ej.deadline, ej.quantity, ej.price, ej.status,
-                           ej.description, ej.completedDate,
-                           j.jobTitle,
-                           u.name AS employee_name,
-                           au.name AS assigner_name
-                    FROM employee_jobs ej
-                    INNER JOIN complex_members cm ON cm.memberId = ej.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    LEFT JOIN users au ON au.userId = ej.assignedBy
-                    LEFT JOIN jobs j ON j.jobId = ej.jobId
-                    WHERE cm.complexId = %s AND ej.memberId = %s
-                    ORDER BY ej.assignedDate DESC LIMIT 50
-                    """,
-                    (self.complex_id, mid)
-                )
+            # ═══ Jobs ═══
+            jobs_rows = self.db.fetch_all(
+                f"""
+                SELECT ej.employeeJobId, ej.memberId, ej.assignedDate,
+                       ej.startDate, ej.deadline, ej.quantity, ej.price,
+                       ej.status, ej.description, ej.completedDate,
+                       j.jobTitle,
+                       u.name AS employee_name,
+                       au.name AS assigner_name
+                FROM employee_jobs ej
+                INNER JOIN complex_members cm ON cm.memberId = ej.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                LEFT JOIN users au ON au.userId = ej.assignedBy
+                LEFT JOIN jobs j ON j.jobId = ej.jobId
+                WHERE cm.complexId = %s AND ej.memberId IN ({placeholders})
+                ORDER BY ej.assignedDate DESC LIMIT 50
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             status_map = {
                 "pending": "در انتظار شروع",
@@ -1370,35 +1478,22 @@ class EventsWindow(QWidget):
                     "category": "job",
                     "description": "   •   ".join(desc_parts),
                     "date": j.get("assignedDate") or j.get("startDate"),
+                    "member_id": j.get("memberId"),
                 })
 
-            # ─── Leaves ───
-            if show_all:
-                leaves = self.db.fetch_all(
-                    """
-                    SELECT l.leaveId, l.startDate, l.endDate, l.leaveType,
-                           l.status, l.reason, u.name
-                    FROM leaves l
-                    INNER JOIN complex_members cm ON cm.memberId = l.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                    ORDER BY l.createdDate DESC LIMIT 50
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                leaves = self.db.fetch_all(
-                    """
-                    SELECT l.leaveId, l.startDate, l.endDate, l.leaveType,
-                           l.status, l.reason, u.name
-                    FROM leaves l
-                    INNER JOIN complex_members cm ON cm.memberId = l.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s AND l.memberId = %s
-                    ORDER BY l.createdDate DESC LIMIT 50
-                    """,
-                    (self.complex_id, mid)
-                )
+            # ═══ Leaves ═══
+            leaves = self.db.fetch_all(
+                f"""
+                SELECT l.leaveId, l.memberId, l.startDate, l.endDate,
+                       l.leaveType, l.status, l.reason, u.name
+                FROM leaves l
+                INNER JOIN complex_members cm ON cm.memberId = l.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s AND l.memberId IN ({placeholders})
+                ORDER BY l.createdDate DESC LIMIT 50
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             for l in leaves or []:
                 status_text = {
@@ -1415,36 +1510,23 @@ class EventsWindow(QWidget):
                     "type": f"{tr('filter_leaves')} ({status_text}) — {l.get('name') or '—'}",
                     "category": "leave",
                     "description": desc,
-                    "date": l["startDate"]
+                    "date": l["startDate"],
+                    "member_id": l.get("memberId"),
                 })
 
-            # ─── Loans ───
-            if show_all:
-                loans = self.db.fetch_all(
-                    """
-                    SELECT lo.loanId, lo.totalAmount, lo.installmentCount,
-                           lo.startDate, lo.status, u.name
-                    FROM loans lo
-                    INNER JOIN complex_members cm ON cm.memberId = lo.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                    ORDER BY lo.createdDate DESC LIMIT 50
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                loans = self.db.fetch_all(
-                    """
-                    SELECT lo.loanId, lo.totalAmount, lo.installmentCount,
-                           lo.startDate, lo.status, u.name
-                    FROM loans lo
-                    INNER JOIN complex_members cm ON cm.memberId = lo.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s AND lo.memberId = %s
-                    ORDER BY lo.createdDate DESC LIMIT 50
-                    """,
-                    (self.complex_id, mid)
-                )
+            # ═══ Loans ═══
+            loans = self.db.fetch_all(
+                f"""
+                SELECT lo.loanId, lo.memberId, lo.totalAmount,
+                       lo.installmentCount, lo.startDate, lo.status, u.name
+                FROM loans lo
+                INNER JOIN complex_members cm ON cm.memberId = lo.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s AND lo.memberId IN ({placeholders})
+                ORDER BY lo.createdDate DESC LIMIT 50
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             for lo in loans or []:
                 desc = f"{format_money(lo['totalAmount'])} {tr('toman')} — {lo['installmentCount']}x"
@@ -1452,78 +1534,57 @@ class EventsWindow(QWidget):
                     "type": f"{tr('filter_loans')} — {lo.get('name') or '—'}",
                     "category": "loan",
                     "description": desc,
-                    "date": lo["startDate"]
+                    "date": lo["startDate"],
+                    "member_id": lo.get("memberId"),
                 })
 
-            # ─── Bonuses ───
-            if show_all:
-                bonuses = self.db.fetch_all(
-                    """
-                    SELECT b.bonusId, b.amount, b.title, b.bonusDate, u.name
-                    FROM bonuses b
-                    INNER JOIN complex_members cm ON cm.memberId = b.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                    ORDER BY b.bonusDate DESC LIMIT 30
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                bonuses = self.db.fetch_all(
-                    """
-                    SELECT b.bonusId, b.amount, b.title, b.bonusDate, u.name
-                    FROM bonuses b
-                    INNER JOIN complex_members cm ON cm.memberId = b.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s AND b.memberId = %s
-                    ORDER BY b.bonusDate DESC LIMIT 30
-                    """,
-                    (self.complex_id, mid)
-                )
+            # ═══ Bonuses ═══
+            bonuses = self.db.fetch_all(
+                f"""
+                SELECT b.bonusId, b.memberId, b.amount, b.title,
+                       b.bonusDate, u.name
+                FROM bonuses b
+                INNER JOIN complex_members cm ON cm.memberId = b.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s AND b.memberId IN ({placeholders})
+                ORDER BY b.bonusDate DESC LIMIT 30
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             for b in bonuses or []:
                 self.all_events.append({
                     "type": f"{tr('tab_bonuses')} — {b.get('name') or '—'}",
                     "category": "other",
                     "description": f"{b.get('title') or '—'} • {format_money(b['amount'])} {tr('toman')}",
-                    "date": b["bonusDate"]
+                    "date": b["bonusDate"],
+                    "member_id": b.get("memberId"),
                 })
 
-            # ─── Deductions ───
-            if show_all:
-                deductions = self.db.fetch_all(
-                    """
-                    SELECT d.deductionId, d.amount, d.title, d.deductionDate, u.name
-                    FROM deductions d
-                    INNER JOIN complex_members cm ON cm.memberId = d.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s
-                    ORDER BY d.deductionDate DESC LIMIT 30
-                    """,
-                    (self.complex_id,)
-                )
-            else:
-                deductions = self.db.fetch_all(
-                    """
-                    SELECT d.deductionId, d.amount, d.title, d.deductionDate, u.name
-                    FROM deductions d
-                    INNER JOIN complex_members cm ON cm.memberId = d.memberId
-                    INNER JOIN users u ON u.userId = cm.userId
-                    WHERE cm.complexId = %s AND d.memberId = %s
-                    ORDER BY d.deductionDate DESC LIMIT 30
-                    """,
-                    (self.complex_id, mid)
-                )
+            # ═══ Deductions ═══
+            deductions = self.db.fetch_all(
+                f"""
+                SELECT d.deductionId, d.memberId, d.amount, d.title,
+                       d.deductionDate, u.name
+                FROM deductions d
+                INNER JOIN complex_members cm ON cm.memberId = d.memberId
+                INNER JOIN users u ON u.userId = cm.userId
+                WHERE cm.complexId = %s AND d.memberId IN ({placeholders})
+                ORDER BY d.deductionDate DESC LIMIT 30
+                """,
+                (self.complex_id, *target_ids)
+            )
 
             for d in deductions or []:
                 self.all_events.append({
                     "type": f"{tr('tab_deductions')} — {d.get('name') or '—'}",
                     "category": "other",
                     "description": f"{d.get('title') or '—'} • {format_money(d['amount'])} {tr('toman')}",
-                    "date": d["deductionDate"]
+                    "date": d["deductionDate"],
+                    "member_id": d.get("memberId"),
                 })
 
-            # ─── Sort ───
+            # ═══ Sort ═══
             def sort_key(e):
                 d = e.get("date")
                 if isinstance(d, datetime):
@@ -1556,11 +1617,34 @@ class EventsWindow(QWidget):
 
         filtered = self.all_events
 
+        # ═══ فیلتر تب ═══
+        if self.can_view_team:
+            if self.current_tab == 0:
+                # رویدادهای اعضا (بدون خودم)
+                filtered = [
+                    e for e in filtered
+                    if e.get("member_id") != self.member_id
+                ]
+            else:
+                # رویدادهای من
+                filtered = [
+                    e for e in filtered
+                    if e.get("member_id") == self.member_id
+                ]
+        else:
+            # کارمند → فقط رویدادهای خودش
+            filtered = [
+                e for e in filtered
+                if e.get("member_id") == self.member_id
+            ]
+
+        # ═══ فیلتر دسته ═══
         if self.current_filter != "all":
             filtered = [
                 e for e in filtered if e["category"] == self.current_filter
             ]
 
+        # ═══ فیلتر تاریخ ═══
         if self.selected_date_filter is not None:
             filtered = [
                 e for e in filtered
@@ -1568,7 +1652,14 @@ class EventsWindow(QWidget):
             ]
 
         if not filtered:
-            empty_label = QLabel(tr("no_records"))
+            if self.can_view_team and self.current_tab == 0:
+                empty_text = "رویدادی برای اعضا یافت نشد."
+            elif self.can_view_team and self.current_tab == 1:
+                empty_text = "رویدادی برای شما یافت نشد."
+            else:
+                empty_text = tr("no_records")
+
+            empty_label = QLabel(empty_text)
             empty_label.setObjectName("emptyLabel")
             empty_label.setAlignment(Qt.AlignCenter)
             self.scroll_layout.addWidget(empty_label)
