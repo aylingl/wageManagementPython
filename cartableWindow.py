@@ -29,13 +29,9 @@ from hierarchy import (
 # ROLE BADGES
 # =========================================================
 
-ROLE_BADGE_FA = {
-    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
-    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
-    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
-}
+def get_role_badge(role_val):
+    from roleHelpers import get_role_badge as _get
+    return _get(role_val)
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -689,7 +685,7 @@ class FilterPopup(QWidget):
             ("pending", tr("cartable_pending")),
             ("inProgress", tr("cartable_in_progress")),
             ("completed", tr("cartable_completed")),
-            ("approved", "تأییدشده"),
+            ("approved", tr("approved")),
             ("rejected", tr("cartable_rejected")),
             ("cancelled", tr("cartable_cancelled")),
         ]
@@ -746,7 +742,7 @@ class JobDialog(QDialog):
         self.edit_data = edit_data
         self.is_edit = edit_data is not None
 
-        title_text = "ویرایش کار" if self.is_edit else "تعریف کار جدید"
+        title_text = tr("job_edit_title") if self.is_edit else tr("job_register_new")
         self.setWindowTitle(title_text)
         self.setLayoutDirection(Qt.RightToLeft)
         self.setModal(True)
@@ -789,12 +785,12 @@ class JobDialog(QDialog):
 
         c = theme_manager.colors()
 
-        title = QLabel("ویرایش کار" if self.is_edit else "تعریف کار جدید")
+        title = QLabel(tr("job_edit_title") if self.is_edit else tr("job_register_new"))
         title.setStyleSheet(f"color: {c['text_main']};font-size: 17px;font-weight: 800;background: transparent;")
         layout.addWidget(title)
         layout.addSpacing(6)
 
-        emp_lbl = QLabel("کارمند")
+        emp_lbl = QLabel(tr("job_employee_label"))
         emp_lbl.setObjectName("fieldLabel")
         layout.addWidget(emp_lbl)
 
@@ -804,13 +800,13 @@ class JobDialog(QDialog):
         layout.addWidget(self.emp_combo)
         layout.addSpacing(4)
 
-        title_lbl = QLabel("عنوان کار")
+        title_lbl = QLabel(tr("job_title_label"))
         title_lbl.setObjectName("fieldLabel")
         layout.addWidget(title_lbl)
 
         self.title_input = QLineEdit()
         self.title_input.setObjectName("formInputRight")
-        self.title_input.setPlaceholderText("مثلاً: نصب کولر، رنگ‌آمیزی دیوار")
+        self.title_input.setPlaceholderText(tr("job_title_ph"))
         self.title_input.setFixedHeight(44)
         self.title_input.setLayoutDirection(Qt.LeftToRight)
         self.title_input.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -825,13 +821,13 @@ class JobDialog(QDialog):
         layout.addWidget(self.title_error)
         layout.addSpacing(4)
 
-        desc_lbl = QLabel("توضیحات (اختیاری)")
+        desc_lbl = QLabel(tr("job_desc_label"))
         desc_lbl.setObjectName("fieldLabel")
         layout.addWidget(desc_lbl)
 
         self.desc_input = QLineEdit()
         self.desc_input.setObjectName("formInputRight")
-        self.desc_input.setPlaceholderText("توضیحات بیشتر درباره کار")
+        self.desc_input.setPlaceholderText(tr("job_desc_ph"))
         self.desc_input.setFixedHeight(44)
         self.desc_input.setLayoutDirection(Qt.LeftToRight)
         self.desc_input.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -843,11 +839,11 @@ class JobDialog(QDialog):
 
         price_col = QVBoxLayout()
         price_col.setSpacing(4)
-        price_lbl = QLabel("مبلغ واحد (تومان)")
+        price_lbl = QLabel(tr("job_unit_price"))
         price_lbl.setObjectName("fieldLabel")
         self.price_input = QLineEdit()
         self.price_input.setObjectName("formInput")
-        self.price_input.setPlaceholderText("مثلاً: 500,000")
+        self.price_input.setPlaceholderText(tr("job_unit_price_ph"))
         self.price_input.setFixedHeight(44)
         self.price_input.setLayoutDirection(Qt.LeftToRight)
         self.price_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -858,11 +854,11 @@ class JobDialog(QDialog):
 
         qty_col = QVBoxLayout()
         qty_col.setSpacing(4)
-        qty_lbl = QLabel("تعداد")
+        qty_lbl = QLabel(tr("job_qty_label"))
         qty_lbl.setObjectName("fieldLabel")
         self.qty_input = QLineEdit()
         self.qty_input.setObjectName("formInput")
-        self.qty_input.setPlaceholderText("مثلاً: 5")
+        self.qty_input.setPlaceholderText(tr("job_qty_ph"))
         self.qty_input.setFixedHeight(44)
         self.qty_input.setLayoutDirection(Qt.LeftToRight)
         self.qty_input.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -887,7 +883,7 @@ class JobDialog(QDialog):
 
         start_col = QVBoxLayout()
         start_col.setSpacing(4)
-        start_lbl = QLabel("تاریخ شروع")
+        start_lbl = QLabel(tr("job_start_date_label"))
         start_lbl.setObjectName("fieldLabel")
         self.start_date = PersianDateButton(initial_qdate=QDate.currentDate())
         start_col.addWidget(start_lbl)
@@ -895,7 +891,7 @@ class JobDialog(QDialog):
 
         deadline_col = QVBoxLayout()
         deadline_col.setSpacing(4)
-        deadline_lbl = QLabel("مهلت")
+        deadline_lbl = QLabel(tr("job_deadline_label"))
         deadline_lbl.setObjectName("fieldLabel")
         self.deadline_date = PersianDateButton(initial_qdate=QDate.currentDate())
         deadline_col.addWidget(deadline_lbl)
@@ -924,7 +920,7 @@ class JobDialog(QDialog):
         cancel_btn.setObjectName("cancelBtn")
         cancel_btn.clicked.connect(self.reject)
 
-        save_btn = QPushButton("ذخیره تغییرات" if self.is_edit else "ثبت کار")
+        save_btn = QPushButton(tr("save_changes") if self.is_edit else tr("job_save_btn"))
         save_btn.setFixedHeight(46)
         save_btn.setMinimumWidth(160)
         save_btn.setCursor(Qt.PointingHandCursor)
@@ -997,23 +993,23 @@ class JobDialog(QDialog):
 
     def on_save(self):
         if self.emp_combo.count() == 0:
-            NiceMessageBox.error(self, "خطا", "کارمندی برای انتخاب وجود ندارد.")
+            NiceMessageBox.error(self, tr("error"), tr("err_no_employee_select"))
             return
 
         member_id = self.emp_combo.currentData()
         if not member_id:
-            NiceMessageBox.error(self, "خطا", "لطفاً کارمند را انتخاب کنید.")
+            NiceMessageBox.error(self, tr("error"), tr("err_pick_employee"))
             return
 
         title_text = self.title_input.text().strip()
         self._clear_title_error()
         if not title_text:
-            self.title_error.setText("لطفاً عنوان کار را وارد کنید.")
+            self.title_error.setText(tr("err_job_title_required"))
             self.title_error.show()
             self.title_input.setFocus()
             return
         if len(title_text) < 3:
-            self.title_error.setText("عنوان کار باید حداقل ۳ حرف داشته باشد.")
+            self.title_error.setText(tr("err_job_title_short"))
             self.title_error.show()
             self.title_input.setFocus()
             return
@@ -1021,7 +1017,7 @@ class JobDialog(QDialog):
         price_text = self.price_input.text().strip()
         self._clear_price_error()
         if not price_text:
-            self.price_error.setText("لطفاً مبلغ را وارد کنید.")
+            self.price_error.setText(tr("err_price_required"))
             self.price_error.show()
             self.price_input.setFocus()
             return
@@ -1029,13 +1025,13 @@ class JobDialog(QDialog):
         try:
             price = float(price_text.replace(",", "").replace("٬", ""))
         except ValueError:
-            self.price_error.setText("مبلغ وارد شده معتبر نیست.")
+            self.price_error.setText(tr("err_price_invalid"))
             self.price_error.show()
             self.price_input.setFocus()
             return
 
         if price <= 0:
-            self.price_error.setText("مبلغ باید بیشتر از صفر باشد.")
+            self.price_error.setText(tr("err_price_positive"))
             self.price_error.show()
             self.price_input.setFocus()
             return
@@ -1046,11 +1042,11 @@ class JobDialog(QDialog):
             try:
                 quantity = float(qty_text)
             except ValueError:
-                NiceMessageBox.error(self, "خطا", "تعداد باید عدد باشد.")
+                NiceMessageBox.error(self, tr("error"), tr("err_qty_number"))
                 self.qty_input.setFocus()
                 return
             if quantity <= 0:
-                NiceMessageBox.error(self, "خطا", "تعداد باید بیشتر از صفر باشد.")
+                NiceMessageBox.error(self, tr("error"), tr("err_qty_positive"))
                 self.qty_input.setFocus()
                 return
 
@@ -1060,7 +1056,7 @@ class JobDialog(QDialog):
         deadline_py = self.deadline_date.to_python_date()
 
         if deadline_py < start_py:
-            NiceMessageBox.error(self, "خطا", "مهلت نمی‌تواند قبل از تاریخ شروع باشد.")
+            NiceMessageBox.error(self, tr("error"), tr("err_deadline_before_start"))
             return
 
         try:
@@ -1103,7 +1099,7 @@ class JobDialog(QDialog):
                         (self.complex_id, title_text, desc_text or None, price)
                     )
                     if not job_id:
-                        NiceMessageBox.error(self, "خطا", "ساخت کار ناموفق بود.")
+                        NiceMessageBox.error(self, tr("error"), tr("err_job_create"))
                         return
 
                 ej_id = self.db.execute(
@@ -1119,16 +1115,16 @@ class JobDialog(QDialog):
                      desc_text or None)
                 )
                 if not ej_id:
-                    NiceMessageBox.error(self, "خطا", "ثبت کار ناموفق بود.")
+                    NiceMessageBox.error(self, tr("error"), tr("err_job_save"))
                     return
 
             signals.data_changed.emit("jobs")
             self.accept()
-            NiceMessageBox.success(self, "ثبت شد", "تغییرات با موفقیت ذخیره شد.")
+            NiceMessageBox.success(self, tr("saved"), tr("saved_changes"))
 
         except Exception as e:
             print("JOB SAVE ERROR:", e)
-            NiceMessageBox.error(self, "خطا", "خطا در ذخیره‌سازی.")
+            NiceMessageBox.error(self, tr("error"), tr("err_save_changes"))
 
     def apply_stylesheet(self):
         c = theme_manager.colors()
@@ -1403,7 +1399,7 @@ class CartableWindow(QWidget):
         header_layout.addStretch()
 
         if self.can_manage_tasks:
-            add_btn = QPushButton("＋  تعریف کار جدید")
+            add_btn = QPushButton(tr("new_task_btn"))
             add_btn.setObjectName("addJobBtn")
             add_btn.setFixedHeight(42)
             add_btn.setCursor(Qt.PointingHandCursor)
@@ -1413,19 +1409,19 @@ class CartableWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # ═══ TABS (فقط برای مدیر/سرپرست/مالک) ═══
+        # ═══ TABS ═══
         if self.can_manage_tasks:
             tabs = QHBoxLayout()
             tabs.setSpacing(6)
 
-            self.emp_tab_btn = QPushButton("👥  کارهای اعضا")
+            self.emp_tab_btn = QPushButton(tr("team_tasks_tab"))
             self.emp_tab_btn.setObjectName("tabButton")
             self.emp_tab_btn.setFixedHeight(40)
             self.emp_tab_btn.setCursor(Qt.PointingHandCursor)
             self.emp_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
             self.emp_tab_btn.clicked.connect(lambda: self.switch_tab(0))
 
-            self.my_tab_btn = QPushButton("👤  کارهای من")
+            self.my_tab_btn = QPushButton(tr("my_tasks_tab"))
             self.my_tab_btn.setObjectName("tabButton")
             self.my_tab_btn.setFixedHeight(40)
             self.my_tab_btn.setCursor(Qt.PointingHandCursor)
@@ -1447,7 +1443,7 @@ class CartableWindow(QWidget):
         filter_layout.setContentsMargins(14, 10, 14, 10)
         filter_layout.setSpacing(10)
 
-        filter_lbl = QLabel("نمایش:")
+        filter_lbl = QLabel(tr("show_label"))
         filter_lbl.setObjectName("filterLabel")
         filter_layout.addWidget(filter_lbl)
 
@@ -1502,13 +1498,11 @@ class CartableWindow(QWidget):
 
         self.apply_stylesheet()
 
-        # ═══ نمایش تب پیش‌فرض ═══
         if self.can_manage_tasks:
-            self.current_tab = 0  # کارهای اعضا
+            self.current_tab = 0
             self.switch_tab(0)
         else:
-            self.current_tab = 1  # کارهای من
-            # هیچ تبی وجود نداره، همه چیز کارهای خودشه
+            self.current_tab = 1
 
     def switch_tab(self, index):
         if not self.can_manage_tasks:
@@ -1530,7 +1524,7 @@ class CartableWindow(QWidget):
             "pending": tr("cartable_pending"),
             "inProgress": tr("cartable_in_progress"),
             "completed": tr("cartable_completed"),
-            "approved": "تأییدشده",
+            "approved": tr("approved"),
             "rejected": tr("cartable_rejected"),
             "cancelled": tr("cartable_cancelled"),
         }.get(key, tr("cartable_all"))
@@ -1948,36 +1942,32 @@ class CartableWindow(QWidget):
 
         QApplication.processEvents()
 
-        # ═══ فیلتر: کارهای من یا کارهای اعضا ═══
         base_items = self.all_items
 
         if self.can_manage_tasks:
             if self.current_tab == 0:
-                # کارهای اعضا → بدون خودم
                 base_items = [
                     i for i in base_items
                     if i.get("member_id") != self.member_id
                 ]
             else:
-                # کارهای من
                 base_items = [
                     i for i in base_items
                     if i.get("member_id") == self.member_id
                 ]
 
-        # ═══ فیلتر وضعیت ═══
         if self.current_filter == "all":
             filtered = base_items
         else:
             filtered = [i for i in base_items if i["status"] == self.current_filter]
 
-        self.count_label.setText(f"{len(filtered)} کار")
+        self.count_label.setText(f"{len(filtered)} {tr('job_quantity')}")
 
         if not filtered:
             if self.can_manage_tasks and self.current_tab == 1:
-                empty_text = "شما هیچ کاری ندارید."
+                empty_text = tr("no_my_tasks")
             elif self.can_manage_tasks and self.current_tab == 0:
-                empty_text = "کارمندی کاری ندارد."
+                empty_text = tr("no_team_tasks")
             else:
                 empty_text = tr("no_cartable_items")
 
@@ -2023,12 +2013,12 @@ class CartableWindow(QWidget):
         emp_row.addWidget(emp)
 
         role_val = item.get("employee_role", "employee")
-        badge_info = ROLE_BADGE_FA.get(role_val, ROLE_BADGE_FA["employee"])
-        role_badge = QLabel(badge_info[0])
+        badge_text, badge_fg, badge_bg = get_role_badge(role_val)
+        role_badge = QLabel(badge_text)
         role_badge.setAlignment(Qt.AlignCenter)
         role_badge.setStyleSheet(
-            f"color: {badge_info[1]};"
-            f"background-color: {badge_info[2]};"
+            f"color: {badge_fg};"
+            f"background-color: {badge_bg};"
             f"border: none; border-radius: 10px;"
             f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
         )
@@ -2072,13 +2062,13 @@ class CartableWindow(QWidget):
         badge.setFixedHeight(26)
 
         if status == "approved":
-            badge.setText("✓ تأییدشده")
+            badge.setText(f"✓ {tr('approved')}")
             badge.setObjectName("statusApproved")
         elif status == "completed":
-            badge.setText("◔ منتظر تأیید")
+            badge.setText(f"◔ {tr('cartable_completed')}")
             badge.setObjectName("statusCompleted")
         elif status == "inProgress":
-            badge.setText("▶ در حال انجام")
+            badge.setText(f"▶ {tr('cartable_in_progress')}")
             badge.setObjectName("statusInProgress")
         elif status == "rejected":
             badge.setText(tr("cartable_rejected"))
@@ -2094,11 +2084,8 @@ class CartableWindow(QWidget):
 
         is_mine = (item.get("member_id") == self.member_id)
 
-        # ═══════════════════════════════════════════════════
-        # مال خودمه → دکمه‌های کارمندی (شروع/نهایی/لغو)
-        # ═══════════════════════════════════════════════════
         if is_mine:
-            start_btn = QPushButton("▶  شروع کار")
+            start_btn = QPushButton(tr("btn_start_job"))
             start_btn.setObjectName("startBtn")
             start_btn.setCursor(Qt.PointingHandCursor)
             start_btn.setFixedHeight(34)
@@ -2106,7 +2093,7 @@ class CartableWindow(QWidget):
                 lambda checked=False, i=item: self.start_item(i)
             )
 
-            done_btn = QPushButton("✓  ثبت نهایی")
+            done_btn = QPushButton(tr("btn_complete_job"))
             done_btn.setObjectName("doneBtn")
             done_btn.setCursor(Qt.PointingHandCursor)
             done_btn.setFixedHeight(34)
@@ -2126,7 +2113,7 @@ class CartableWindow(QWidget):
                 right_col.addWidget(done_btn)
 
             if status in ("pending", "inProgress"):
-                del_btn = QPushButton("🗑 لغو کار")
+                del_btn = QPushButton(tr("btn_cancel_job"))
                 del_btn.setObjectName("employeeDeleteBtn")
                 del_btn.setCursor(Qt.PointingHandCursor)
                 del_btn.setFixedHeight(34)
@@ -2135,11 +2122,8 @@ class CartableWindow(QWidget):
                 )
                 right_col.addWidget(del_btn)
 
-        # ═══════════════════════════════════════════════════
-        # مدیرم و مال خودم نیست → دکمه‌های مدیریتی
-        # ═══════════════════════════════════════════════════
         elif self.can_manage_tasks:
-            edit_btn = QPushButton("✎ ویرایش")
+            edit_btn = QPushButton(tr("btn_edit_short"))
             edit_btn.setObjectName("editBtn")
             edit_btn.setCursor(Qt.PointingHandCursor)
             edit_btn.clicked.connect(
@@ -2148,7 +2132,7 @@ class CartableWindow(QWidget):
             right_col.addWidget(edit_btn)
 
             if status == "completed":
-                approve_btn = QPushButton("✓ تأیید")
+                approve_btn = QPushButton(tr("btn_approve_short"))
                 approve_btn.setObjectName("approveBtn")
                 approve_btn.setCursor(Qt.PointingHandCursor)
                 approve_btn.clicked.connect(
@@ -2156,7 +2140,7 @@ class CartableWindow(QWidget):
                 )
                 right_col.addWidget(approve_btn)
 
-                reject_btn = QPushButton("✕ رد")
+                reject_btn = QPushButton(tr("btn_reject_short"))
                 reject_btn.setObjectName("rejectBtn")
                 reject_btn.setCursor(Qt.PointingHandCursor)
                 reject_btn.clicked.connect(
@@ -2165,7 +2149,7 @@ class CartableWindow(QWidget):
                 right_col.addWidget(reject_btn)
 
             if status in ("pending", "inProgress", "rejected", "cancelled"):
-                del_btn = QPushButton("🗑 حذف")
+                del_btn = QPushButton(tr("btn_delete_short"))
                 del_btn.setObjectName("ownerDeleteBtn")
                 del_btn.setCursor(Qt.PointingHandCursor)
                 del_btn.clicked.connect(
@@ -2187,8 +2171,8 @@ class CartableWindow(QWidget):
             return
         if not self.members:
             NiceMessageBox.warning(
-                self, "هشدار",
-                "کسی برای تخصیص کار وجود ندارد."
+                self, tr("warning"),
+                tr("no_employee_assignment")
             )
             return
 
@@ -2208,8 +2192,8 @@ class CartableWindow(QWidget):
             return
         if not self.members:
             NiceMessageBox.warning(
-                self, "هشدار",
-                "کسی برای تخصیص کار وجود ندارد."
+                self, tr("warning"),
+                tr("no_employee_assignment")
             )
             return
 
@@ -2260,12 +2244,12 @@ class CartableWindow(QWidget):
             self.load_items()
             signals.data_changed.emit("jobs")
             NiceMessageBox.success(
-                self, "تأیید شد",
-                f"کار {item.get('employee_name', '')} تأیید شد."
+                self, tr("job_approved"),
+                tr("job_approved_msg", name=item.get('employee_name', ''))
             )
         except Exception as e:
             print("APPROVE ERROR:", e)
-            NiceMessageBox.error(self, tr("error"), "تأیید انجام نشد.")
+            NiceMessageBox.error(self, tr("error"), tr("job_approve_failed"))
 
     def reject_item(self, item):
         item_id = item["id"]
@@ -2290,20 +2274,20 @@ class CartableWindow(QWidget):
             self.load_items()
             signals.data_changed.emit("jobs")
             NiceMessageBox.warning(
-                self, "رد شد",
-                f"کار {item.get('employee_name', '')} رد شد."
+                self, tr("job_rejected"),
+                tr("job_rejected_msg", name=item.get('employee_name', ''))
             )
         except Exception as e:
             print("REJECT ERROR:", e)
-            NiceMessageBox.error(self, tr("error"), "رد انجام نشد.")
+            NiceMessageBox.error(self, tr("error"), tr("job_reject_failed"))
 
     def owner_delete_item(self, item):
         item_id = item["id"]
         title = item.get("title") or "—"
 
         confirmed = NiceMessageBox.ask(
-            self, "حذف کار",
-            f"آیا از حذف کار «{title}» مطمئن هستید؟\nاین عمل قابل بازگشت نیست."
+            self, tr("confirm_delete_job_title"),
+            tr("confirm_delete_job_msg", title=title)
         )
         if not confirmed:
             return
@@ -2324,11 +2308,11 @@ class CartableWindow(QWidget):
 
             self.load_items()
             signals.data_changed.emit("jobs")
-            NiceMessageBox.success(self, "حذف شد", "کار با موفقیت حذف شد.")
+            NiceMessageBox.success(self, tr("job_deleted_title"), tr("job_deleted_msg"))
 
         except Exception as e:
             print("OWNER DELETE ERROR:", e)
-            NiceMessageBox.error(self, tr("error"), "حذف انجام نشد.")
+            NiceMessageBox.error(self, tr("error"), tr("job_delete_failed"))
 
     # =====================================================
     # EMPLOYEE ACTIONS
@@ -2348,12 +2332,12 @@ class CartableWindow(QWidget):
             self.load_items()
             signals.data_changed.emit("jobs")
             NiceMessageBox.success(
-                self, "شروع شد",
-                "کار در حال انجام ثبت شد."
+                self, tr("job_started_title"),
+                tr("job_started_msg")
             )
         except Exception as e:
             print("START ERROR:", e)
-            NiceMessageBox.error(self, tr("error"), "ثبت شروع انجام نشد.")
+            NiceMessageBox.error(self, tr("error"), tr("job_start_failed"))
 
     def complete_item(self, item):
         item_id = item["id"]
@@ -2369,21 +2353,20 @@ class CartableWindow(QWidget):
             self.load_items()
             signals.data_changed.emit("jobs")
             NiceMessageBox.success(
-                self, "انجام شد",
-                "کار برای تأیید مالک ارسال شد."
+                self, tr("job_completed_title"),
+                tr("job_completed_msg")
             )
         except Exception as e:
             print("COMPLETE ERROR:", e)
-            NiceMessageBox.error(self, tr("error"), "ثبت انجام کار ناموفق بود.")
+            NiceMessageBox.error(self, tr("error"), tr("job_complete_failed"))
 
     def employee_delete_item(self, item):
         item_id = item["id"]
         title = item.get("title") or "—"
 
         confirmed = NiceMessageBox.ask(
-            self, "لغو کار",
-            f"آیا از لغو کار «{title}» مطمئن هستید؟\n"
-            f"بعد از لغو، مدیر می‌تواند کار را حذف کند."
+            self, tr("confirm_cancel_job_title"),
+            tr("confirm_cancel_job_msg", title=title)
         )
         if not confirmed:
             return
@@ -2400,9 +2383,9 @@ class CartableWindow(QWidget):
             self.load_items()
             signals.data_changed.emit("jobs")
             NiceMessageBox.success(
-                self, "لغو شد",
-                "کار با موفقیت لغو شد."
+                self, tr("job_cancelled_title"),
+                tr("job_cancelled_msg")
             )
         except Exception as e:
             print("EMPLOYEE DELETE ERROR:", e)
-            NiceMessageBox.error(self, tr("error"), "لغو انجام نشد.")
+            NiceMessageBox.error(self, tr("error"), tr("job_cancel_failed"))

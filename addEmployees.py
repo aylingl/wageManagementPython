@@ -421,7 +421,6 @@ class AddEmployees(QWidget):
     def __init__(self, parent_window=None, complex_id=None):
         super().__init__(parent_window)
 
-        # ═══ FramelessWindowHint + Window ═══
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
 
         self.parent_window = parent_window
@@ -596,16 +595,16 @@ class AddEmployees(QWidget):
         form_layout.addSpacing(4)
 
         # ═══ HIERARCHY ROLE ═══
-        hierarchy_label = QLabel("نقش کلی")
+        hierarchy_label = QLabel(tr("hierarchy_role_label"))
         hierarchy_label.setObjectName("fieldLabel")
 
         self.hierarchy_role_combo = RoundedComboBox()
         self.hierarchy_role_combo.setObjectName("formInput")
         self.hierarchy_role_combo.setFixedHeight(44)
 
-        self.hierarchy_role_combo.addItem("👤  کارمند",  "employee")
-        self.hierarchy_role_combo.addItem("🎯  سرپرست", "supervisor")
-        self.hierarchy_role_combo.addItem("📋  مدیر",   "manager")
+        self.hierarchy_role_combo.addItem(tr("hierarchy_role_employee"),   "employee")
+        self.hierarchy_role_combo.addItem(tr("hierarchy_role_supervisor"), "supervisor")
+        self.hierarchy_role_combo.addItem(tr("hierarchy_role_manager"),    "manager")
 
         self.hierarchy_role_combo.currentIndexChanged.connect(
             self.on_hierarchy_role_changed
@@ -854,14 +853,18 @@ class AddEmployees(QWidget):
     def on_hierarchy_role_changed(self):
         role = self.hierarchy_role_combo.currentData()
 
-        role_titles = {
-            "employee":   "کارمند",
-            "supervisor": "سرپرست",
-            "manager":    "مدیر",
+        prefix_map = {
+            "employee":   tr("prefix_employee"),
+            "supervisor": tr("prefix_supervisor"),
+            "manager":    tr("prefix_manager"),
         }
-        all_prefixes = ["کارمند", "سرپرست", "مدیر"]
+        all_prefixes = [
+            tr("prefix_employee"),
+            tr("prefix_supervisor"),
+            tr("prefix_manager"),
+        ]
 
-        base = role_titles.get(role, "کارمند")
+        base = prefix_map.get(role, tr("prefix_employee"))
         current = self.role_input.text() if hasattr(self, "role_input") else ""
 
         stripped = current.strip()
@@ -1101,7 +1104,7 @@ class AddEmployees(QWidget):
         return False
 
     # =========================================================
-    # OWNER MEMBER ID
+    # GET OWNER MEMBER ID
     # =========================================================
 
     def get_owner_member_id(self):
@@ -1147,50 +1150,50 @@ class AddEmployees(QWidget):
         # ═══ NAME ═══
         self.clear_error(self.name_error)
         if not name:
-            self.show_error(self.name_error, "لطفاً نام را وارد کنید.")
+            self.show_error(self.name_error, tr("err_name_required"))
             self.name_input.setFocus()
             return
 
         if self.contains_digit(name):
-            self.show_error(self.name_error, "نام نباید شامل عدد باشد.")
+            self.show_error(self.name_error, tr("err_name_no_digit"))
             self.name_input.setFocus()
             return
 
         # ═══ PHONE ═══
         self.clear_error(self.phone_error)
         if not phone:
-            self.show_error(self.phone_error, "لطفاً شماره موبایل را وارد کنید.")
+            self.show_error(self.phone_error, tr("err_phone_required"))
             self.phone_input.setFocus()
             return
 
         if not phone.isdigit() or len(phone) != 11 or not phone.startswith("09"):
-            self.show_error(self.phone_error, "شماره باید ۱۱ رقم و با ۰۹ شروع شود.")
+            self.show_error(self.phone_error, tr("err_phone_format"))
             self.phone_input.setFocus()
             return
 
         # ═══ ROLE ═══
         self.clear_error(self.role_error)
         if not role:
-            self.show_error(self.role_error, "لطفاً نقش در مجموعه را وارد کنید.")
+            self.show_error(self.role_error, tr("err_group_role_required"))
             self.role_input.setFocus()
             return
 
         # ═══ SALARY ═══
         self.clear_error(self.salary_error)
         if not salary_text:
-            self.show_error(self.salary_error, "لطفاً حقوق را وارد کنید.")
+            self.show_error(self.salary_error, tr("err_salary_required"))
             self.salary_input.setFocus()
             return
 
         try:
             salary = float(salary_text.replace(",", "").replace("٬", ""))
         except ValueError:
-            self.show_error(self.salary_error, "حقوق باید عدد باشد.")
+            self.show_error(self.salary_error, tr("err_salary_number"))
             self.salary_input.setFocus()
             return
 
         if salary <= 0:
-            self.show_error(self.salary_error, "حقوق باید بزرگ‌تر از صفر باشد.")
+            self.show_error(self.salary_error, tr("err_salary_positive"))
             self.salary_input.setFocus()
             return
 
@@ -1213,7 +1216,7 @@ class AddEmployees(QWidget):
         end_time = self.end_time.time().toString("HH:mm:ss")
 
         if not self.complex_id:
-            NiceMessageBox.error(self, tr("error"), "مجتمعی انتخاب نشده.")
+            NiceMessageBox.error(self, tr("error"), tr("err_no_complex"))
             return
 
         # ═══ FIND OR CREATE USER ═══
@@ -1241,7 +1244,7 @@ class AddEmployees(QWidget):
             )
 
             if not user_id:
-                NiceMessageBox.error(self, tr("error"), "ساخت کاربر ناموفق بود.")
+                NiceMessageBox.error(self, tr("error"), tr("err_user_create"))
                 return
 
         # ═══ CHECK EXISTING ═══
@@ -1254,7 +1257,7 @@ class AddEmployees(QWidget):
         )
 
         if existing_member:
-            NiceMessageBox.error(self, tr("error"), "این کاربر قبلاً در این مجتمع عضو است.")
+            NiceMessageBox.error(self, tr("error"), tr("err_user_exists"))
             return
 
         # ═══ INSERT MEMBER ═══
@@ -1267,7 +1270,7 @@ class AddEmployees(QWidget):
         )
 
         if not member_id:
-            NiceMessageBox.error(self, tr("error"), "افزودن عضو ناموفق بود.")
+            NiceMessageBox.error(self, tr("error"), tr("err_member_add"))
             return
 
         # ═══ INSERT PROFILE ═══
@@ -1293,10 +1296,10 @@ class AddEmployees(QWidget):
                 "DELETE FROM complex_members WHERE memberId = %s",
                 (member_id,)
             )
-            NiceMessageBox.error(self, tr("error"), "ذخیره پروفایل ناموفق بود.")
+            NiceMessageBox.error(self, tr("error"), tr("err_profile_save"))
             return
 
-        # ═══ INSERT HIERARCHY (سرپرست = مالک) ═══
+        # ═══ INSERT HIERARCHY ═══
         supervisor_id = self.get_owner_member_id()
         level = role_to_level(hierarchy_role)
 

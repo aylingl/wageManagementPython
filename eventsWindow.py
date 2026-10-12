@@ -18,23 +18,12 @@ from database import Database
 from theme import theme_manager
 from signals import signals
 from i18n import tr, set_language, get_language
+from roleHelpers import get_role_badge
 
 from hierarchy import (
     LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
     role_to_level, get_member_level, get_visible_member_ids
 )
-
-# =========================================================
-# ROLE BADGES
-# =========================================================
-
-ROLE_BADGE_FA = {
-    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
-    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
-    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
-}
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -671,7 +660,7 @@ class FilterPopup(QWidget):
             ("all", tr("filter_all")),
             ("payment", tr("filter_payments")),
             ("attendance", tr("filter_attendance")),
-            ("job", "کارها"),
+            ("job", tr("cartable_title")),
             ("leave", tr("filter_leaves")),
             ("loan", tr("filter_loans")),
             ("other", tr("filter_others")),
@@ -749,7 +738,6 @@ class EventsWindow(QWidget):
         self.member_id = None
         self.role = "employee"
 
-        # ═══ سلسله مراتب ═══
         self.level = LEVEL_EMPLOYEE
         self.is_owner = False
         self.can_view_team = False
@@ -776,10 +764,6 @@ class EventsWindow(QWidget):
         signals.data_changed.connect(self.on_data_changed)
         signals.employee_added.connect(self.on_employee_changed)
         signals.employee_updated.connect(self.on_employee_changed)
-
-    # =====================================================
-    # THEME / LANGUAGE / DATA
-    # =====================================================
 
     def on_theme_changed(self, theme_name):
         self.apply_stylesheet()
@@ -808,10 +792,6 @@ class EventsWindow(QWidget):
         if complex_id == self.complex_id:
             self.load_user_hierarchy()
             self.load_events()
-
-    # =====================================================
-    # LOAD USER HIERARCHY
-    # =====================================================
 
     def load_user_hierarchy(self):
         if not self.phone_number:
@@ -866,7 +846,6 @@ class EventsWindow(QWidget):
             print("LOAD USER HIERARCHY ERROR:", e)
 
     def get_target_ids(self):
-        """لیست memberIdهای مورد نظر (خودم + زیردست‌ها)"""
         if not self.complex_id or not self.member_id:
             return []
 
@@ -899,17 +878,12 @@ class EventsWindow(QWidget):
         result += subordinates
         return result
 
-    # =====================================================
-    # UI
-    # =====================================================
-
     def setup_ui(self):
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(30, 25, 30, 25)
         main_layout.setSpacing(14)
 
-        # ═══ HEADER ═══
         header_layout = QHBoxLayout()
         header_layout.setSpacing(12)
 
@@ -939,19 +913,18 @@ class EventsWindow(QWidget):
 
         main_layout.addLayout(header_layout)
 
-        # ═══ TABS ═══
         if self.can_view_team:
             tabs = QHBoxLayout()
             tabs.setSpacing(6)
 
-            self.emp_tab_btn = QPushButton("👥  رویدادهای اعضا")
+            self.emp_tab_btn = QPushButton(tr("team_events_tab"))
             self.emp_tab_btn.setObjectName("tabButton")
             self.emp_tab_btn.setFixedHeight(40)
             self.emp_tab_btn.setCursor(Qt.PointingHandCursor)
             self.emp_tab_btn.setAttribute(Qt.WA_StyledBackground, True)
             self.emp_tab_btn.clicked.connect(lambda: self.switch_tab(0))
 
-            self.my_tab_btn = QPushButton("👤  رویدادهای من")
+            self.my_tab_btn = QPushButton(tr("my_events_tab"))
             self.my_tab_btn.setObjectName("tabButton")
             self.my_tab_btn.setFixedHeight(40)
             self.my_tab_btn.setCursor(Qt.PointingHandCursor)
@@ -964,7 +937,6 @@ class EventsWindow(QWidget):
 
             main_layout.addLayout(tabs)
 
-        # ═══ FILTER BOX ═══
         filter_box = QFrame()
         filter_box.setObjectName("filterBox")
         filter_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -973,7 +945,7 @@ class EventsWindow(QWidget):
         filter_layout.setContentsMargins(16, 12, 16, 12)
         filter_layout.setSpacing(10)
 
-        date_lbl = QLabel("تاریخ:")
+        date_lbl = QLabel(tr("events_date_label"))
         date_lbl.setObjectName("filterLabel")
         filter_layout.addWidget(date_lbl)
 
@@ -987,7 +959,6 @@ class EventsWindow(QWidget):
         self.clear_date_btn.setCursor(Qt.PointingHandCursor)
         self.clear_date_btn.setAttribute(Qt.WA_StyledBackground, True)
         self.clear_date_btn.clicked.connect(self.clear_date_filter)
-        self.clear_date_btn.setToolTip("حذف فیلتر تاریخ")
         self.clear_date_btn.hide()
         filter_layout.addWidget(self.clear_date_btn)
 
@@ -1009,7 +980,6 @@ class EventsWindow(QWidget):
 
         main_layout.addWidget(filter_box)
 
-        # ═══ RECORDS BOX ═══
         records_box = QFrame()
         records_box.setObjectName("recordsBox")
         records_box.setAttribute(Qt.WA_StyledBackground, True)
@@ -1048,7 +1018,6 @@ class EventsWindow(QWidget):
 
         self.apply_stylesheet()
 
-        # ═══ تب پیش‌فرض ═══
         if self.can_view_team:
             self.switch_tab(0)
         else:
@@ -1068,16 +1037,12 @@ class EventsWindow(QWidget):
 
         self.refresh_records()
 
-    # =====================================================
-    # FILTER
-    # =====================================================
-
     def _filter_label_for(self, key):
         return {
             "all": tr("filter_all"),
             "payment": tr("filter_payments"),
             "attendance": tr("filter_attendance"),
-            "job": "کارها",
+            "job": tr("cartable_title"),
             "leave": tr("filter_leaves"),
             "loan": tr("filter_loans"),
             "other": tr("filter_others"),
@@ -1122,10 +1087,6 @@ class EventsWindow(QWidget):
         self._refresh_filter_button_text()
         self.refresh_records()
 
-    # =====================================================
-    # DATE FILTER
-    # =====================================================
-
     def on_date_changed(self, qdate):
         self.selected_date_filter = qdate
         self.clear_date_btn.show()
@@ -1151,10 +1112,6 @@ class EventsWindow(QWidget):
                 and d.day == qdate.day()
             )
         return False
-
-    # =====================================================
-    # APPLY STYLESHEET
-    # =====================================================
 
     def apply_stylesheet(self):
         c = theme_manager.colors()
@@ -1338,10 +1295,6 @@ class EventsWindow(QWidget):
 
         """)
 
-    # =====================================================
-    # LOAD EVENTS (سلسله‌مراتبی)
-    # =====================================================
-
     def load_events(self):
         self.all_events = []
 
@@ -1358,7 +1311,6 @@ class EventsWindow(QWidget):
         placeholders = ",".join(["%s"] * len(target_ids))
 
         try:
-            # ═══ Payments ═══
             payments = self.db.fetch_all(
                 f"""
                 SELECT p.paymentId, p.memberId, p.amount, p.paymentType,
@@ -1381,7 +1333,7 @@ class EventsWindow(QWidget):
             }
 
             for p in payments or []:
-                ptype = payment_type_map.get(p["paymentType"], tr("salary_type_pay"))
+                ptype = payment_type_map.get(p["paymentType"], tr("payment_salary"))
                 desc = p.get("description") or f"{format_money(p['amount'])} {tr('toman')}"
                 self.all_events.append({
                     "type": f"{ptype} — {p.get('name') or '—'}",
@@ -1391,7 +1343,6 @@ class EventsWindow(QWidget):
                     "member_id": p.get("memberId"),
                 })
 
-            # ═══ Attendance ═══
             attendances = self.db.fetch_all(
                 f"""
                 SELECT a.attendanceId, a.memberId, a.workDate, a.checkIn,
@@ -1424,7 +1375,6 @@ class EventsWindow(QWidget):
                     "member_id": a.get("memberId"),
                 })
 
-            # ═══ Jobs ═══
             jobs_rows = self.db.fetch_all(
                 f"""
                 SELECT ej.employeeJobId, ej.memberId, ej.assignedDate,
@@ -1445,17 +1395,17 @@ class EventsWindow(QWidget):
             )
 
             status_map = {
-                "pending": "در انتظار شروع",
-                "inProgress": "در حال انجام",
-                "completed": "منتظر تأیید",
-                "approved": "تأییدشده",
-                "rejected": "رد شده",
-                "cancelled": "لغو شده",
+                "pending": tr("cartable_pending"),
+                "inProgress": tr("cartable_in_progress"),
+                "completed": tr("cartable_completed"),
+                "approved": tr("approved"),
+                "rejected": tr("rejected"),
+                "cancelled": tr("cartable_cancelled"),
             }
 
             for j in jobs_rows or []:
                 st = status_map.get(j.get("status"), j.get("status") or "—")
-                title = j.get("jobTitle") or "—"
+                title = j.get("jobTitle") or tr("job_no_desc")
                 emp_name = j.get("employee_name") or "—"
 
                 qty = j.get("quantity") or 1
@@ -1463,25 +1413,24 @@ class EventsWindow(QWidget):
                 total = float(qty) * price
 
                 desc_parts = [
-                    f"وضعیت: {st}",
-                    f"مبلغ: {format_money(total)} {tr('toman')}",
+                    f"{tr('status')}: {st}",
+                    f"{tr('job_price')}: {format_money(total)} {tr('toman')}",
                 ]
                 if j.get("startDate"):
-                    desc_parts.append(f"شروع: {j['startDate']}")
+                    desc_parts.append(f"{tr('job_start_date')}: {j['startDate']}")
                 if j.get("deadline"):
-                    desc_parts.append(f"مهلت: {j['deadline']}")
+                    desc_parts.append(f"{tr('job_deadline')}: {j['deadline']}")
                 if j.get("description"):
                     desc_parts.append(j["description"])
 
                 self.all_events.append({
-                    "type": f"کار: {title} — {emp_name}",
+                    "type": f"{tr('cartable_title')}: {title} — {emp_name}",
                     "category": "job",
                     "description": "   •   ".join(desc_parts),
                     "date": j.get("assignedDate") or j.get("startDate"),
                     "member_id": j.get("memberId"),
                 })
 
-            # ═══ Leaves ═══
             leaves = self.db.fetch_all(
                 f"""
                 SELECT l.leaveId, l.memberId, l.startDate, l.endDate,
@@ -1514,7 +1463,6 @@ class EventsWindow(QWidget):
                     "member_id": l.get("memberId"),
                 })
 
-            # ═══ Loans ═══
             loans = self.db.fetch_all(
                 f"""
                 SELECT lo.loanId, lo.memberId, lo.totalAmount,
@@ -1538,7 +1486,6 @@ class EventsWindow(QWidget):
                     "member_id": lo.get("memberId"),
                 })
 
-            # ═══ Bonuses ═══
             bonuses = self.db.fetch_all(
                 f"""
                 SELECT b.bonusId, b.memberId, b.amount, b.title,
@@ -1561,7 +1508,6 @@ class EventsWindow(QWidget):
                     "member_id": b.get("memberId"),
                 })
 
-            # ═══ Deductions ═══
             deductions = self.db.fetch_all(
                 f"""
                 SELECT d.deductionId, d.memberId, d.amount, d.title,
@@ -1584,7 +1530,6 @@ class EventsWindow(QWidget):
                     "member_id": d.get("memberId"),
                 })
 
-            # ═══ Sort ═══
             def sort_key(e):
                 d = e.get("date")
                 if isinstance(d, datetime):
@@ -1600,10 +1545,6 @@ class EventsWindow(QWidget):
 
         self.refresh_records()
 
-    # =====================================================
-    # REFRESH RECORDS
-    # =====================================================
-
     def refresh_records(self):
 
         while self.scroll_layout.count():
@@ -1617,34 +1558,28 @@ class EventsWindow(QWidget):
 
         filtered = self.all_events
 
-        # ═══ فیلتر تب ═══
         if self.can_view_team:
             if self.current_tab == 0:
-                # رویدادهای اعضا (بدون خودم)
                 filtered = [
                     e for e in filtered
                     if e.get("member_id") != self.member_id
                 ]
             else:
-                # رویدادهای من
                 filtered = [
                     e for e in filtered
                     if e.get("member_id") == self.member_id
                 ]
         else:
-            # کارمند → فقط رویدادهای خودش
             filtered = [
                 e for e in filtered
                 if e.get("member_id") == self.member_id
             ]
 
-        # ═══ فیلتر دسته ═══
         if self.current_filter != "all":
             filtered = [
                 e for e in filtered if e["category"] == self.current_filter
             ]
 
-        # ═══ فیلتر تاریخ ═══
         if self.selected_date_filter is not None:
             filtered = [
                 e for e in filtered
@@ -1653,9 +1588,9 @@ class EventsWindow(QWidget):
 
         if not filtered:
             if self.can_view_team and self.current_tab == 0:
-                empty_text = "رویدادی برای اعضا یافت نشد."
+                empty_text = tr("no_team_events")
             elif self.can_view_team and self.current_tab == 1:
-                empty_text = "رویدادی برای شما یافت نشد."
+                empty_text = tr("no_my_events")
             else:
                 empty_text = tr("no_records")
 
@@ -1670,10 +1605,6 @@ class EventsWindow(QWidget):
             self.add_record(record)
 
         self.scroll_layout.addStretch()
-
-    # =====================================================
-    # ADD RECORD
-    # =====================================================
 
     def add_record(self, record):
 
@@ -1709,7 +1640,7 @@ class EventsWindow(QWidget):
         cat_map = {
             "payment": tr("filter_payments"),
             "attendance": tr("filter_attendance"),
-            "job": "کارها",
+            "job": tr("cartable_title"),
             "leave": tr("filter_leaves"),
             "loan": tr("filter_loans"),
             "other": tr("filter_others"),
@@ -1732,10 +1663,6 @@ class EventsWindow(QWidget):
         card_layout.addWidget(badge)
 
         self.scroll_layout.addWidget(card)
-
-    # =====================================================
-    # BACK
-    # =====================================================
 
     def go_back(self):
         self.close()

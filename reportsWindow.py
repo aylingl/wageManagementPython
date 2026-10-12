@@ -17,23 +17,12 @@ from database import Database
 from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
+from roleHelpers import get_role_badge
 
 from hierarchy import (
     LEVEL_OWNER, LEVEL_MANAGER, LEVEL_SUPERVISOR, LEVEL_EMPLOYEE,
     role_to_level, get_member_level, get_visible_member_ids
 )
-
-# =========================================================
-# ROLE BADGES
-# =========================================================
-
-ROLE_BADGE_FA = {
-    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
-    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
-    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
-}
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -529,7 +518,7 @@ class PersianCalendarPopup(QWidget):
         self.close()
 
 # =========================================================
-# PERSIAN DATE BUTTON (custom painted)
+# PERSIAN DATE BUTTON
 # =========================================================
 
 class PersianDateButton(QFrame):
@@ -819,7 +808,6 @@ class ReportsWindow(QWidget):
         self.db = Database()
         self.user_id = None
 
-        # ═══ سلسله مراتب ═══
         self.member_id = None
         self.role = "employee"
         self.level = LEVEL_EMPLOYEE
@@ -929,20 +917,14 @@ class ReportsWindow(QWidget):
             print("REPORTS LOAD HIERARCHY ERROR:", e)
 
     def get_target_ids(self):
-        """
-        لیست memberIdهای مورد نظر برای گزارش
-        (همیشه شامل خودم + زیردست‌ها)
-        """
         if not self.complex_id or not self.member_id:
             return []
 
-        result = [self.member_id]  # ═══ همیشه خودم ═══
+        result = [self.member_id]
 
-        # ═══ کارمند → فقط خودش ═══
         if not self.can_view_team:
             return result
 
-        # ═══ مالک → همه به جز خودش ═══
         if self.is_owner:
             try:
                 rows = self.db.fetch_all(
@@ -960,7 +942,6 @@ class ReportsWindow(QWidget):
                 print("REPORTS TARGET IDS ERROR:", e)
                 return result
 
-        # ═══ مدیر/سرپرست → خودش + زیردست‌ها ═══
         subordinates = [
             mid for mid in self.visible_ids
             if mid != self.member_id
@@ -1002,10 +983,6 @@ class ReportsWindow(QWidget):
 
     def get_date_range_gregorian(self):
         return self._compute_preset_range()
-
-    # =====================================================
-    # UI
-    # =====================================================
 
     def setup_ui(self):
 
@@ -1055,7 +1032,7 @@ class ReportsWindow(QWidget):
         filter_layout.setContentsMargins(16, 14, 16, 14)
         filter_layout.setSpacing(10)
 
-        filter_title = QLabel("انتخاب بازه زمانی")
+        filter_title = QLabel(tr("reports_period_title"))
         filter_title.setObjectName("filterLabel")
         filter_title.setLayoutDirection(Qt.RightToLeft)
         filter_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
@@ -1071,11 +1048,11 @@ class ReportsWindow(QWidget):
         presets_row.setDirection(QBoxLayout.RightToLeft)
 
         presets = [
-            ("۱ سال اخیر", "last_year"),
-            ("۳ ماه اخیر", "last_3_months"),
-            ("این ماه", "this_month"),
-            ("این هفته", "this_week"),
-            ("امروز", "today"),
+            (tr("period_last_year"),     "last_year"),
+            (tr("period_last_3_months"), "last_3_months"),
+            (tr("period_this_month"),    "this_month"),
+            (tr("period_this_week"),     "this_week"),
+            (tr("period_today"),         "today"),
         ]
 
         self.preset_buttons = []
@@ -1468,10 +1445,6 @@ class ReportsWindow(QWidget):
 
         """)
 
-    # =====================================================
-    # CALCULATE REPORTS
-    # =====================================================
-
     def calculate_reports(self):
         if not self.complex_id:
             return
@@ -1741,7 +1714,7 @@ class ReportsWindow(QWidget):
         db_layout.setContentsMargins(20, 14, 20, 14)
         db_layout.setSpacing(10)
 
-        db_title = QLabel("انتخاب بازه زمانی")
+        db_title = QLabel(tr("reports_period_title"))
         db_title.setLayoutDirection(Qt.RightToLeft)
         db_title.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         db_title.setStyleSheet(
@@ -1755,7 +1728,7 @@ class ReportsWindow(QWidget):
 
         start_col = QVBoxLayout()
         start_col.setSpacing(4)
-        start_lbl = QLabel("از تاریخ")
+        start_lbl = QLabel(tr("reports_from_date"))
         start_lbl.setObjectName("dateFieldLabel")
         start_lbl.setLayoutDirection(Qt.RightToLeft)
         start_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
@@ -1768,7 +1741,7 @@ class ReportsWindow(QWidget):
 
         end_col = QVBoxLayout()
         end_col.setSpacing(4)
-        end_lbl = QLabel("تا تاریخ")
+        end_lbl = QLabel(tr("reports_to_date"))
         end_lbl.setObjectName("dateFieldLabel")
         end_lbl.setLayoutDirection(Qt.RightToLeft)
         end_lbl.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
@@ -1779,7 +1752,7 @@ class ReportsWindow(QWidget):
         end_col.addWidget(end_picker)
         picker_row.addLayout(end_col, 2)
 
-        apply_btn = QPushButton("اعمال")
+        apply_btn = QPushButton(tr("reports_apply"))
         apply_btn.setObjectName("applyDatesBtn")
         apply_btn.setCursor(Qt.PointingHandCursor)
         apply_btn.setFixedHeight(42)
@@ -1878,7 +1851,7 @@ class ReportsWindow(QWidget):
 
         all_ids = self.get_target_ids()
         if not all_ids:
-            empty = QLabel("کسی برای نمایش گزارش وجود ندارد.")
+            empty = QLabel(tr("no_employees_to_show"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -1914,7 +1887,7 @@ class ReportsWindow(QWidget):
             employees = []
 
         if not employees:
-            empty = QLabel("کارمندی یافت نشد.")
+            empty = QLabel(tr("no_employees_to_show"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -1923,7 +1896,7 @@ class ReportsWindow(QWidget):
             layout.addWidget(empty)
             return
 
-        hint = QLabel("برای دیدن تاریخچه کامل هر کارمند، روی کارت او کلیک کنید.")
+        hint = QLabel(tr("click_card_details"))
         hint.setLayoutDirection(Qt.RightToLeft)
         hint.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         hint.setStyleSheet(
@@ -2002,12 +1975,12 @@ class ReportsWindow(QWidget):
             name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
             role_val = emp.get("role") or "employee"
-            badge_info = ROLE_BADGE_FA.get(role_val, ROLE_BADGE_FA["employee"])
-            role_badge = QLabel(badge_info[0])
+            badge_text, badge_fg, badge_bg = get_role_badge(role_val)
+            role_badge = QLabel(badge_text)
             role_badge.setAlignment(Qt.AlignCenter)
             role_badge.setStyleSheet(
-                f"color: {badge_info[1]};"
-                f"background-color: {badge_info[2]};"
+                f"color: {badge_fg};"
+                f"background-color: {badge_bg};"
                 f"border: none; border-radius: 10px;"
                 f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
             )
@@ -2016,7 +1989,7 @@ class ReportsWindow(QWidget):
             name_row.addWidget(role_badge)
 
             if is_me:
-                me_badge = QLabel("(من)")
+                me_badge = QLabel("(من)" if get_language() == "fa" else ("(Me)" if get_language() == "en" else "(أنا)"))
                 me_badge.setAlignment(Qt.AlignCenter)
                 me_badge.setStyleSheet(
                     f"color: {c['accent']};"
@@ -2050,20 +2023,20 @@ class ReportsWindow(QWidget):
             stats_col.setSpacing(10)
 
             stats_col.addWidget(create_stat_box(
-                "روز حاضر", str(present_days), "green", 90
+                tr("present_days"), str(present_days), "green", 90
             ))
             stats_col.addWidget(create_stat_box(
-                "روز غایب",
-                str(absent_days) if absent_days > 0 else "غیبت ندارد",
+                tr("absent_days"),
+                str(absent_days) if absent_days > 0 else tr("no_absence"),
                 "red" if absent_days > 0 else "blue",
                 100
             ))
             stats_col.addWidget(create_stat_box(
-                "ساعت کار", f"{h}س {m}د", "blue", 110
+                tr("worked_hours"), f"{h}{tr('hour_short')} {m}{tr('min_short')}", "blue", 110
             ))
             stats_col.addWidget(create_stat_box(
-                "اضافه کاری",
-                f"{ot_h}س {ot_m}د" if ot > 0 else "ندارد",
+                tr("overtime_label"),
+                f"{ot_h}{tr('hour_short')} {ot_m}{tr('min_short')}" if ot > 0 else tr("doesnt_have_short"),
                 "orange" if ot > 0 else "blue",
                 110
             ))
@@ -2095,7 +2068,7 @@ class ReportsWindow(QWidget):
         dialog.move(self.pos())
 
         name_text = employee.get("name") or "—"
-        dialog.setWindowTitle(f"تاریخچه حضور — {name_text}")
+        dialog.setWindowTitle(tr("attendance_history_title", name=name_text))
 
         main_layout = QVBoxLayout(dialog)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -2158,7 +2131,7 @@ class ReportsWindow(QWidget):
             records = []
 
         if not records:
-            empty = QLabel("رکوردی در این بازه یافت نشد.")
+            empty = QLabel(tr("no_records_in_range"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -2192,15 +2165,15 @@ class ReportsWindow(QWidget):
             sl.setContentsMargins(16, 14, 16, 14)
             sl.setSpacing(12)
 
-            sl.addWidget(create_stat_box("روز حاضر", str(present_count), "green", 110))
+            sl.addWidget(create_stat_box(tr("attended_days"), str(present_count), "green", 110))
             sl.addWidget(create_stat_box(
-                "روز غایب",
-                str(absent_count) if absent_count > 0 else "غیبت ندارد",
+                tr("absent_days_count"),
+                str(absent_count) if absent_count > 0 else tr("no_absence"),
                 "red" if absent_count > 0 else "blue",
                 110
             ))
-            sl.addWidget(create_stat_box("کل ساعت کار", f"{h}س {m}د", "blue", 140))
-            sl.addWidget(create_stat_box("کل اضافه کاری", f"{ot_h}س {ot_m}د", "orange" if total_ot > 0 else "blue", 140))
+            sl.addWidget(create_stat_box(tr("total_hours_label"), f"{h}{tr('hour_short')} {m}{tr('min_short')}", "blue", 140))
+            sl.addWidget(create_stat_box(tr("total_overtime_label"), f"{ot_h}{tr('hour_short')} {ot_m}{tr('min_short')}", "orange" if total_ot > 0 else "blue", 140))
 
             content_layout.addWidget(summary_box)
             content_layout.addSpacing(6)
@@ -2233,28 +2206,28 @@ class ReportsWindow(QWidget):
                 date_lbl.setMinimumWidth(200)
 
                 if is_absent:
-                    in_lbl = QLabel("غیبت")
+                    in_lbl = QLabel(tr("absent"))
                     in_lbl.setStyleSheet(
                         f"color: #D93025; font-size: 11px; "
                         f"font-weight: 700; background: transparent;"
                     )
                     in_lbl.setMinimumWidth(140)
 
-                    out_lbl = QLabel("غیبت")
+                    out_lbl = QLabel(tr("absent"))
                     out_lbl.setStyleSheet(
                         f"color: #D93025; font-size: 11px; "
                         f"font-weight: 700; background: transparent;"
                     )
                     out_lbl.setMinimumWidth(140)
 
-                    hours_lbl = QLabel("غیبت")
+                    hours_lbl = QLabel(tr("absent"))
                     hours_lbl.setStyleSheet(
                         f"color: #D93025; font-size: 12px; "
                         f"font-weight: 700; background: transparent;"
                     )
                     hours_lbl.setMinimumWidth(70)
 
-                    ot_lbl = QLabel("غیبت")
+                    ot_lbl = QLabel(tr("absent"))
                     ot_lbl.setStyleSheet(
                         f"color: #D93025; font-size: 11px; "
                         f"font-weight: 700; background: transparent;"
@@ -2270,14 +2243,14 @@ class ReportsWindow(QWidget):
                     ci_text = format_time_12h(r.get("checkIn")) if r.get("checkIn") else "—"
                     co_text = format_time_12h(r.get("checkOut")) if r.get("checkOut") else "—"
 
-                    in_lbl = QLabel(f"ورود: {ci_text}")
+                    in_lbl = QLabel(f"{tr('entry_label')} {ci_text}")
                     in_lbl.setStyleSheet(
                         f"color: {c['text_dim']}; font-size: 11px; "
                         f"background: transparent;"
                     )
                     in_lbl.setMinimumWidth(140)
 
-                    out_lbl = QLabel(f"خروج: {co_text}")
+                    out_lbl = QLabel(f"{tr('exit_label')} {co_text}")
                     out_lbl.setStyleSheet(
                         f"color: {c['text_dim']}; font-size: 11px; "
                         f"background: transparent;"
@@ -2287,7 +2260,7 @@ class ReportsWindow(QWidget):
                     wm = int(r.get("workedMinutes") or 0)
                     wh, wmin = wm // 60, wm % 60
 
-                    hours_lbl = QLabel(f"{wh}س {wmin}د")
+                    hours_lbl = QLabel(f"{wh}{tr('hour_short')} {wmin}{tr('min_short')}")
                     hours_lbl.setStyleSheet(
                         f"color: {c['accent']}; font-size: 12px; "
                         f"font-weight: 700; background: transparent;"
@@ -2297,7 +2270,7 @@ class ReportsWindow(QWidget):
                     ot_val = int(r.get("overtimeMinutes") or 0)
                     if ot_val > 0:
                         ot_h2, ot_m2 = ot_val // 60, ot_val % 60
-                        ot_lbl = QLabel(f"OT {ot_h2}س {ot_m2}د")
+                        ot_lbl = QLabel(f"OT {ot_h2}{tr('hour_short')} {ot_m2}{tr('min_short')}")
                         ot_lbl.setStyleSheet(
                             f"color: #B87900; font-size: 11px; "
                             f"font-weight: 700; background: transparent;"
@@ -2311,15 +2284,15 @@ class ReportsWindow(QWidget):
 
                     appr = r.get("approvalStatus") or "pending"
                     if appr == "approved":
-                        status_text = "تایید"
+                        status_text = tr("status_approved")
                         badge_name = "statusBadgeGreen"
                         status_color = c['success']
                     elif appr == "rejected":
-                        status_text = "رد"
+                        status_text = tr("status_rejected")
                         badge_name = "statusBadgeRed"
                         status_color = "#D93025"
                     else:
-                        status_text = "در انتظار"
+                        status_text = tr("status_pending")
                         badge_name = "statusBadgeOrange"
                         status_color = "#B87900"
 
@@ -2395,7 +2368,7 @@ class ReportsWindow(QWidget):
 
         all_ids = self.get_target_ids()
         if not all_ids:
-            empty = QLabel("کسی برای نمایش گزارش وجود ندارد.")
+            empty = QLabel(tr("no_employees_to_show"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -2431,7 +2404,7 @@ class ReportsWindow(QWidget):
             employees = []
 
         if not employees:
-            empty = QLabel("کارمندی یافت نشد.")
+            empty = QLabel(tr("no_employees_to_show"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -2440,7 +2413,7 @@ class ReportsWindow(QWidget):
             layout.addWidget(empty)
             return
 
-        hint = QLabel("برای دیدن تاریخچه مالی کامل هر کارمند، روی کارت او کلیک کنید.")
+        hint = QLabel(tr("click_card_details"))
         hint.setLayoutDirection(Qt.RightToLeft)
         hint.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         hint.setStyleSheet(
@@ -2509,12 +2482,12 @@ class ReportsWindow(QWidget):
             name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
             role_val = emp.get("role") or "employee"
-            badge_info = ROLE_BADGE_FA.get(role_val, ROLE_BADGE_FA["employee"])
-            role_badge = QLabel(badge_info[0])
+            badge_text, badge_fg, badge_bg = get_role_badge(role_val)
+            role_badge = QLabel(badge_text)
             role_badge.setAlignment(Qt.AlignCenter)
             role_badge.setStyleSheet(
-                f"color: {badge_info[1]};"
-                f"background-color: {badge_info[2]};"
+                f"color: {badge_fg};"
+                f"background-color: {badge_bg};"
                 f"border: none; border-radius: 10px;"
                 f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
             )
@@ -2523,7 +2496,7 @@ class ReportsWindow(QWidget):
             name_row.addWidget(role_badge)
 
             if is_me:
-                me_badge = QLabel("(من)")
+                me_badge = QLabel("(من)" if get_language() == "fa" else ("(Me)" if get_language() == "en" else "(أنا)"))
                 me_badge.setAlignment(Qt.AlignCenter)
                 me_badge.setStyleSheet(
                     f"color: {c['accent']};"
@@ -2556,9 +2529,9 @@ class ReportsWindow(QWidget):
             stats_col = QHBoxLayout()
             stats_col.setSpacing(10)
 
-            stats_col.addWidget(create_stat_box("تعداد پرداخت", str(count), "blue", 120))
+            stats_col.addWidget(create_stat_box(tr("payment_count"), str(count), "blue", 120))
             stats_col.addWidget(create_stat_box(
-                "جمع پرداخت",
+                tr("payment_total"),
                 f"{format_money(total)} ت",
                 "green",
                 160
@@ -2591,7 +2564,7 @@ class ReportsWindow(QWidget):
         dialog.move(self.pos())
 
         name_text = employee.get("name") or "—"
-        dialog.setWindowTitle(f"تاریخچه مالی — {name_text}")
+        dialog.setWindowTitle(tr("finance_history_title", name=name_text))
 
         main_layout = QVBoxLayout(dialog)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -2653,7 +2626,7 @@ class ReportsWindow(QWidget):
             records = []
 
         if not records:
-            empty = QLabel("رکوردی در این بازه یافت نشد.")
+            empty = QLabel(tr("no_records_in_range"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -2671,10 +2644,10 @@ class ReportsWindow(QWidget):
             sl.setContentsMargins(16, 14, 16, 14)
             sl.setSpacing(12)
 
-            sl.addWidget(create_stat_box("تعداد پرداخت", str(len(records)), "blue", 140))
+            sl.addWidget(create_stat_box(tr("payment_count"), str(len(records)), "blue", 140))
             sl.addWidget(create_stat_box(
-                "جمع کل",
-                f"{format_money(total_amount)} تومان",
+                tr("total_label"),
+                f"{format_money(total_amount)} {tr('toman')}",
                 "green",
                 220
             ))
@@ -2734,7 +2707,7 @@ class ReportsWindow(QWidget):
                 )
                 type_lbl.setMinimumWidth(90)
 
-                amount_lbl = QLabel(f"{format_money(r.get('amount') or 0)} تومان")
+                amount_lbl = QLabel(f"{format_money(r.get('amount') or 0)} {tr('toman')}")
                 amount_lbl.setStyleSheet(
                     f"color: {c['success']}; font-size: 13px; "
                     f"font-weight: 800; background: transparent;"
@@ -2794,11 +2767,10 @@ class ReportsWindow(QWidget):
     def build_tasks_report(self, layout, start_date, end_date):
         c = theme_manager.colors()
 
-        # ═══ target_ids (خودم + زیردست‌ها) ═══
         target_ids = self.get_target_ids()
 
         if not target_ids:
-            empty = QLabel("کسی برای نمایش گزارش وجود ندارد.")
+            empty = QLabel(tr("no_employees_to_show"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 13px; "
@@ -2844,37 +2816,37 @@ class ReportsWindow(QWidget):
         summary_grid.setSpacing(10)
 
         summary_grid.addWidget(
-            self._create_summary_stat("کل کارها", str(total), "summaryStatBox"),
+            self._create_summary_stat(tr("cartable_all"), str(total), "summaryStatBox"),
             0, 0
         )
         summary_grid.addWidget(
-            self._create_summary_stat("در انتظار", str(pending), "summaryStatBoxOrange"),
+            self._create_summary_stat(tr("cartable_pending"), str(pending), "summaryStatBoxOrange"),
             0, 1
         )
         summary_grid.addWidget(
-            self._create_summary_stat("در حال انجام", str(in_progress), "summaryStatBoxOrange"),
+            self._create_summary_stat(tr("cartable_in_progress"), str(in_progress), "summaryStatBoxOrange"),
             0, 2
         )
         summary_grid.addWidget(
-            self._create_summary_stat("منتظر تأیید", str(completed), "summaryStatBoxOrange"),
+            self._create_summary_stat(tr("cartable_completed"), str(completed), "summaryStatBoxOrange"),
             0, 3
         )
         summary_grid.addWidget(
-            self._create_summary_stat("تأییدشده", str(approved), "summaryStatBoxGreen"),
+            self._create_summary_stat(tr("approved"), str(approved), "summaryStatBoxGreen"),
             1, 0
         )
         summary_grid.addWidget(
-            self._create_summary_stat("رد شده", str(rejected), "summaryStatBoxRed"),
+            self._create_summary_stat(tr("rejected"), str(rejected), "summaryStatBoxRed"),
             1, 1
         )
         summary_grid.addWidget(
-            self._create_summary_stat("لغو شده", str(cancelled), "summaryStatBox"),
+            self._create_summary_stat(tr("cartable_cancelled"), str(cancelled), "summaryStatBox"),
             1, 2
         )
         summary_grid.addWidget(
             self._create_summary_stat(
-                "جمع کارمزد تأییدشده",
-                f"{format_money(total_paid)} ت",
+                tr("jobs_total"),
+                f"{format_money(total_paid)} {tr('toman')}",
                 "summaryStatBoxGreen"
             ),
             1, 3
@@ -2883,7 +2855,7 @@ class ReportsWindow(QWidget):
         layout.addLayout(summary_grid)
         layout.addSpacing(10)
 
-        section = QLabel("عملکرد کارمندان")
+        section = QLabel(tr("employees"))
         section.setLayoutDirection(Qt.RightToLeft)
         section.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         section.setStyleSheet(
@@ -2955,10 +2927,10 @@ class ReportsWindow(QWidget):
                 stats_col = QHBoxLayout()
                 stats_col.setSpacing(10)
 
-                stats_col.addWidget(create_stat_box("کل", str(tot), "blue", 90))
-                stats_col.addWidget(create_stat_box("تأییدشده", str(done), "green", 90))
-                stats_col.addWidget(create_stat_box("در حال انجام", str(in_prog), "orange", 100))
-                stats_col.addWidget(create_stat_box("درآمد", f"{format_money(earned)}", "green", 150))
+                stats_col.addWidget(create_stat_box(tr("cartable_all"), str(tot), "blue", 90))
+                stats_col.addWidget(create_stat_box(tr("approved"), str(done), "green", 90))
+                stats_col.addWidget(create_stat_box(tr("cartable_in_progress"), str(in_prog), "orange", 100))
+                stats_col.addWidget(create_stat_box(tr("total_label"), f"{format_money(earned)}", "green", 150))
 
                 rl.addWidget(avatar)
                 rl.addWidget(name_lbl, 2)
@@ -2968,7 +2940,7 @@ class ReportsWindow(QWidget):
 
         layout.addSpacing(10)
 
-        detail_section = QLabel("جزئیات کارها")
+        detail_section = QLabel(tr("filter_tasks") if False else tr("cartable_title"))
         detail_section.setLayoutDirection(Qt.RightToLeft)
         detail_section.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
         detail_section.setStyleSheet(
@@ -2998,7 +2970,7 @@ class ReportsWindow(QWidget):
             tasks = []
 
         if not tasks:
-            empty = QLabel("کاری یافت نشد.")
+            empty = QLabel(tr("no_cartable_items"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {c['text_dim']}; font-size: 12px; "
@@ -3008,12 +2980,12 @@ class ReportsWindow(QWidget):
             return
 
         status_map = {
-            "pending": ("در انتظار", "statusBadgeOrange", "#B87900"),
-            "inProgress": ("در حال انجام", "statusBadgeOrange", "#B87900"),
-            "completed": ("منتظر تأیید", "statusBadgeOrange", "#B87900"),
-            "approved": ("تأییدشده", "statusBadgeGreen", c['success']),
-            "rejected": ("رد شده", "statusBadgeRed", "#D93025"),
-            "cancelled": ("لغو شده", "statusBadgeRed", "#D93025"),
+            "pending": (tr("cartable_pending"), "statusBadgeOrange", "#B87900"),
+            "inProgress": (tr("cartable_in_progress"), "statusBadgeOrange", "#B87900"),
+            "completed": (tr("cartable_completed"), "statusBadgeOrange", "#B87900"),
+            "approved": (tr("approved"), "statusBadgeGreen", c['success']),
+            "rejected": (tr("rejected"), "statusBadgeRed", "#D93025"),
+            "cancelled": (tr("cartable_cancelled"), "statusBadgeRed", "#D93025"),
         }
 
         for t in tasks:
@@ -3062,7 +3034,7 @@ class ReportsWindow(QWidget):
             name_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             name_lbl.setMinimumWidth(140)
 
-            title_lbl = QLabel(t.get("jobTitle") or "—")
+            title_lbl = QLabel(t.get("jobTitle") or tr("job_no_desc"))
             title_lbl.setStyleSheet(
                 f"color: {c['text_main']}; font-size: 12px; "
                 f"background: transparent;"
@@ -3074,7 +3046,7 @@ class ReportsWindow(QWidget):
             price = float(t.get("price") or 0)
             total_price = qty * price
 
-            price_lbl = QLabel(f"{format_money(total_price)} ت")
+            price_lbl = QLabel(f"{format_money(total_price)} {tr('toman')}")
             price_lbl.setStyleSheet(
                 f"color: {c['success']}; font-size: 12px; "
                 f"font-weight: 700; background: transparent;"

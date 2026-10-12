@@ -13,6 +13,7 @@ from database import Database
 from signals import signals
 from theme import theme_manager
 from i18n import tr, set_language, get_language
+from roleHelpers import get_role_badge
 
 from addEmployees import AddEmployees, NiceMessageBox, RoundedComboBox
 from hierarchy import (
@@ -20,18 +21,6 @@ from hierarchy import (
     role_to_level, get_visible_member_ids, get_member_level,
     ensure_hierarchy_row, set_supervisor_and_level
 )
-
-# =========================================================
-# ROLE BADGES
-# =========================================================
-
-ROLE_BADGE_FA = {
-    "owner":      ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "both":       ("👑 مالک",   "#B87900", "#FFF4DD"),
-    "manager":    ("📋 مدیر",   "#1961C7", "#DBEAFE"),
-    "supervisor": ("🎯 سرپرست", "#16A34A", "#DCFCE7"),
-    "employee":   ("👤 کارمند", "#526273", "#EEF2F6"),
-}
 
 # =========================================================
 # ROUND SCROLL BAR
@@ -318,11 +307,6 @@ class EmployeesWindow(QWidget):
                 self.db, self.complex_id, self.member_id, self.level
             )
 
-            print("DEBUG: member_id =", self.member_id,
-                  "| level =", self.level,
-                  "| is_owner =", self.is_owner,
-                  "| visible_ids =", self.visible_ids)
-
         except Exception as e:
             print("LOAD USER HIERARCHY ERROR:", e)
 
@@ -361,7 +345,7 @@ class EmployeesWindow(QWidget):
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
 
-        inactive_button = QPushButton("کارمندان غیرفعال")
+        inactive_button = QPushButton(tr("btn_inactive_employees"))
         inactive_button.setObjectName("inactiveEmployeesButton")
         inactive_button.setCursor(Qt.PointingHandCursor)
         inactive_button.setFixedHeight(46)
@@ -632,51 +616,26 @@ class EmployeesWindow(QWidget):
         self.employees = []
 
         if not self.complex_id:
-            print("LOAD EMPLOYEES ERROR: COMPLEX ID IS NONE")
             self.refresh_employees()
             return
 
         if not self.visible_ids:
             self.load_user_hierarchy()
 
-        # ═══════════════════════════════════════════════════
-        # ⭐ محاسبه target_ids
-        # ═══════════════════════════════════════════════════
-        target_ids = []
-
-        if self.is_owner:
-            # ═══ مالک: همه اعضای مجموعه به جز خودش ═══
-            try:
-                rows = self.db.fetch_all(
-                    """
-                    SELECT memberId FROM complex_members
-                    WHERE complexId = %s
-                      AND isActive = '1'
-                      AND role NOT IN ('owner', 'both')
-                      AND memberId != %s
-                    """,
-                    (self.complex_id, self.member_id or 0)
-                )
-                target_ids = [r["memberId"] for r in rows] if rows else []
-                print("DEBUG OWNER target_ids:", target_ids)
-            except Exception as e:
-                print("LOAD OWNER TARGET IDS ERROR:", e)
-                target_ids = []
-
-        else:
-            # ═══ مدیر/سرپرست: زیردست‌ها به جز خودش ═══
-            target_ids = [
-                mid for mid in self.visible_ids
-                if mid != self.member_id
-            ]
-            print("DEBUG NON-OWNER target_ids:", target_ids)
-
-        if not target_ids:
-            print("DEBUG: target_ids is empty -> empty state")
+        if not self.visible_ids:
             self.refresh_employees()
             return
 
-        placeholders = ",".join(["%s"] * len(target_ids))
+        filtered_ids = [
+            mid for mid in self.visible_ids
+            if mid != self.member_id
+        ]
+
+        if not filtered_ids:
+            self.refresh_employees()
+            return
+
+        placeholders = ",".join(["%s"] * len(filtered_ids))
 
         try:
             employees = self.db.fetch_all(
@@ -687,27 +646,22 @@ class EmployeesWindow(QWidget):
                     ep.jobTitle, ep.nationalCode, ep.employmentType,
                     ep.salaryType, ep.baseSalary, ep.workDays, ep.workHours,
                     ep.workStartTime, ep.workEndTime, ep.description,
-                    ep.canSeeEmployees, ep.allowOvertime
+                    ep.canSeeEmployees, ep.allowOvertime,
+                    COALESCE(mh.level, 4) AS level
                 FROM complex_members cm
                 INNER JOIN users u ON u.userId = cm.userId
                 LEFT JOIN employee_profiles ep ON ep.memberId = cm.memberId
+                LEFT JOIN member_hierarchy mh
+                    ON mh.memberId = cm.memberId
+                   AND mh.complexId = cm.complexId
                 WHERE cm.complexId = %s
                   AND cm.memberId IN ({placeholders})
                   AND cm.role NOT IN ('owner', 'both')
                   AND cm.isActive = '1'
-                ORDER BY
-                    CASE cm.role
-                        WHEN 'manager'    THEN 1
-                        WHEN 'supervisor' THEN 2
-                        WHEN 'employee'   THEN 3
-                        ELSE 4
-                    END,
-                    u.name ASC
+                ORDER BY COALESCE(mh.level, 4) ASC, cm.memberId DESC
                 """,
-                (self.complex_id, *target_ids)
+                (self.complex_id, *filtered_ids)
             )
-
-            print("DEBUG QUERY RESULT COUNT:", len(employees) if employees else 0)
 
             for row in employees:
                 employment_type = row.get("employmentType")
@@ -744,8 +698,6 @@ class EmployeesWindow(QWidget):
                 else:
                     work_time_text = "-"
 
-                role_val = row.get("role") or "employee"
-
                 employee = {
                     "memberId": row.get("memberId"),
                     "userId": row.get("userId"),
@@ -770,8 +722,8 @@ class EmployeesWindow(QWidget):
                     "description": row.get("description") or "",
                     "can_see_employees": row.get("canSeeEmployees") or "0",
                     "allow_overtime": row.get("allowOvertime") or "1",
-                    "role_value": role_val,
-                    "level": role_to_level(role_val),
+                    "role_value": row.get("role") or "employee",
+                    "level": int(row.get("level") or 4),
                 }
 
                 self.employees.append(employee)
@@ -797,7 +749,7 @@ class EmployeesWindow(QWidget):
         QApplication.processEvents()
 
         if not self.employees:
-            empty = QLabel("هنوز کارمندی برای نمایش وجود ندارد.")
+            empty = QLabel(tr("no_employees_to_show"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(
                 f"color: {theme_manager.colors()['text_dim']};"
@@ -912,6 +864,7 @@ class EmployeesWindow(QWidget):
         info_layout.setSpacing(4)
         info_layout.setAlignment(Qt.AlignRight)
 
+        # ═══ NAME + ROLE BADGE ═══
         name_row = QHBoxLayout()
         name_row.setContentsMargins(0, 0, 0, 0)
         name_row.setSpacing(8)
@@ -921,12 +874,12 @@ class EmployeesWindow(QWidget):
         name_label.setAlignment(Qt.AlignRight | Qt.AlignAbsolute)
 
         role_value = employee.get("role_value", "employee")
-        badge_info = ROLE_BADGE_FA.get(role_value, ROLE_BADGE_FA["employee"])
-        role_badge = QLabel(badge_info[0])
+        badge_text, badge_fg, badge_bg = get_role_badge(role_value)
+        role_badge = QLabel(badge_text)
         role_badge.setAlignment(Qt.AlignCenter)
         role_badge.setStyleSheet(
-            f"color: {badge_info[1]};"
-            f"background-color: {badge_info[2]};"
+            f"color: {badge_fg};"
+            f"background-color: {badge_bg};"
             f"border: none; border-radius: 10px;"
             f"padding: 3px 10px; font-size: 10px; font-weight: 700;"
         )
@@ -1129,7 +1082,7 @@ class EmployeesWindow(QWidget):
         c = theme_manager.colors()
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("کارمندان غیرفعال")
+        dialog.setWindowTitle(tr("inactive_title"))
         dialog.setLayoutDirection(Qt.RightToLeft)
         dialog.setMinimumWidth(640)
         dialog.setMinimumHeight(520)
@@ -1140,11 +1093,11 @@ class EmployeesWindow(QWidget):
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(12)
 
-        title = QLabel("کارمندان غیرفعال")
+        title = QLabel(tr("inactive_title"))
         title.setStyleSheet(f"color: {c['text_main']}; font-size: 17px; font-weight: 800; background: transparent;")
         layout.addWidget(title)
 
-        sub = QLabel("برای فعال کردن مجدد، روی دکمه «فعال کردن» بزنید.")
+        sub = QLabel(tr("inactive_subtitle"))
         sub.setStyleSheet(f"color: {c['text_dim']}; font-size: 11px; background: transparent;")
         layout.addWidget(sub)
 
@@ -1183,7 +1136,7 @@ class EmployeesWindow(QWidget):
             inactive = []
 
         if not inactive:
-            empty = QLabel("کارمند غیرفعالی وجود ندارد.")
+            empty = QLabel(tr("no_inactive_employees"))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(f"color: {c['text_dim']}; font-size: 13px; padding: 40px; background: transparent;")
             content_layout.addWidget(empty)
@@ -1217,7 +1170,7 @@ class EmployeesWindow(QWidget):
                 job_lbl.setStyleSheet(f"color: {c['accent']}; font-size: 11px; font-weight: 600; background: transparent;")
                 job_lbl.setMinimumWidth(120)
 
-                activate_btn = QPushButton("فعال کردن")
+                activate_btn = QPushButton(tr("btn_activate"))
                 activate_btn.setCursor(Qt.PointingHandCursor)
                 activate_btn.setFixedHeight(34)
                 activate_btn.setStyleSheet(f"""
@@ -1286,10 +1239,10 @@ class EmployeesWindow(QWidget):
                 (member_id, self.complex_id)
             )
             if result is None:
-                NiceMessageBox.error(self, tr("error"), "فعال‌سازی ناموفق بود.")
+                NiceMessageBox.error(self, tr("error"), tr("err_member_add_fail"))
                 return
 
-            NiceMessageBox.success(self, tr("saved"), "کارمند با موفقیت فعال شد.")
+            NiceMessageBox.success(self, tr("saved"), tr("member_activated"))
             dialog.accept()
             self.load_user_hierarchy()
             self.load_employees_from_database()
@@ -1373,7 +1326,6 @@ class EmployeesWindow(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # ═══ HEADER ═══
         header_frame = QFrame()
         header_frame.setAttribute(Qt.WA_StyledBackground, True)
         header_frame.setStyleSheet(
@@ -1416,7 +1368,7 @@ class EmployeesWindow(QWidget):
             f"font-weight: 700; background: transparent;"
         )
 
-        d_sub = QLabel("ویرایش اطلاعات کارمند")
+        d_sub = QLabel(tr("edit_personal_info"))
         d_sub.setStyleSheet(
             f"color: {c['text_dim']}; font-size: 11px; background: transparent;"
         )
@@ -1431,7 +1383,6 @@ class EmployeesWindow(QWidget):
         header_outer.addLayout(header_row)
         main_layout.addWidget(header_frame)
 
-        # ═══ SCROLL ═══
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -1459,7 +1410,7 @@ class EmployeesWindow(QWidget):
         form_layout.setSpacing(6)
 
         # ═══ NAME ═══
-        name_lbl = QLabel("نام")
+        name_lbl = QLabel(tr("edit_name_label"))
         name_lbl.setObjectName("fieldLabel")
         name_input = QLineEdit()
         name_input.setObjectName("formInput")
@@ -1474,7 +1425,7 @@ class EmployeesWindow(QWidget):
         form_layout.addWidget(name_err)
 
         # ═══ PHONE ═══
-        phone_lbl = QLabel("شماره موبایل")
+        phone_lbl = QLabel(tr("phone_label"))
         phone_lbl.setObjectName("fieldLabel")
         phone_input = QLineEdit()
         phone_input.setObjectName("formInput")
@@ -1493,16 +1444,16 @@ class EmployeesWindow(QWidget):
         form_layout.addSpacing(4)
 
         # ═══ HIERARCHY ROLE ═══
-        role_global_lbl = QLabel("نقش کلی")
+        role_global_lbl = QLabel(tr("hierarchy_role_label"))
         role_global_lbl.setObjectName("fieldLabel")
 
         role_global_combo = RoundedComboBox()
         role_global_combo.setObjectName("formInput")
         role_global_combo.setFixedHeight(44)
 
-        role_global_combo.addItem("👤  کارمند",  "employee")
-        role_global_combo.addItem("🎯  سرپرست", "supervisor")
-        role_global_combo.addItem("📋  مدیر",   "manager")
+        role_global_combo.addItem(tr("hierarchy_role_employee"),   "employee")
+        role_global_combo.addItem(tr("hierarchy_role_supervisor"), "supervisor")
+        role_global_combo.addItem(tr("hierarchy_role_manager"),    "manager")
 
         current_role_value = row.get("role") or "employee"
         if current_role_value not in ("employee", "supervisor", "manager"):
@@ -1526,12 +1477,16 @@ class EmployeesWindow(QWidget):
         role_input.setObjectName("formInput")
         role_input.setFixedHeight(44)
 
-        role_titles = {
-            "employee":   "کارمند",
-            "supervisor": "سرپرست",
-            "manager":    "مدیر",
+        prefix_map = {
+            "employee":   tr("prefix_employee"),
+            "supervisor": tr("prefix_supervisor"),
+            "manager":    tr("prefix_manager"),
         }
-        all_prefixes = ["کارمند", "سرپرست", "مدیر"]
+        all_prefixes = [
+            tr("prefix_employee"),
+            tr("prefix_supervisor"),
+            tr("prefix_manager"),
+        ]
 
         def strip_prefix(text):
             stripped = text.strip()
@@ -1542,7 +1497,7 @@ class EmployeesWindow(QWidget):
 
         initial_job_title = row.get("jobTitle") or ""
         initial_suffix = strip_prefix(initial_job_title)
-        initial_base = role_titles.get(current_role_value, "کارمند")
+        initial_base = prefix_map.get(current_role_value, tr("prefix_employee"))
 
         if initial_suffix:
             role_input.setText(f"{initial_base} {initial_suffix}")
@@ -1556,7 +1511,7 @@ class EmployeesWindow(QWidget):
 
         def on_global_role_changed():
             new_role = role_global_combo.currentData()
-            base = role_titles.get(new_role, "کارمند")
+            base = prefix_map.get(new_role, tr("prefix_employee"))
             current = role_input.text()
             suffix = strip_prefix(current)
             new_text = f"{base} {suffix}".strip() if suffix else base
@@ -1593,7 +1548,6 @@ class EmployeesWindow(QWidget):
         form_layout.addWidget(emp_lbl)
         form_layout.addWidget(emp_combo)
 
-        # ═══ DIVIDER ═══
         divider = QFrame()
         divider.setObjectName("divider")
         divider.setFixedHeight(1)
@@ -1849,34 +1803,34 @@ class EmployeesWindow(QWidget):
             sal_err.hide()
 
             if not name_text:
-                show_err(name_err, "لطفاً نام را وارد کنید.")
+                show_err(name_err, tr("err_name_required"))
                 name_input.setFocus()
                 return
             if contains_digit(name_text):
-                show_err(name_err, "نام نباید شامل عدد باشد.")
+                show_err(name_err, tr("err_name_no_digit"))
                 name_input.setFocus()
                 return
             if not phone_text:
-                show_err(phone_err, "لطفاً شماره موبایل را وارد کنید.")
+                show_err(phone_err, tr("err_phone_required"))
                 phone_input.setFocus()
                 return
             if not phone_text.isdigit() or len(phone_text) != 11 or not phone_text.startswith("09"):
-                show_err(phone_err, "شماره باید ۱۱ رقم و با ۰۹ شروع شود.")
+                show_err(phone_err, tr("err_phone_format"))
                 phone_input.setFocus()
                 return
             if not job_text:
-                show_err(role_err, "لطفاً نقش در مجموعه را وارد کنید.")
+                show_err(role_err, tr("err_group_role_required"))
                 role_input.setFocus()
                 return
 
             try:
                 sal_val = float(sal_text.replace(",", "").replace("٬", ""))
             except ValueError:
-                show_err(sal_err, "حقوق باید عدد باشد.")
+                show_err(sal_err, tr("err_salary_invalid"))
                 sal_input.setFocus()
                 return
             if sal_val <= 0:
-                show_err(sal_err, "حقوق باید بزرگ‌تر از صفر باشد.")
+                show_err(sal_err, tr("err_salary_zero"))
                 sal_input.setFocus()
                 return
 
@@ -1908,11 +1862,10 @@ class EmployeesWindow(QWidget):
                 (phone_text, member_id)
             )
             if dup:
-                show_err(phone_err, "این شماره قبلاً ثبت شده است.")
+                show_err(phone_err, tr("err_phone_exists"))
                 phone_input.setFocus()
                 return
 
-            # ═══ UPDATE user ═══
             self.db.execute(
                 """
                 UPDATE users u
@@ -1923,7 +1876,6 @@ class EmployeesWindow(QWidget):
                 (name_text, phone_text, member_id)
             )
 
-            # ═══ UPDATE profile ═══
             self.db.execute(
                 """
                 UPDATE employee_profiles
@@ -1937,7 +1889,6 @@ class EmployeesWindow(QWidget):
                  st_time, en_time, see_val, ot_val, member_id)
             )
 
-            # ═══ UPDATE role ═══
             self.db.execute(
                 """
                 UPDATE complex_members SET role = %s
@@ -1946,24 +1897,19 @@ class EmployeesWindow(QWidget):
                 (new_role_value, member_id, self.complex_id)
             )
 
-            # ═══ بررسی ذخیره role ═══
             verify = self.db.fetch_one(
                 "SELECT role FROM complex_members WHERE memberId = %s LIMIT 1",
                 (member_id,)
             )
             saved_role = verify.get("role") if verify else None
 
-            print("EDIT: requested role =", new_role_value, "| saved role =", saved_role)
-
             if saved_role != new_role_value:
                 NiceMessageBox.error(
-                    dialog, "خطا",
-                    "نقش ذخیره نشد. لطفاً migration نقش‌ها را اجرا کن:\n\n"
+                    dialog, tr("error"),
                     "migrations/003_role_varchar.sql"
                 )
                 return
 
-            # ═══ UPDATE hierarchy ═══
             new_level = role_to_level(new_role_value)
             sup_id = self.get_owner_member_id()
             set_supervisor_and_level(
@@ -2069,7 +2015,6 @@ class EmployeesWindow(QWidget):
 
     def add_employee(self):
         if not self.complex_id:
-            print("ADD EMPLOYEE ERROR: COMPLEX ID IS NONE")
             return
 
         self.add_employee_window = AddEmployees(self, complex_id=self.complex_id)
