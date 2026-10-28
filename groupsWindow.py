@@ -601,25 +601,28 @@ class GroupsWindow(QWidget):
             font-size: 10px;
         }}
 
+        /* ═══ اصلاح سایزها و گردیِ گوشه‌ها ═══ */
+        
         QLabel#employeeCount {{
             background-color: {c['accent_light']};
             color: {c['accent']};
             border: none;
-            border-radius: 8px;
-            padding: 2px 8px;
-            font-size: 9px;
+            border-radius: 14px;
+            padding: 0px 12px;
+            font-size: 11px;
             font-weight: 600;
+            min-width: 60px;
         }}
 
         QPushButton#manageButton {{
             background-color: {c['accent_light']};
             color: {c['accent']};
             border: none;
-            border-radius: 10px;
-            padding: 7px 12px;
-            font-size: 10px;
+            border-radius: 14px;
+            padding: 0px 12px;
+            font-size: 11px;
             font-weight: 600;
-            min-height: 24px;
+            min-width: 70px;
         }}
 
         QPushButton#manageButton:hover {{
@@ -630,16 +633,18 @@ class GroupsWindow(QWidget):
             background-color: {c['danger_bg']};
             color: {c['danger']};
             border: none;
-            border-radius: 10px;
-            padding: 7px 12px;
-            font-size: 10px;
+            border-radius: 14px;
+            padding: 0px 12px;
+            font-size: 11px;
             font-weight: 600;
-            min-height: 24px;
+            min-width: 70px;
         }}
 
         QPushButton#deleteButton:hover {{
             background-color: {c['bg_hover']};
         }}
+
+        /* ═════════════════════════════════════ */
 
         QFrame#groupDialog, QFrame#confirmDialog {{
             background-color: {c['bg_card']};
@@ -829,32 +834,37 @@ class GroupsWindow(QWidget):
         text_layout.addWidget(address)
         text_layout.addWidget(activity)
 
+        # ═══ تنظیم ارتفاع تگ تعداد کارمندان ═══
         count = QLabel(tr("employees_count_label", n=group['employeeCount']))
         count.setObjectName("employeeCount")
         count.setAlignment(Qt.AlignCenter)
-        count.setFixedHeight(22)
+        count.setFixedHeight(28)
 
         layout.addWidget(icon)
         layout.addLayout(text_layout)
         layout.addStretch()
         layout.addWidget(count)
 
+        # ═══ تنظیم ارتفاع و استایل تگ نقش ═══
         role_label = QLabel(group["role"])
         role_label.setAlignment(Qt.AlignCenter)
-        role_label.setFixedHeight(22)
+        role_label.setFixedHeight(28)
         role_label.setStyleSheet(
             f"background-color: {theme_manager.colors()['accent_light']};"
             f"color: {theme_manager.colors()['accent']};"
-            f"border: none; border-radius: 8px;"
-            f"padding: 2px 10px; font-size: 10px; font-weight: 600;"
+            f"border: none; border-radius: 14px;"
+            f"padding: 0px 12px; font-size: 11px; font-weight: 600;"
+            f"min-width: 70px;"
         )
 
         layout.addWidget(role_label)
 
         if group["roleValue"] in ("owner", "both"):
+            # ═══ تنظیم ارتفاع و سایز دکمه‌های مدیریت و حذف ═══
             manage_button = QPushButton(tr("manage"))
             manage_button.setObjectName("manageButton")
             manage_button.setCursor(Qt.PointingHandCursor)
+            manage_button.setFixedHeight(28)
             manage_button.clicked.connect(
                 lambda checked=False, g=group: self.manage_group(g)
             )
@@ -862,6 +872,7 @@ class GroupsWindow(QWidget):
             delete_button = QPushButton(tr("delete"))
             delete_button.setObjectName("deleteButton")
             delete_button.setCursor(Qt.PointingHandCursor)
+            delete_button.setFixedHeight(28)
             delete_button.clicked.connect(
                 lambda checked=False, g=group: self.confirm_delete_group(g)
             )
@@ -1334,6 +1345,30 @@ class GroupsWindow(QWidget):
 
             if has_error:
                 return
+
+            # ═══════════════════════════════════════════════════
+            # 🛑 چک کردن تکراری بودن (نام، آدرس و فعالیت با هم یکسان باشند)
+            # ═══════════════════════════════════════════════════
+            try:
+                existing_dup = self.db.fetch_one(
+                    """
+                    SELECT complexId FROM complexes 
+                    WHERE ownerId = %s AND name = %s AND address = %s AND activity = %s
+                    LIMIT 1
+                    """,
+                    (self.user_id, name, address, activity)
+                )
+                
+                if existing_dup:
+                    NiceMessageBox.error(
+                        dialog, 
+                        "خطا", 
+                        "شما قبلاً مجموعه‌ای با همین نام، آدرس و فعالیت ثبت کرده‌اید.\nبرای ساخت مجموعه جدید، حداقل یکی از این موارد را تغییر دهید."
+                    )
+                    return
+            except Exception as e:
+                print("DUPLICATE CHECK ERROR:", e)
+            # ═══════════════════════════════════════════════════
 
             try:
                 complex_id = self.db.execute(

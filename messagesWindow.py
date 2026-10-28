@@ -4,7 +4,8 @@ from datetime import datetime, date
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QFrame, QScrollArea, QScrollBar, QDialog, QLineEdit,
-    QComboBox, QListWidget, QListWidgetItem, QGraphicsDropShadowEffect
+    QComboBox, QListWidget, QListWidgetItem, QGraphicsDropShadowEffect,
+    QApplication
 )
 
 from PySide6.QtCore import (
@@ -115,7 +116,7 @@ class RoundScrollBar(QScrollBar):
         painter.drawRoundedRect(int(handle_x), int(handle_y), handle_width, int(handle_height), handle_width/2, handle_width/2)
 
 # =========================================================
-# ROUNDED COMBO BOX
+# ROUNDED COMBO BOX — با محاسبه هوشمند موقعیت
 # =========================================================
 
 class RoundedComboBox(QComboBox):
@@ -189,8 +190,41 @@ class RoundedComboBox(QComboBox):
         self._popup.setFixedWidth(popup_w)
         self._popup.setFixedHeight(popup_h)
 
-        pos = self.mapToGlobal(QPoint(0, self.height() + 4))
-        self._popup.move(pos)
+        # ═══════════════════════════════════════════════════
+        # محاسبه هوشمند موقعیت — داخل صفحه بمونه
+        # ═══════════════════════════════════════════════════
+        pos_below = self.mapToGlobal(QPoint(0, self.height() + 4))
+        pos_above = self.mapToGlobal(QPoint(0, -popup_h - 4))
+
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+
+            x = pos_below.x()
+            y = pos_below.y()
+
+            # اگه پایین صفحه جا نمیشه → بالا باز کن
+            if y + popup_h > geo.bottom():
+                if pos_above.y() >= geo.top():
+                    y = pos_above.y()
+                else:
+                    # نه بالا نه پایین کامل جا نمیشه → بچسبون به لبه پایین
+                    y = geo.bottom() - popup_h - 4
+
+            # اگه راست صفحه بیرون میزنه → تنظیم کن
+            if x + popup_w > geo.right():
+                x = geo.right() - popup_w - 4
+            if x < geo.left():
+                x = geo.left() + 4
+
+            # اگه بالاتر از لبه بالای صفحه شد → بچسبون به بالا
+            if y < geo.top():
+                y = geo.top() + 4
+
+            self._popup.move(x, y)
+        else:
+            self._popup.move(pos_below)
+
         self._popup.show()
 
     def hidePopup(self):
@@ -522,18 +556,16 @@ class MessagesWindow(QWidget):
         self.receiver_combo.blockSignals(False)
 
     # =====================================================
-    # LOAD AVATAR PIXMAP (فقط آواتار پیش‌فرض)
+    # LOAD AVATAR PIXMAP
     # =====================================================
 
     def load_avatar_pixmap(self, image_value):
         if not image_value:
             return None
         try:
-            # ═══ اگه مسیر مطلق بود (عکس سفارشی) → نشون نده ═══
             if os.path.isabs(image_value):
                 return None
 
-            # ═══ فقط آواتار پیش‌فرض ═══
             path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 "avatars",
@@ -960,7 +992,6 @@ class MessagesWindow(QWidget):
         layout.setContentsMargins(14, 10, 14, 10)
         layout.setSpacing(12)
 
-        # ═══ آواتار پیش‌فرض (اگه بود) وگرنه آیکون ═══
         if msg["is_outgoing"]:
             avatar_image = msg.get("receiver_image") or ""
         else:
@@ -983,7 +1014,6 @@ class MessagesWindow(QWidget):
             icon.setAlignment(Qt.AlignCenter)
             layout.addWidget(icon)
 
-        # متن
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
 

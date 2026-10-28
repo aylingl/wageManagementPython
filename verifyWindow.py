@@ -1,19 +1,212 @@
-from PySide6.QtWidgets import (
-    QWidget,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QHBoxLayout,
-    QMessageBox
-)
 
+import os
+import random
+from datetime import datetime, timedelta
+
+from PySide6.QtWidgets import (
+    QWidget, QLabel, QLineEdit, QPushButton,
+    QVBoxLayout, QHBoxLayout, QDialog, QFrame,
+    QGraphicsDropShadowEffect, QMessageBox
+)
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap, QIcon, QColor
 
 from profileSetupWindow import ProfileSetupWindow
 from homeWindow import HomeWindow
 from database import Database
+from theme import theme_manager
+
+# ═══════════════════════════════════════════════════════
+# MODERN MESSAGE DIALOG (پاپ‌آپ مدرن، شیک و قرمز)
+# ═══════════════════════════════════════════════════════
+
+class ModernMessageDialog(QDialog):
+    def __init__(self, parent, title, text, icon_type="info"):
+        super().__init__(parent)
+        
+        self.setModal(True)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setFixedSize(360, 240)
+        
+        if parent:
+            parent_rect = parent.geometry()
+            self.move(
+                parent_rect.center().x() - self.width() // 2,
+                parent_rect.center().y() - self.height() // 2
+            )
+        
+        c = theme_manager.colors()
+        
+        if icon_type == "success":
+            icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
+        elif icon_type == "error":
+            icon_char, color, bg = "✕", "#D93025", "#FFE5E8"
+        elif icon_type == "warning":
+            icon_char, color, bg = "!", "#D93025", "#FFE5E8"
+        else:
+            icon_char, color, bg = "i", "#1961C7", "#DBEAFE"
+            
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        
+        card = QFrame()
+        card.setObjectName("msgCard")
+        card.setStyleSheet(f"""
+            QFrame#msgCard {{
+                background-color: {c['bg_card']};
+                border: 1px solid {c['border']};
+                border-radius: 20px;
+            }}
+        """)
+        
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(30)
+        shadow.setColor(QColor(0, 0, 0, 40))
+        shadow.setOffset(0, 8)
+        card.setGraphicsEffect(shadow)
+        outer.addWidget(card)
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+        
+        icon_label = QLabel(icon_char)
+        icon_label.setFixedSize(56, 56)
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {bg};
+                color: {color};
+                border-radius: 28px;
+                font-size: 24px;
+                font-weight: 700;
+                font-family: "Segoe UI Emoji", "Vazirmatn";
+            }}
+        """)
+        
+        icon_row = QHBoxLayout()
+        icon_row.addStretch()
+        icon_row.addWidget(icon_label)
+        icon_row.addStretch()
+        layout.addLayout(icon_row)
+        
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet(f"""
+            QLabel {{
+                color: {c['text_main']};
+                font-size: 16px;
+                font-weight: 800;
+                background: transparent;
+                border: none;
+            }}
+        """)
+        layout.addWidget(title_label)
+        
+        text_label = QLabel(text)
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setWordWrap(True)
+        text_label.setStyleSheet(f"""
+            QLabel {{
+                color: {c['text_dim']};
+                font-size: 12px;
+                font-weight: 500;
+                background: transparent;
+                border: none;
+                line-height: 1.5;
+            }}
+        """)
+        layout.addWidget(text_label)
+        
+        layout.addStretch()
+        
+        btn = QPushButton("تایید")
+        btn.setFixedHeight(42)
+        btn.setCursor(Qt.PointingHandCursor)
+        
+        hover_color = "#B71C1C" if icon_type in ("warning", "error") else c['accent_hover']
+        
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color};
+                color: white;
+                border: none;
+                border-radius: 12px;
+                font-size: 13px;
+                font-weight: 700;
+                padding: 0 30px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_color};
+            }}
+        """)
+        btn.clicked.connect(self.accept)
+        
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+# ═══════════════════════════════════════════════════════
+# OTP BOX — جلوگیری از کلیک و تایپ الکی در هر خانه
+# ═══════════════════════════════════════════════════════
+
+class OtpBox(QLineEdit):
+    def __init__(self, index, parent=None):
+        super().__init__(parent)
+        self.index = index
+        self.otp_boxes_ref = None
+
+    def keyPressEvent(self, event):
+        # ═══ Backspace ═══
+        if event.key() == Qt.Key_Backspace:
+            if self.text() == "":
+                if self.otp_boxes_ref and self.index > 0:
+                    prev = self.otp_boxes_ref[self.index - 1]
+                    prev.setFocus()
+                    prev.clear()
+                event.accept()
+                return
+            else:
+                self.clear()
+                event.accept()
+                return
+
+        # ═══ Delete ═══
+        if event.key() == Qt.Key_Delete:
+            self.clear()
+            event.accept()
+            return
+
+        # ═══ Left Arrow ═══
+        if event.key() == Qt.Key_Left:
+            if self.otp_boxes_ref and self.index > 0:
+                self.otp_boxes_ref[self.index - 1].setFocus()
+            event.accept()
+            return
+
+        # ═══ Right Arrow ═══
+        if event.key() == Qt.Key_Right:
+            if self.otp_boxes_ref and self.index < len(self.otp_boxes_ref) - 1:
+                self.otp_boxes_ref[self.index + 1].setFocus()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        # هر جا کاربر کلیک کرد، فوکوس بره روی اولین خانه خالی (از چپ)
+        if self.otp_boxes_ref:
+            for box in self.otp_boxes_ref:
+                if box.text() == "":
+                    box.setFocus()
+                    event.accept()
+                    return
+            self.otp_boxes_ref[-1].setFocus()
+        event.accept()
 
 class VerifyWindow(QWidget):
 
@@ -61,13 +254,13 @@ class VerifyWindow(QWidget):
         # پیام
         # =========================
 
-        message = QLabel(
+        self.message = QLabel(
             f"کد تأیید به شماره {self.phone_number} ارسال شد"
         )
-        message.setObjectName("message")
-        message.setAlignment(Qt.AlignCenter)
-        message.setWordWrap(True)
-        message.setFixedWidth(360)
+        self.message.setObjectName("message")
+        self.message.setAlignment(Qt.AlignCenter)
+        self.message.setWordWrap(True)
+        self.message.setFixedWidth(360)
 
         # =========================
         # ویرایش شماره
@@ -102,7 +295,7 @@ class VerifyWindow(QWidget):
 
         for i in range(6):
 
-            box = QLineEdit()
+            box = OtpBox(i)
 
             box.setMaxLength(1)
             box.setAlignment(Qt.AlignCenter)
@@ -117,6 +310,9 @@ class VerifyWindow(QWidget):
 
             self.otp_boxes.append(box)
             otp_layout.addWidget(box)
+
+        for box in self.otp_boxes:
+            box.otp_boxes_ref = self.otp_boxes
 
         # =========================
         # خطای OTP
@@ -188,12 +384,10 @@ class VerifyWindow(QWidget):
         # دکمه ارسال مجدد
         # =========================
 
-        resend = QPushButton("ارسال مجدد کد")
-        resend.setObjectName("resendButton")
-
-        resend.clicked.connect(
-            self.restart_timer
-        )
+        self.resend_btn = QPushButton("ارسال مجدد کد")
+        self.resend_btn.setObjectName("resendButton")
+        self.resend_btn.setCursor(Qt.PointingHandCursor)
+        self.resend_btn.clicked.connect(self.restart_timer)
 
         # =========================
         # Layout اصلی
@@ -218,7 +412,7 @@ class VerifyWindow(QWidget):
         )
 
         layout.addWidget(
-            message,
+            self.message,
             alignment=Qt.AlignCenter
         )
 
@@ -288,7 +482,7 @@ class VerifyWindow(QWidget):
         # =========================
 
         layout.addWidget(
-            resend,
+            self.resend_btn,
             alignment=Qt.AlignCenter
         )
 
@@ -424,7 +618,6 @@ class VerifyWindow(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # هر بار که پنجره نمایش داده شد، focus روی اولین خانه OTP
         QTimer.singleShot(50, lambda: self.otp_boxes[0].setFocus())
 
     # =====================================
@@ -495,25 +688,50 @@ class VerifyWindow(QWidget):
         # بررسی OTP از MySQL
         # =====================================
 
-        result = self.db.fetch_one(
+        # ═══ اول چک کن کد اصلاً وجود داره ═══
+        row = self.db.fetch_one(
             """
-            SELECT otpId
+            SELECT otpId, otpCode, expiresDate, used
             FROM pending_otps
             WHERE phoneNumber = %s
-            AND otpCode = %s
-            AND used = '0'
-            AND expiresDate >= NOW()
             ORDER BY otpId DESC
             LIMIT 1
             """,
-            (
-                self.phone_number,
-                int(code)
-            )
+            (self.phone_number,)
         )
 
-        # کد اشتباه یا منقضی شده
-        if result is None:
+        if row is None:
+            self.show_otp_error(
+                "کد تأیید پیدا نشد. لطفاً دوباره درخواست بده."
+            )
+            return
+
+        # ═══ اگه استفاده شده ═══
+        if str(row.get("used") or "0") == "1":
+            self.show_otp_error(
+                "این کد قبلاً استفاده شده است."
+            )
+            return
+
+        # ═══ چک انقضا ═══
+        expires = row.get("expiresDate")
+        is_expired = False
+        if isinstance(expires, datetime):
+            is_expired = expires < datetime.now()
+        elif expires is not None:
+            try:
+                is_expired = str(expires) < str(datetime.now())
+            except Exception:
+                pass
+
+        if is_expired:
+            self.show_otp_error(
+                "کد تأیید منقضی شده است ."
+            )
+            return
+
+        # ═══ چک درستی کد ═══
+        if int(code) != int(row["otpCode"]):
 
             self.show_otp_error(
                 "کد تأیید وارد شده صحیح نیست."
@@ -535,7 +753,7 @@ class VerifyWindow(QWidget):
             WHERE otpId = %s
             """,
             (
-                result["otpId"],
+                row["otpId"],
             )
         )
 
@@ -895,9 +1113,63 @@ class VerifyWindow(QWidget):
             self.timer.stop()
 
     # =====================================
-    # ارسال مجدد
+    # ارسال مجدد کد
     # =====================================
 
     def restart_timer(self):
 
-        self.start_timer()
+        # اگر تایمر هنوز تموم نشده
+        if self.remaining_seconds > 0:
+            
+            ModernMessageDialog(
+                self,
+                "ارسال کد",
+                "کد تایید قبلاً ارسال شده است.\nلطفاً تا پایان زمان تایمر صبر کنید.",
+                "warning"
+            ).exec()
+            
+            return
+
+        # ═══ اگر تایمر تموم شده بود، کد جدید بساز ═══
+        
+        otp_code = random.randint(100000, 999999)
+        created_date = datetime.now()
+        expires_date = created_date + timedelta(seconds=45)
+
+        otp_id = self.db.execute(
+            """
+            INSERT INTO pending_otps (
+                countryCode,
+                phoneNumber,
+                otpCode,
+                createdDate,
+                expiresDate,
+                used
+            )
+            VALUES (%s, %s, %s, %s, %s, '0')
+            """,
+            (
+                "+98", # پیش‌فرض
+                self.phone_number,
+                otp_code,
+                created_date,
+                expires_date
+            )
+        )
+
+        if otp_id is not None:
+            print("NEW RESENT OTP:", otp_code) # برای تست تو کنسول
+            self.clear_otp_error()
+            
+            # ریست تایمر ۴۵ ثانیه
+            self.start_timer()
+
+            ModernMessageDialog(
+                self,
+                "ارسال مجدد",
+                "کد تایید جدید با موفقیت ارسال شد.",
+                "success"
+            ).exec()
+            
+        else:
+            self.show_otp_error("خطا در ارسال مجدد کد. لطفاً دوباره تلاش کنید.")

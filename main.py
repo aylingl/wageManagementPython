@@ -66,14 +66,22 @@ class FlagComboBox(QComboBox):
             self.popup_menu = None
             return
 
-        parent_window = self.window()
-
-        menu = QFrame(parent_window)
-        menu.setObjectName("flagPopup")
+        menu = QFrame(None)
+        menu.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        menu.setAttribute(Qt.WA_TranslucentBackground, True)
+        
+        # ═══ مهم: سایز دقیق را از قبل مشخص می‌کنیم تا موقعیت‌دهی درست انجام شود ═══
         menu.setFixedSize(155, 225)
 
-        menu.setStyleSheet("""
-            QFrame#flagPopup {
+        menu_layout = QVBoxLayout(menu)
+        menu_layout.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setObjectName("flagPopupCard")
+        menu_layout.addWidget(card)
+
+        card.setStyleSheet("""
+            QFrame#flagPopupCard {
                 background-color: white;
                 border: 1px solid #E2EAF4;
                 border-radius: 22px;
@@ -121,18 +129,17 @@ class FlagComboBox(QComboBox):
                 background: transparent;
                 border: none;
             }
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
                 background: transparent;
                 border: none;
             }
         """)
 
-        popup_layout = QVBoxLayout(menu)
+        popup_layout = QVBoxLayout(card)
         popup_layout.setContentsMargins(10, 10, 10, 10)
         popup_layout.setSpacing(4)
 
-        scroll_area = QScrollArea(menu)
+        scroll_area = QScrollArea(card)
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.NoFrame)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -193,13 +200,39 @@ class FlagComboBox(QComboBox):
 
         self.popup_menu = menu
 
-        global_pos = self.mapToGlobal(
-            QPoint(self.width() - menu.width(), self.height() + 8)
-        )
+        # ═══ محاسبه موقعیت هوشمند تا از صفحه بیرون نزنه ═══
+        pos_below = self.mapToGlobal(QPoint(self.width() - menu.width(), self.height() + 8))
+        pos_above = self.mapToGlobal(QPoint(self.width() - menu.width(), -menu.height() - 8))
 
-        local_pos = parent_window.mapFromGlobal(global_pos)
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            x = pos_below.x()
+            y = pos_below.y()
 
-        menu.move(local_pos)
+            # اگه پایین صفحه جا نمیشه، بره بالا
+            if y + menu.height() > geo.bottom():
+                if pos_above.y() >= geo.top():
+                    y = pos_above.y()
+                else:
+                    y = geo.bottom() - menu.height() - 4
+
+            # اگه از راست زد بیرون
+            if x + menu.width() > geo.right():
+                x = geo.right() - menu.width() - 4
+            
+            # اگه از چپ زد بیرون
+            if x < geo.left():
+                x = geo.left() + 4
+                
+            # اگه از بالا زد بیرون
+            if y < geo.top():
+                y = geo.top() + 4
+
+            menu.move(x, y)
+        else:
+            menu.move(pos_below)
+
         menu.show()
         menu.raise_()
 
@@ -430,7 +463,6 @@ class PasswordWindow(QWidget):
             self.password_input.setFocus()
             return
 
-        # پیدا کردن کاربر با ایمیل
         user = self.db.fetch_one(
             """
             SELECT userId, name, imageBase64, phoneNumber, passwordHash
@@ -441,7 +473,6 @@ class PasswordWindow(QWidget):
             (self.email,)
         )
 
-        # کاربر جدید → برو به ProfileSetupWindow
         if user is None:
             from profileSetupWindow import ProfileSetupWindow
 
@@ -458,7 +489,6 @@ class PasswordWindow(QWidget):
                 self.parent_login.close()
             return
 
-        # کاربر قدیمی بدون رمز
         saved_hash = user.get("passwordHash")
 
         if not saved_hash:
@@ -469,14 +499,12 @@ class PasswordWindow(QWidget):
             self.password_error.show()
             return
 
-        # بررسی رمز
         if hash_password(password) != saved_hash:
             self.password_error.setText("رمز عبور اشتباه است.")
             self.password_error.show()
             self.password_input.setFocus()
             return
 
-        # ورود موفق
         from homeWindow import HomeWindow
 
         self.home_window = HomeWindow(
@@ -1568,6 +1596,11 @@ class LoginWindow(QWidget):
             self.phone_input.setFocus()
             return
 
+        # ═══ پذیرش بدون صفر (اگر کاربر ۱۰ رقم زد و با ۹ شروع شد، صفر اضافه کن) ═══
+        if len(phone_number) == 10 and phone_number.startswith("9"):
+            phone_number = "0" + phone_number
+            self.phone_input.setText(phone_number)
+
         if len(phone_number) != 11:
             self.show_phone_error("شماره موبایل باید دقیقاً ۱۱ رقم باشد.")
             self.phone_input.setFocus()
@@ -1660,4 +1693,3 @@ class LoginWindow(QWidget):
 # =========================================================
 # MAIN
 # =========================================================
-

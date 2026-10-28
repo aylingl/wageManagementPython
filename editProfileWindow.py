@@ -500,44 +500,48 @@ class PersianDateFrame(QFrame):
         self.dateChanged.emit(qdate)
 
 # =========================================================
-# NICE MESSAGE BOX
+# NICE MESSAGE BOX (اصلاح رنگ Hover)
 # =========================================================
 
 class NiceMessageDialog(QDialog):
-    def __init__(self, parent, title, text, kind="info"):
+    def __init__(self, parent, title, text, kind="info", yes_no=False):
         super().__init__(parent)
         self.setModal(True)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(340, 230)
+        self.setFixedSize(360, 250)
 
+        self.result_value = False
         c = theme_manager.colors()
 
+        # ═══ تعریف رنگ‌های دقیق و تیره‌تر برای Hover ═══
         if kind == "success":
-            icon_char, color, bg = "✓", "#16A34A", "#DCFCE7"
+            icon_char, color, bg, hover_color = "✓", "#16A34A", "#DCFCE7", "#15803D"
         elif kind == "error":
-            icon_char, color, bg = "✕", "#D93025", "#FEE2E2"
+            icon_char, color, bg, hover_color = "✕", "#D93025", "#FEE2E2", "#B71C1C"
         elif kind == "warning":
-            icon_char, color, bg = "!", "#F59E0B", "#FEF3C7"
+            icon_char, color, bg, hover_color = "!", "#F59E0B", "#FEF3C7", "#D97706"
+        elif kind == "question":
+            icon_char, color, bg, hover_color = "?", "#1961C7", "#DBEAFE", "#1453AA"
         else:
-            icon_char, color, bg = "i", "#1961C7", "#DBEAFE"
+            icon_char, color, bg, hover_color = "i", "#1961C7", "#DBEAFE", "#1453AA"
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         card = QFrame()
-        card.setStyleSheet(f"background-color: {c['bg_card']};border-radius: 20px;border: 1px solid {c['border']};")
+        card.setStyleSheet(f"background-color: {c['bg_card']};border-radius: 22px;border: 1px solid {c['border']};")
         outer.addWidget(card)
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(10)
 
         icon_label = QLabel(icon_char)
-        icon_label.setFixedSize(48, 48)
+        icon_label.setFixedSize(50, 50)
         icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet(f"background-color: {bg};color: {color};border-radius: 24px;font-size: 22px;font-weight: 700;")
+        icon_label.setStyleSheet(f"background-color: {bg};color: {color};border-radius: 25px;font-size: 22px;font-weight: 700;")
 
         icon_row = QHBoxLayout()
         icon_row.addStretch()
@@ -547,26 +551,64 @@ class NiceMessageDialog(QDialog):
 
         title_label = QLabel(title)
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet(f"color: {c['text_main']};font-size: 14px;font-weight: 700;background: transparent;border: none;")
+        title_label.setStyleSheet(f"color: {c['text_main']};font-size: 15px;font-weight: 800;background: transparent;border: none;")
         layout.addWidget(title_label)
 
         text_label = QLabel(text)
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setWordWrap(True)
-        text_label.setStyleSheet(f"color: {c['text_dim']};font-size: 11px;background: transparent;border: none;")
+        text_label.setStyleSheet(f"color: {c['text_dim']};font-size: 12px;background: transparent;border: none;")
         layout.addWidget(text_label)
         layout.addStretch()
 
-        btn = QPushButton(tr("ok"))
-        btn.setFixedHeight(38)
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setMinimumWidth(100)
-        btn.setStyleSheet(f"background-color: {color};color: white;border: none;border-radius: 19px;font-size: 12px;font-weight: 600;padding: 0px 20px;")
-        btn.clicked.connect(self.accept)
-
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
         btn_row.addStretch()
-        btn_row.addWidget(btn)
+
+        if yes_no:
+            no_btn = QPushButton("انصراف")
+            no_btn.setFixedHeight(40)
+            no_btn.setMinimumWidth(100)
+            no_btn.setCursor(Qt.PointingHandCursor)
+            no_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {c['bg_input']};
+                    color: {c['text_dim']};
+                    border: 1px solid {c['border']};
+                    border-radius: 20px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 0 20px;
+                }}
+                QPushButton:hover {{ background-color: {c['bg_hover']}; }}
+            """)
+            no_btn.clicked.connect(self.reject)
+            btn_row.addWidget(no_btn)
+
+        yes_btn = QPushButton("بله، مطمئنم" if yes_no else "تایید")
+        yes_btn.setFixedHeight(40)
+        yes_btn.setMinimumWidth(110)
+        yes_btn.setCursor(Qt.PointingHandCursor)
+        # ═══ اینجا hover_color جایگزین شد تا سفید نشه ═══
+        yes_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {color};
+                color: white;
+                border: none;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: 700;
+                padding: 0 24px;
+            }}
+            QPushButton:hover {{ background-color: {hover_color}; }}
+        """)
+
+        def on_yes():
+            self.result_value = True
+            self.accept()
+
+        yes_btn.clicked.connect(on_yes)
+        btn_row.addWidget(yes_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -586,6 +628,12 @@ class NiceMessageBox:
     @staticmethod
     def warning(parent, title, text):
         NiceMessageDialog(parent, title, text, "warning").exec()
+
+    @staticmethod
+    def ask(parent, title, text):
+        dialog = NiceMessageDialog(parent, title, text, "question", yes_no=True)
+        dialog.exec()
+        return dialog.result_value
 
 # =========================================================
 # EDIT PROFILE WINDOW
@@ -618,6 +666,13 @@ class EditProfileWindow(QWidget):
 
         theme_manager.theme_changed.connect(self.on_theme_changed)
         signals.language_changed.connect(self.on_language_changed)
+
+    def closeEvent(self, event):
+        if self.parent_window:
+            self.parent_window.show()
+            self.parent_window.raise_()
+            self.parent_window.activateWindow()
+        super().closeEvent(event)
 
     def on_theme_changed(self, theme_name):
         self.apply_stylesheet()
@@ -1146,6 +1201,16 @@ class EditProfileWindow(QWidget):
         self.hide()
 
     def change_phone(self):
+        # ═══ پرسیدن تایید با پیام‌باکس شیک ═══
+        confirmed = NiceMessageBox.ask(
+            self,
+            "تغییر شماره موبایل",
+            "آیا از تغییر شماره موبایل خود مطمئن هستید؟\nبرای این کار باید شماره جدید را تأیید کنید."
+        )
+        
+        if not confirmed:
+            return
+
         from main import LoginWindow
         self.login_window = LoginWindow(change_phone=True, parent_profile=self)
         self.login_window.resize(self.size())
@@ -1206,6 +1271,21 @@ class EditProfileWindow(QWidget):
                 self.national_input.setFocus()
                 return
 
+            # ═══ تشخیص اینکه چه چیزی تغییر کرده ═══
+            changes = []
+            if name != self.username:
+                changes.append("نام")
+            if national_code != self.national_code:
+                changes.append("کد ملی")
+            if birth_date_string != self.birth_date_string:
+                changes.append("تاریخ تولد")
+
+            if not changes:
+                # اگر هیچی تغییر نکرده بود، فقط ببند
+                self.close()
+                return
+
+            # ═══ آپدیت دیتابیس ═══
             db.execute(
                 "UPDATE users SET name = %s, nationalId = %s, birthDate = %s WHERE userId = %s",
                 (name, national_code, birth_date_string, user_id)
@@ -1215,7 +1295,20 @@ class EditProfileWindow(QWidget):
             self.national_code = national_code
             self.birth_date_string = birth_date_string
 
-            NiceMessageBox.success(self, tr("profile_updated"), tr("profile_updated_msg"))
+            # ═══ نمایش پیام‌باکس شیک با ذکر تغییرات ═══
+            changed_text = " و ".join(changes)
+            msg = f"{changed_text} با موفقیت ویرایش شد."
+            
+            NiceMessageBox.success(self, "ویرایش شد", msg)
+
+            # ═══ آپدیت صفحه اصلی و بستن این صفحه ═══
+            if self.parent_window and hasattr(self.parent_window, "refresh_user_info"):
+                self.parent_window.refresh_user_info()
+                self.parent_window.show()
+                self.parent_window.raise_()
+                self.parent_window.activateWindow()
+                
+            self.close()
 
         except Exception as e:
             print("Error saving profile:", e)

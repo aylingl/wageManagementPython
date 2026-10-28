@@ -258,6 +258,7 @@ class HomeWindow(QWidget):
         self.groups = []
 
         self.group_menu = None
+        self.snackbar = None
 
         self.translatable = []
 
@@ -316,6 +317,90 @@ class HomeWindow(QWidget):
         return super().eventFilter(obj, event)
 
     # =====================================================
+    # SNACKBAR & REFRESH
+    # =====================================================
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_user_info()
+
+    def refresh_user_info(self):
+        if not self.user_id:
+            return
+        try:
+            user = self.db.fetch_one(
+                "SELECT name, imageBase64 FROM users WHERE userId = %s",
+                (self.user_id,)
+            )
+            if user:
+                self.username = user.get("name") or self.username
+                self.avatar = user.get("imageBase64") or self.avatar
+                
+                if hasattr(self, "username_label"):
+                    self.username_label.setText(self.username)
+                if hasattr(self, "welcome_label"):
+                    self.welcome_label.setText(f"{tr('welcome')} {self.username} 👋")
+                
+                if hasattr(self, "avatar_widget"):
+                    if os.path.isabs(self.avatar):
+                        if os.path.exists(self.avatar):
+                            self.avatar_widget.set_avatar(QPixmap(self.avatar))
+                    else:
+                        avatar_path = os.path.join(
+                            os.path.dirname(os.path.abspath(__file__)),
+                            "avatars",
+                            self.avatar
+                        )
+                        if os.path.exists(avatar_path):
+                            self.avatar_widget.set_avatar(QPixmap(avatar_path))
+        except Exception as e:
+            print("REFRESH USER INFO ERROR:", e)
+
+    def show_snackbar(self, message, is_success=True):
+        if hasattr(self, "snackbar") and self.snackbar is not None:
+            self.snackbar.deleteLater()
+
+        c = theme_manager.colors()
+        bg_color = "#16A34A" if is_success else "#D93025"
+        
+        self.snackbar = QFrame(self)
+        self.snackbar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {bg_color};
+                border-radius: 12px;
+            }}
+            QLabel {{
+                color: white;
+                font-size: 13px;
+                font-weight: 600;
+                background: transparent;
+                padding: 10px 24px;
+            }}
+        """)
+        
+        layout = QHBoxLayout(self.snackbar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        lbl = QLabel(message)
+        lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(lbl)
+        
+        self.snackbar.adjustSize()
+        
+        x = (self.width() - self.snackbar.width()) // 2
+        y = self.height() - self.snackbar.height() - 40
+        self.snackbar.move(x, y)
+        self.snackbar.show()
+        self.snackbar.raise_()
+        
+        QTimer.singleShot(3000, self.hide_snackbar)
+
+    def hide_snackbar(self):
+        if hasattr(self, "snackbar") and self.snackbar is not None:
+            self.snackbar.deleteLater()
+            self.snackbar = None
+
+    # =====================================================
     # THEME
     # =====================================================
 
@@ -346,6 +431,9 @@ class HomeWindow(QWidget):
 
         if hasattr(self, "welcome_label"):
             self.welcome_label.setText(f"{tr('welcome')} {self.username} 👋")
+            
+        if hasattr(self, "username_label"):
+            self.username_label.setText(self.username)
 
         self.update_group_text()
         self.update_services()
@@ -552,12 +640,12 @@ class HomeWindow(QWidget):
         profile_layout.setContentsMargins(16, 10, 16, 10)
         profile_layout.setSpacing(12)
 
-        avatar = RoundedAvatar(48)
+        self.avatar_widget = RoundedAvatar(48)
 
         if self.avatar:
             if os.path.isabs(self.avatar):
                 if os.path.exists(self.avatar):
-                    avatar.set_avatar(QPixmap(self.avatar))
+                    self.avatar_widget.set_avatar(QPixmap(self.avatar))
             else:
                 avatar_path = os.path.join(
                     os.path.dirname(os.path.abspath(__file__)),
@@ -565,7 +653,7 @@ class HomeWindow(QWidget):
                     self.avatar
                 )
                 if os.path.exists(avatar_path):
-                    avatar.set_avatar(QPixmap(avatar_path))
+                    self.avatar_widget.set_avatar(QPixmap(avatar_path))
 
         profile_text = QVBoxLayout()
         profile_text.setContentsMargins(0, 0, 0, 0)
@@ -575,11 +663,11 @@ class HomeWindow(QWidget):
         profile_title.setObjectName("profileTitle")
         self.translatable.append((profile_title, "my_profile"))
 
-        username_label = QLabel(self.username)
-        username_label.setObjectName("usernameLabel")
+        self.username_label = QLabel(self.username)
+        self.username_label.setObjectName("usernameLabel")
 
         profile_text.addWidget(profile_title)
-        profile_text.addWidget(username_label)
+        profile_text.addWidget(self.username_label)
 
         self.logout_button = QPushButton("[←")
         self.logout_button.setObjectName("logoutButton")
@@ -596,7 +684,7 @@ class HomeWindow(QWidget):
         profile_edit.setAttribute(Qt.WA_StyledBackground, True)
         profile_edit.clicked.connect(self.open_profile)
 
-        profile_layout.addWidget(avatar)
+        profile_layout.addWidget(self.avatar_widget)
         profile_layout.addLayout(profile_text)
         profile_layout.addStretch()
         profile_layout.addWidget(self.logout_button)
@@ -1161,30 +1249,18 @@ class HomeWindow(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
 
-        # ═══════════════════════════════════════════════════
-        # حضور و غیاب — همه
-        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("🕒", tr("attendance"), self.open_attendance)
         )
 
-        # ═══════════════════════════════════════════════════
-        # امور مالی — همه
-        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("💰", tr("finance"), self.open_finance)
         )
 
-        # ═══════════════════════════════════════════════════
-        # کارتابل — همه
-        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("📥", tr("cartable"), self.open_cartable)
         )
 
-        # ═══════════════════════════════════════════════════
-        # کارمندان — مالک + مدیر + سرپرست (نه کارمند)
-        # ═══════════════════════════════════════════════════
         if self.current_role_key in (
             "owner_role",
             "both_role",
@@ -1195,17 +1271,10 @@ class HomeWindow(QWidget):
                 self.create_service_card("👥", tr("employees"), self.open_employees)
             )
 
-        # ═══════════════════════════════════════════════════
-        # رویدادها — همه
-        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("📅", tr("events"), self.open_events)
         )
 
-        # ═══════════════════════════════════════════════════
-        # گزارش‌ها — همه (هرکسی گزارش خودشو می‌بینه)
-        # بالاترها (مالک، مدیر، سرپرست) گزارش تیمی هم می‌بینن
-        # ═══════════════════════════════════════════════════
         self.scroll_layout.addWidget(
             self.create_service_card("📊", tr("reports"), self.open_reports)
         )
